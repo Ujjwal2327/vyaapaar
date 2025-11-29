@@ -61,7 +61,7 @@ export const PriceListHeader = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-4 mb-4 justify-between">
+        <div className="flex items-center gap-4 mb-4 justify-between overflow-x-auto">
           <Button
             onClick={cyclePriceView}
             variant={
