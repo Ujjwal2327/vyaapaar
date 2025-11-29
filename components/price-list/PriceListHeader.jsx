@@ -76,42 +76,44 @@ export const PriceListHeader = ({
             {getPriceViewText()}
           </Button>
 
-          <div className="flex items-center justify-center gap-1">
-            <ArrowUpDown className="w-4 h-4 text-muted-foreground shrink-0" />
-            <Select value={sortType} onValueChange={onSortChange}>
-              <SelectTrigger className="flex-1 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none" className="text-xs">
-                  No Sorting
-                </SelectItem>
-                <SelectItem value="alphabetical" className="text-xs">
-                  A to Z
-                </SelectItem>
-                <SelectItem value="alphabetical-reverse" className="text-xs">
-                  Z to A
-                </SelectItem>
-                <SelectItem value="price-low" className="text-xs">
-                  Price: Low to High
-                </SelectItem>
-                <SelectItem value="price-high" className="text-xs">
-                  Price: High to Low
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center justify-center gap-1 float-right">
+              <ArrowUpDown className="w-4 h-4 text-muted-foreground shrink-0" />
+              <Select value={sortType} onValueChange={onSortChange}>
+                <SelectTrigger className="flex-1 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none" className="text-xs">
+                    No Sorting
+                  </SelectItem>
+                  <SelectItem value="alphabetical" className="text-xs">
+                    A to Z
+                  </SelectItem>
+                  <SelectItem value="alphabetical-reverse" className="text-xs">
+                    Z to A
+                  </SelectItem>
+                  <SelectItem value="price-low" className="text-xs">
+                    Price: Low to High
+                  </SelectItem>
+                  <SelectItem value="price-high" className="text-xs">
+                    Price: High to Low
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-          <Button
-            onClick={handleToggleExpand}
-            variant="outline"
-            className="shrink-0 flex items-center"
-          >
-            <ChevronsDownUp className="w-4 h-4" />
-            <span className="hidden sm:inline text-xs">
-              {hasAnyExpanded ? "Collapse All" : "Expand All"}
-            </span>
-          </Button>
+            <Button
+              onClick={handleToggleExpand}
+              variant="outline"
+              className="shrink-0 flex items-center"
+            >
+              <ChevronsDownUp className="w-4 h-4" />
+              <span className="hidden sm:inline text-xs">
+                {hasAnyExpanded ? "Collapse All" : "Expand All"}
+              </span>
+            </Button>
+          </div>
         </div>
 
         <div className="relative mb-4">
