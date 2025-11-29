@@ -28,7 +28,7 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
   });
 
   const handleSubmit = () => {
-    if (!formData.name) return;
+    if (!formData.name.trim()) return;
     onAdd(formData);
     setFormData({
       name: "",

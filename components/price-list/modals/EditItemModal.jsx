@@ -41,7 +41,7 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
   }, [editingItem]);
 
   const handleSubmit = () => {
-    if (!formData.name) return;
+    if (!formData.name.trim()) return;
     onSave(formData);
   };
 

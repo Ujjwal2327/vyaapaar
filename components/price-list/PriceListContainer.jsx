@@ -14,7 +14,11 @@ import {
   deleteItem,
   sortData,
 } from "@/lib/utils/priceListUtils";
-import { exportToText, importFromText } from "@/lib/utils/dataTransform";
+import {
+  exportToText,
+  importFromText,
+  toTitleCase,
+} from "@/lib/utils/dataTransform";
 
 export const PriceListContainer = () => {
   const {
@@ -88,6 +92,7 @@ export const PriceListContainer = () => {
   };
 
   const handleAdd = (formData) => {
+    formData.name = toTitleCase(formData.name);
     const newData = addItem(priceData, modalContext.path, modalType, formData);
     setPriceData(newData);
     setShowAddModal(false);
@@ -100,6 +105,7 @@ export const PriceListContainer = () => {
 
   const handleEdit = (formData) => {
     if (!editingItem) return;
+    formData.name = toTitleCase(formData.name);
     const newData = editItem(priceData, editingItem.path, formData);
     setPriceData(newData);
     setShowEditModal(false);
@@ -127,10 +133,6 @@ export const PriceListContainer = () => {
   const handleBulkSave = (bulkText) => {
     try {
       const newData = importFromText(bulkText);
-      if (Object.keys(newData).length === 0) {
-        alert("No valid data found. Please check the format.");
-        return;
-      }
       setPriceData(newData);
       setShowBulkModal(false);
     } catch (error) {

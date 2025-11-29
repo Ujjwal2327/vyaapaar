@@ -92,9 +92,9 @@ export const usePriceList = () => {
   };
 
   const getPriceViewText = () => {
-    if (priceView === "sell") return "Showing: Sell Price";
-    if (priceView === "cost") return "Showing: Cost Price";
-    return "Showing: Profit";
+    if (priceView === "sell") return "Sell Price";
+    if (priceView === "cost") return "Cost Price";
+    return "Profit";
   };
 
   return {
