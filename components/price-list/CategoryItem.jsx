@@ -19,7 +19,11 @@ export const CategoryItem = ({
         <Button
           onClick={onToggle}
           className={`flex-1 justify-between ${
-            level === 0 ? "text-lg font-bold" : "text-base font-semibold"
+            level === 0
+              ? "text-xl font-bold"
+              : level === 1
+              ? "text-lg font-semibold"
+              : "text-[1.1rem] font-semibold"
           }`}
           variant="secondary"
         >
@@ -45,7 +49,7 @@ export const CategoryItem = ({
       </div>
 
       {isExpanded && (
-        <div className="ml-2 mt-2 space-y-2 border-l-2 border-border pl-3">
+        <div className="ml-1 mt-2 space-y-2 border-l-2 border-border pl-3">
           {editMode && (
             <div className="flex gap-2">
               <Button

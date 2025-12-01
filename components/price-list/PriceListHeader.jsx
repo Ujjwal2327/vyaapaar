@@ -42,7 +42,7 @@ export const PriceListHeader = ({
 
   return (
     <div className="sticky top-0 z-40 bg-background border-b">
-      <div className="max-w-4xl mx-auto p-4">
+      <div className="max-w-4xl mx-auto p-2">
         <div className="flex justify-between items-center mb-4">
           <h1 className="text-2xl font-bold">Vyaapaar</h1>
           <div className="flex gap-2">
@@ -117,14 +117,23 @@ export const PriceListHeader = ({
         </div>
 
         <div className="relative mb-4">
-          <Search className="absolute left-3 top-2 text-muted-foreground w-5 h-5" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground w-5 h-5 pointer-events-none" />
           <Input
             type="text"
             placeholder="Search items, brands, or categories..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
+            className="pl-10 pr-10"
           />
+          {searchTerm && (
+            <button
+              onClick={() => setSearchTerm("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Clear search"
+            >
+              <Plus className="w-5 h-5 rotate-45" />
+            </button>
+          )}
         </div>
 
         {editMode && (

@@ -2,6 +2,7 @@ import { Edit2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export const PriceItem = ({
+  isLast,
   name,
   path,
   item,
@@ -30,10 +31,14 @@ export const PriceItem = ({
   }
 
   return (
-    <div className="bg-card rounded-lg px-4 py-2.5 flex justify-between items-center hover:bg-accent mb-2 border">
+    <div
+      className={`rounded-lg px-1 py-2.5 flex justify-between items-center mb-2 gap-2 ${
+        isLast ? "" : "border-b"
+      }`}
+    >
       <span className="flex-1">{name}</span>
       <div className="flex items-center gap-3">
-        <span className="font-semibold text-sm">{displayValue}</span>
+        <span className="font-semibold">{displayValue}</span>
         {editMode && (
           <div className="flex gap-2">
             <Button

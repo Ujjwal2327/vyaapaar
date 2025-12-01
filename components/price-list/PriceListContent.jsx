@@ -15,7 +15,7 @@ export const PriceListContent = ({
   level = 0,
 }) => {
   const renderItems = (items, currentParentPath, currentLevel) => {
-    return Object.entries(items).map(([key, value]) => {
+    return Object.entries(items).map(([key, value], index) => {
       const currentPath = currentParentPath
         ? `${currentParentPath}.${key}`
         : key;
@@ -43,6 +43,7 @@ export const PriceListContent = ({
         return (
           <PriceItem
             key={currentPath}
+            isLast={index === Object.keys(items).length - 1}
             name={key}
             path={currentPath}
             item={value}
@@ -58,7 +59,7 @@ export const PriceListContent = ({
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-4">
+    <div className="max-w-4xl mx-auto p-2">
       {Object.keys(data).length > 0 ? (
         renderItems(data, parentPath, level)
       ) : (
