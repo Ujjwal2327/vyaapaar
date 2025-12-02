@@ -45,7 +45,7 @@ export const PriceListHeader = ({
       <div className="max-w-4xl mx-auto p-2">
         <div className="flex justify-between items-center mb-4">
           <h1 className="text-2xl font-bold">Vyaapaar</h1>
-          <div className="flex gap-2">
+          <div className="flex justify-center items-center gap-2">
             <SettingsModal />
             <Button onClick={onBulkEdit} variant="outline" size="sm">
               <FileText className="w-4 h-4 md:mr-2" />
@@ -63,19 +63,15 @@ export const PriceListHeader = ({
 
         <div className="flex items-center gap-4 mb-4 justify-between overflow-x-auto">
           <Button
-            onClick={cyclePriceView}
-            variant={
-              priceView === "sell"
-                ? "default"
-                : priceView === "cost"
-                ? "secondary"
-                : "outline"
-            }
-            className="w-fit"
+            onClick={handleToggleExpand}
+            variant="outline"
+            className="shrink-0 flex items-center"
           >
-            {getPriceViewText()}
+            <ChevronsDownUp className="w-4 h-4" />
+            <span className="hidden sm:inline text-xs">
+              {hasAnyExpanded ? "Collapse All" : "Expand All"}
+            </span>
           </Button>
-
           <div className="flex items-center gap-4">
             <div className="flex items-center justify-center gap-1 float-right">
               <ArrowUpDown className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -104,14 +100,17 @@ export const PriceListHeader = ({
             </div>
 
             <Button
-              onClick={handleToggleExpand}
-              variant="outline"
-              className="shrink-0 flex items-center"
+              onClick={cyclePriceView}
+              variant={
+                priceView === "sell"
+                  ? "default"
+                  : priceView === "cost"
+                  ? "secondary"
+                  : "outline"
+              }
+              className="w-fit"
             >
-              <ChevronsDownUp className="w-4 h-4" />
-              <span className="hidden sm:inline text-xs">
-                {hasAnyExpanded ? "Collapse All" : "Expand All"}
-              </span>
+              {getPriceViewText()}
             </Button>
           </div>
         </div>

@@ -1,4 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { supabase } from "@/lib/supabase"; // Your existing client
+import { useAuth } from "@/components/auth/AuthProvider"; // Your existing auth context
+import { toast } from "sonner";
 
 const defaultData = {
   Taps: {
@@ -28,62 +31,161 @@ const defaultData = {
 };
 
 export const usePriceList = () => {
+  const { user, loading: authLoading } = useAuth();
+
+  // UI States
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedCategories, setExpandedCategories] = useState({});
   const [priceView, setPriceView] = useState("sell");
   const [editMode, setEditMode] = useState(false);
+
+  // Data States
   const [priceData, setPriceData] = useState(defaultData);
   const [isHydrated, setIsHydrated] = useState(false);
+  const [isDataLoading, setIsDataLoading] = useState(true);
 
-  // Load from localStorage only after hydration
-  useEffect(() => {
+  // 🔑 FIX: Use a useRef to ensure the initial data fetch runs exactly once
+  const hasFetchedDb = useRef(false);
+
+  // Helper to load from local storage
+  const loadFromLocal = (warningMessage = null) => {
     const saved = localStorage.getItem("priceListData");
     if (saved) {
       try {
         setPriceData(JSON.parse(saved));
-      } catch (error) {
-        console.error("Error loading price data:", error);
+        if (warningMessage) {
+          toast.warning(warningMessage, {
+            description: "Data loaded from local cache.",
+            duration: 5000,
+          });
+        }
+      } catch (e) {
+        console.error("Local parse error", e);
+        setPriceData(defaultData);
       }
+    } else {
+      setPriceData(defaultData);
     }
-    setIsHydrated(true);
-  }, []);
+  };
 
-  // Save to localStorage whenever data changes (but only after hydration)
+  // 1. LOAD DATA: Triggered when Auth finishes loading
   useEffect(() => {
-    if (isHydrated) {
-      localStorage.setItem("priceListData", JSON.stringify(priceData));
-    }
-  }, [priceData, isHydrated]);
+    const loadData = async () => {
+      // 🛑 FIX IMPLEMENTATION 1: Check ref value for single execution.
+      if (hasFetchedDb.current) {
+        setIsDataLoading(false);
+        setIsHydrated(true);
+        return;
+      }
 
+      // Wait for AuthProvider to finish checking session
+      if (authLoading) return;
+
+      setIsDataLoading(true);
+
+      // 🛑 FIX IMPLEMENTATION 2: Set ref to true immediately before execution
+      hasFetchedDb.current = true;
+
+      if (!user) {
+        // Not logged in: Fallback to local
+        console.warn("No user found. Loading local data.");
+        loadFromLocal("You are currently working offline.");
+        setIsDataLoading(false);
+        setIsHydrated(true);
+        return;
+      }
+
+      try {
+        // Fetch from Supabase
+        const { data, error } = await supabase
+          .from("price_lists")
+          .select("data")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (data && data.data) {
+          // DB Success: Sync to State AND LocalStorage
+          console.log("Data loaded from Supabase");
+          setPriceData(data.data);
+          localStorage.setItem("priceListData", JSON.stringify(data.data));
+        } else {
+          // New User (No DB data yet): Load local/default
+          console.log("No DB entry found. Initializing...");
+          loadFromLocal();
+        }
+      } catch (error) {
+        // DB Failure (Offline/Error): Fallback to Local
+        console.error("DB Load Error:", error);
+        loadFromLocal("Unable to connect to database. Loaded local copy.");
+      } finally {
+        setIsDataLoading(false);
+        setIsHydrated(true);
+      }
+    };
+
+    loadData();
+    // 🛑 FIX IMPLEMENTATION 3: Dependencies are now just user and authLoading
+  }, [user, authLoading]);
+
+  // 2. SAVE DATA: DB -> Local -> State (Unchanged)
+  const savePriceData = async (newData) => {
+    const toastId = toast.loading("Syncing changes...");
+
+    if (!user) {
+      toast.dismiss(toastId);
+      toast.error("You must be logged in to save changes.");
+      return;
+    }
+
+    try {
+      // Upsert to DB
+      const { error } = await supabase.from("price_lists").upsert(
+        {
+          user_id: user.id,
+          data: newData,
+        },
+        { onConflict: "user_id" }
+      );
+
+      if (error) throw error;
+
+      // IF DB SUCCESS:
+      localStorage.setItem("priceListData", JSON.stringify(newData));
+      setPriceData(newData);
+
+      toast.success("Saved successfully", { id: toastId });
+    } catch (error) {
+      console.error("Save Error:", error);
+      toast.error("Failed to save changes", {
+        id: toastId,
+        description: "Please check your internet connection.",
+      });
+    }
+  };
+
+  // --- UI Helpers (Unchanged) ---
   const toggleCategory = (path) => {
-    setExpandedCategories((prev) => ({
-      ...prev,
-      [path]: !prev[path],
-    }));
+    setExpandedCategories((prev) => ({ ...prev, [path]: !prev[path] }));
   };
 
   const expandAll = (data) => {
     const allPaths = {};
-
     const collectPaths = (obj, parentPath = "") => {
       Object.entries(obj).forEach(([key, value]) => {
         const currentPath = parentPath ? `${parentPath}.${key}` : key;
         if (value.type === "category") {
           allPaths[currentPath] = true;
-          if (value.children) {
-            collectPaths(value.children, currentPath);
-          }
+          if (value.children) collectPaths(value.children, currentPath);
         }
       });
     };
-
     collectPaths(data);
     setExpandedCategories(allPaths);
   };
 
-  const collapseAll = () => {
-    setExpandedCategories({});
-  };
+  const collapseAll = () => setExpandedCategories({});
 
   const cyclePriceView = () => {
     if (priceView === "sell") setPriceView("cost");
@@ -99,7 +201,7 @@ export const usePriceList = () => {
 
   return {
     priceData,
-    setPriceData,
+    savePriceData,
     searchTerm,
     setSearchTerm,
     expandedCategories,
@@ -112,5 +214,6 @@ export const usePriceList = () => {
     editMode,
     setEditMode,
     isHydrated,
+    isDataLoading,
   };
 };

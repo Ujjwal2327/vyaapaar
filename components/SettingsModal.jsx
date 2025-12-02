@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useState, useEffect } from "react";
 import { Settings, Sun, Moon, Monitor } from "lucide-react";
 import {
@@ -12,17 +14,16 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { useTheme } from "next-themes";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { Separator } from "@/components/ui/separator";
 
 const SettingsModal = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [fontSize, setFontSize] = useState(100);
   const { theme, setTheme } = useTheme();
+  const { signOut } = useAuth();
+  const router = useRouter();
 
   // Load settings from localStorage on mount
   useEffect(() => {
@@ -47,6 +48,12 @@ const SettingsModal = () => {
     document.documentElement.style.fontSize = "100%";
   };
 
+  const handleLogout = async () => {
+    await signOut();
+    router.replace("/login");
+    setIsOpen(false);
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
@@ -54,6 +61,7 @@ const SettingsModal = () => {
           <Settings className="h-5 w-5" />
         </Button>
       </DialogTrigger>
+
       <DialogContent className="sm:max-w-md max-h-screen overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
@@ -109,7 +117,7 @@ const SettingsModal = () => {
               <span>Large</span>
             </div>
 
-            {/* Preview Text */}
+            {/* Preview */}
             <div className="mt-4 rounded-lg border bg-muted/50 p-4">
               <p className="text-center font-medium">Preview Text</p>
               <p className="text-center text-sm text-muted-foreground mt-1">
@@ -126,10 +134,17 @@ const SettingsModal = () => {
           >
             Reset to Defaults
           </Button>
-        </div>
 
-        <div className="flex justify-end pt-4 border-t">
-          <Button onClick={() => setIsOpen(false)}>Done</Button>
+          <Separator />
+
+          {/* Logout Button */}
+          <Button
+            onClick={handleLogout}
+            variant="destructive"
+            className="w-full"
+          >
+            Logout
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
