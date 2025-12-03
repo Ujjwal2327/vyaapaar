@@ -11,6 +11,8 @@ export const PriceListContent = ({
   onEdit,
   onAddSubcategory,
   onAddItem,
+  onEditCategory,
+  onViewDetails,
   parentPath = "",
   level = 0,
 }) => {
@@ -34,6 +36,7 @@ export const PriceListContent = ({
             onDelete={onDelete}
             onAddSubcategory={onAddSubcategory}
             onAddItem={onAddItem}
+            onEditCategory={onEditCategory}
           >
             {value.children &&
               renderItems(value.children, currentPath, currentLevel + 1)}
@@ -51,6 +54,7 @@ export const PriceListContent = ({
             editMode={editMode}
             onEdit={onEdit}
             onDelete={onDelete}
+            onViewDetails={onViewDetails}
           />
         );
       }

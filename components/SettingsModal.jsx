@@ -129,9 +129,7 @@ const SettingsModal = () => {
   const resetSettings = () => {
     setTheme("system");
     setFontSize(100);
-    setActiveUnits(DEFAULT_ACTIVE_UNITS);
     localStorage.setItem("fontSize", "100");
-    localStorage.setItem("activeUnits", JSON.stringify(DEFAULT_ACTIVE_UNITS));
     document.documentElement.style.fontSize = "100%";
   };
 
@@ -169,7 +167,7 @@ const SettingsModal = () => {
         </Button>
       </DialogTrigger>
 
-      <DialogContent className="sm:max-w-md max-h-screen overflow-y-auto">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
@@ -207,8 +205,6 @@ const SettingsModal = () => {
               </Button>
             </div>
 
-            <Separator />
-
             {/* Font Size Slider */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -239,6 +235,14 @@ const SettingsModal = () => {
                 </p>
               </div>
             </div>
+
+            <Button
+              onClick={resetSettings}
+              variant="secondary"
+              className="w-full"
+            >
+              Reset to Defaults
+            </Button>
 
             <Separator />
 
@@ -302,17 +306,6 @@ const SettingsModal = () => {
                 )}
               </div>
             </div>
-
-            <Separator />
-
-            {/* Reset Button (Moved here, separated from units section by a Separator) */}
-            <Button
-              onClick={resetSettings}
-              variant="secondary"
-              className="w-full"
-            >
-              Reset to Defaults
-            </Button>
 
             {/* Added a custom margin-top for clear separation before the Logout button */}
             <div className="pt-4">

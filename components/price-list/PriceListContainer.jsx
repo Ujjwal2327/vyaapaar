@@ -13,18 +13,21 @@ import {
   editItem,
   deleteItem,
   sortData,
+  editCategory,
 } from "@/lib/utils/priceListUtils";
 import {
   exportToText,
   importFromText,
   toTitleCase,
 } from "@/lib/utils/dataTransform";
-import { toast } from "sonner"; // Import toast for the import error handling
+import { toast } from "sonner";
+import { RenameCategoryModal } from "./modals/RenameCategoryModal";
+import { ItemDetailModal } from "./modals/ItemDetailModal";
 
 export const PriceListContainer = () => {
   const {
     priceData,
-    savePriceData, // The new DB-integrated save function
+    savePriceData,
     searchTerm,
     setSearchTerm,
     expandedCategories,
@@ -37,13 +40,18 @@ export const PriceListContainer = () => {
     editMode,
     setEditMode,
     isHydrated,
-    isDataLoading, // Loading state from hook
-    // We intentionally ignore setPriceData to force changes through savePriceData
+    isDataLoading,
   } = usePriceList();
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showBulkModal, setShowBulkModal] = useState(false);
+
+  // --- NEW STATE FOR CATEGORY RENAMING ---
+  const [showRenameCategoryModal, setShowRenameCategoryModal] = useState(false);
+  const [editingCategory, setEditingCategory] = useState(null);
+  // ---------------------------------------
+
   const [modalType, setModalType] = useState("");
   const [modalContext, setModalContext] = useState({});
   const [editingItem, setEditingItem] = useState(null);
@@ -51,12 +59,14 @@ export const PriceListContainer = () => {
   const [sortType, setSortType] = useState("none");
 
   const filteredData = filterData(priceData, searchTerm);
-  const sortedData =
-    sortType !== "none" ? sortData(filteredData, sortType) : filteredData;
+  const sortedData = sortData(filteredData, sortType);
 
   const hasAnyExpanded = Object.values(expandedCategories).some(
     (val) => val === true
   );
+
+  const [showItemDetailModal, setShowItemDetailModal] = useState(false); // New state
+  const [viewingItem, setViewingItem] = useState({ data: null, name: "" }); // New state
 
   // Auto-expand when searching
   useEffect(() => {
@@ -111,16 +121,38 @@ export const PriceListContainer = () => {
   };
 
   const handleEditItem = (path, itemData) => {
-    setEditingItem({ path, data: itemData });
+    // The last segment of the path is the item's name.
+    // Example: path = "category1.category2.ItemName"
+    const pathSegments = path.split(".");
+    const itemName = pathSegments[pathSegments.length - 1];
+
+    // The data for editing should include the name of the item.
+    setEditingItem({
+      path: path.substring(0, path.lastIndexOf(".")), // Path to the parent (category)
+      data: {
+        ...itemData,
+        name: itemName, // Inject the name into the item data
+      },
+    });
     setShowEditModal(true);
   };
 
   // Edit Item Wrapper (OPTIMISTIC/BACKGROUND SAVE)
   const handleEdit = async (formData) => {
     if (!editingItem) return;
+
+    // Store the original name before applying title case to the form data
+    const originalItemName = editingItem.data.name;
+
     formData.name = toTitleCase(formData.name);
 
-    const newData = editItem(priceData, editingItem.path, formData);
+    // Pass parent path, original name (key), and new data for order preservation
+    const newData = editItem(
+      priceData,
+      editingItem.path, // Path to parent category
+      originalItemName, // Original name (key to find and delete)
+      formData // New item data (including potentially new name)
+    );
 
     // 1. Close modal instantly
     setShowEditModal(false);
@@ -129,6 +161,35 @@ export const PriceListContainer = () => {
     // 2. Push to DB in the background.
     savePriceData(newData);
   };
+
+  // --- CATEGORY EDIT HANDLERS ---
+  const handleEditCategory = (path, name) => {
+    // Path is the full path to the category (e.g., "CatA.SubCatB")
+    setEditingCategory({ path, name });
+    setShowRenameCategoryModal(true);
+  };
+
+  const handleRenameCategory = async (newName) => {
+    if (!editingCategory || !newName.trim()) return;
+
+    const newNameTitleCase = toTitleCase(newName);
+
+    // Assuming editCategory utility handles the actual replacement/renaming
+    // and preserves the order of keys.
+    const newData = editCategory(
+      priceData,
+      editingCategory.path, // Full path of the category to rename
+      newNameTitleCase // New name
+    );
+
+    // 1. Close modal instantly
+    setShowRenameCategoryModal(false);
+    setEditingCategory(null);
+
+    // 2. Push to DB in the background.
+    savePriceData(newData);
+  };
+  // ---------------------------------
 
   // Delete Wrapper (OPTIMISTIC/BACKGROUND SAVE)
   const handleDelete = async (path, e) => {
@@ -175,6 +236,12 @@ export const PriceListContainer = () => {
     }
   };
 
+  // Handler to view item details
+  const handleViewDetails = (itemName, itemData) => {
+    setViewingItem({ data: itemData, name: itemName });
+    setShowItemDetailModal(true);
+  };
+
   return (
     <>
       <PriceListHeader
@@ -204,6 +271,8 @@ export const PriceListContainer = () => {
         onEdit={handleEditItem}
         onAddSubcategory={handleAddSubcategory}
         onAddItem={handleAddItem}
+        onEditCategory={handleEditCategory} // Passed down to PriceListContent
+        onViewDetails={handleViewDetails} // <--- NEW PROP
       />
 
       <AddItemModal
@@ -225,6 +294,22 @@ export const PriceListContainer = () => {
         onOpenChange={setShowBulkModal}
         initialText={bulkEditText}
         onSave={handleBulkSave}
+      />
+
+      {/* Placeholder for Rename Category Modal - UNCOMMENT and implement when ready */}
+      <RenameCategoryModal
+        open={showRenameCategoryModal}
+        onOpenChange={setShowRenameCategoryModal}
+        initialName={editingCategory?.name || ""}
+        onSave={handleRenameCategory}
+      />
+
+      {/* Item Detail Modal */}
+      <ItemDetailModal
+        open={showItemDetailModal}
+        onOpenChange={setShowItemDetailModal}
+        itemData={viewingItem.data}
+        itemName={viewingItem.name}
       />
     </>
   );

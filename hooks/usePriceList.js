@@ -2,6 +2,37 @@ import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase"; // Your existing client
 import { useAuth } from "@/components/auth/AuthProvider"; // Your existing auth context
 import { toast } from "sonner";
+import { sortData } from "../lib/utils/priceListUtils";
+
+// Helper function to recursively capture the object key order into an __orderKeys array
+// This is crucial for persisting the user's order when saving to JSON/JSONB
+const deepAddOrderKeys = (data) => {
+  if (!data || typeof data !== "object") return data;
+
+  const newData = {};
+
+  Object.entries(data).forEach(([key, node]) => {
+    if (node && node.type === "category" && node.children) {
+      // Recursively process children first
+      const sortedChildren = deepAddOrderKeys(node.children);
+
+      // Capture the current, desired order of the child keys
+      const orderKeys = Object.keys(sortedChildren);
+
+      newData[key] = {
+        ...node,
+        children: sortedChildren,
+        // Save the key order for persistence
+        __orderKeys: orderKeys,
+      };
+    } else {
+      // Item or non-recursive node
+      newData[key] = node;
+    }
+  });
+
+  return newData;
+};
 
 const defaultData = {
   Taps: {
@@ -31,23 +62,19 @@ const defaultData = {
 };
 
 export const usePriceList = () => {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth(); // UI States
 
-  // UI States
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedCategories, setExpandedCategories] = useState({});
   const [priceView, setPriceView] = useState("sell");
-  const [editMode, setEditMode] = useState(false);
+  const [editMode, setEditMode] = useState(false); // Data States
 
-  // Data States
   const [priceData, setPriceData] = useState(defaultData);
   const [isHydrated, setIsHydrated] = useState(false);
-  const [isDataLoading, setIsDataLoading] = useState(true);
+  const [isDataLoading, setIsDataLoading] = useState(true); // 🔑 FIX: Use a useRef to ensure the initial data fetch runs exactly once
 
-  // 🔑 FIX: Use a useRef to ensure the initial data fetch runs exactly once
-  const hasFetchedDb = useRef(false);
+  const hasFetchedDb = useRef(false); // Helper to load from local storage
 
-  // Helper to load from local storage
   const loadFromLocal = (warningMessage = null) => {
     const saved = localStorage.getItem("priceListData");
     if (saved) {
@@ -66,24 +93,21 @@ export const usePriceList = () => {
     } else {
       setPriceData(defaultData);
     }
-  };
+  }; // 1. LOAD DATA: Triggered when Auth finishes loading
 
-  // 1. LOAD DATA: Triggered when Auth finishes loading
   useEffect(() => {
     const loadData = async () => {
-      // 🛑 FIX IMPLEMENTATION 1: Check ref value for single execution.
+      // 🛑 Check ref value for single execution.
       if (hasFetchedDb.current) {
         setIsDataLoading(false);
         setIsHydrated(true);
         return;
-      }
+      } // Wait for AuthProvider to finish checking session
 
-      // Wait for AuthProvider to finish checking session
       if (authLoading) return;
 
-      setIsDataLoading(true);
+      setIsDataLoading(true); // 🛑 Set ref to true immediately before execution
 
-      // 🛑 FIX IMPLEMENTATION 2: Set ref to true immediately before execution
       hasFetchedDb.current = true;
 
       if (!user) {
@@ -108,8 +132,9 @@ export const usePriceList = () => {
         if (data && data.data) {
           // DB Success: Sync to State AND LocalStorage
           console.log("Data loaded from Supabase");
-          setPriceData(data.data);
-          localStorage.setItem("priceListData", JSON.stringify(data.data));
+          const sortedData = sortData(data.data, "none");
+          setPriceData(sortedData);
+          localStorage.setItem("priceListData", JSON.stringify(sortedData));
         } else {
           // New User (No DB data yet): Load local/default
           console.log("No DB entry found. Initializing...");
@@ -126,10 +151,8 @@ export const usePriceList = () => {
     };
 
     loadData();
-    // 🛑 FIX IMPLEMENTATION 3: Dependencies are now just user and authLoading
-  }, [user, authLoading]);
+  }, [user, authLoading]); // 2. SAVE DATA: DB -> Local -> State (Modified to preserve order)
 
-  // 2. SAVE DATA: DB -> Local -> State (Unchanged)
   const savePriceData = async (newData) => {
     const toastId = toast.loading("Syncing changes...");
 
@@ -140,20 +163,21 @@ export const usePriceList = () => {
     }
 
     try {
-      // Upsert to DB
+      // CAPTURE ORDER: Recursively capture the current visual order before saving
+      const dataToSave = deepAddOrderKeys(newData); // Upsert to DB
+
       const { error } = await supabase.from("price_lists").upsert(
         {
           user_id: user.id,
-          data: newData,
+          data: dataToSave, // Save the data with the explicit order keys
         },
         { onConflict: "user_id" }
       );
 
       if (error) throw error;
 
-      // IF DB SUCCESS:
-      localStorage.setItem("priceListData", JSON.stringify(newData));
-      setPriceData(newData);
+      localStorage.setItem("priceListData", JSON.stringify(dataToSave));
+      setPriceData(dataToSave);
 
       toast.success("Saved successfully", { id: toastId });
     } catch (error) {
@@ -165,7 +189,6 @@ export const usePriceList = () => {
     }
   };
 
-  // --- UI Helpers (Unchanged) ---
   const toggleCategory = (path) => {
     setExpandedCategories((prev) => ({ ...prev, [path]: !prev[path] }));
   };

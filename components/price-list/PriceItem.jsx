@@ -2,7 +2,6 @@ import { Edit2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { normalizeUnit } from "@/lib/units-config";
 
-// Convert price from one unit to another unit
 const convertPrice = (pricePerUnit, fromUnit, toUnit) => {
   const fromLower = fromUnit.toLowerCase().trim();
   const toLower = toUnit.toLowerCase().trim();
@@ -214,6 +213,7 @@ export const PriceItem = ({
   editMode,
   onEdit,
   onDelete,
+  onViewDetails, // <--- NEW PROP
 }) => {
   // Normalize units (convert aliases to primary names)
   const sellUnit = normalizeUnit(item.sellUnit || "piece");
@@ -247,15 +247,22 @@ export const PriceItem = ({
     }
   }
 
+  const isClickable = !editMode;
+
   return (
     <div
       className={`rounded-lg px-1 py-2.5 flex justify-between items-center mb-2 gap-2 ${
         isLast ? "" : "border-b"
+      } ${
+        isClickable
+          ? "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors"
+          : ""
       }`}
+      onClick={() => isClickable && onViewDetails(name, item)} // <--- CLICK HANDLER
     >
       <span className="flex-1">{name}</span>
       <div className="flex items-center gap-3">
-        <span className="font-semibold text-sm">{displayValue}</span>
+        <span className="font-semibold">{displayValue}</span>
         {editMode && (
           <div className="flex gap-2">
             <Button

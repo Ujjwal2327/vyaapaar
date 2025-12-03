@@ -7,17 +7,16 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea"; // <-- NEW IMPORT
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-  SelectGroup, // <-- Import SelectGroup (though we'll simulate the look)
-  SelectLabel, // <-- Import SelectLabel (though we'll simulate the look)
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { DEFAULT_ACTIVE_UNITS, UNIT_CATEGORIES } from "@/lib/units-config"; // <-- Import UNIT_CATEGORIES
+import { DEFAULT_ACTIVE_UNITS, UNIT_CATEGORIES } from "@/lib/units-config";
 
 // Helper function to create the nested structure of active units
 const getNestedActiveUnits = (activeUnits) => {
@@ -49,6 +48,7 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
     cost: "",
     sellUnit: "piece",
     costUnit: "piece",
+    notes: "",
   });
 
   useEffect(() => {
@@ -88,6 +88,7 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
       cost: "",
       sellUnit: activeUnits[0] || "piece",
       costUnit: activeUnits[0] || "piece",
+      notes: "",
     });
   };
 
@@ -196,6 +197,19 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
                   </SelectTrigger>
                   <UnitSelectContent />
                 </Select>
+              </div>
+
+              {/* Notes/Textarea */}
+              <div className="space-y-2">
+                <Label htmlFor="notes">Notes (Optional)</Label>
+                <Textarea
+                  id="notes"
+                  placeholder="Add any specific details, supplier info, or remarks..."
+                  value={formData.notes}
+                  onChange={(e) =>
+                    setFormData({ ...formData, notes: e.target.value })
+                  }
+                />
               </div>
             </>
           )}

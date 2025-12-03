@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, Trash2, Edit2 } from "lucide-react"; // Import Edit2
 import { Button } from "@/components/ui/button";
 
 export const CategoryItem = ({
@@ -11,6 +11,7 @@ export const CategoryItem = ({
   onDelete,
   onAddSubcategory,
   onAddItem,
+  onEditCategory, // <-- New Prop for category editing
   children,
 }) => {
   return (
@@ -35,16 +36,31 @@ export const CategoryItem = ({
           )}
         </Button>
         {editMode && (
-          <Button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(path, e);
-            }}
-            variant="destructive"
-            size="icon"
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
+          <div className="flex gap-2">
+            {/* --- ADDED EDIT BUTTON --- */}
+            <Button
+              onClick={(e) => {
+                e.stopPropagation();
+                // Pass the category name and its full path to the handler
+                onEditCategory(path, name);
+              }}
+              variant="secondary"
+              size="icon"
+            >
+              <Edit2 className="w-4 h-4" />
+            </Button>
+            {/* --- END ADDED EDIT BUTTON --- */}
+            <Button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(path, e);
+              }}
+              variant="destructive"
+              size="icon"
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </div>
         )}
       </div>
 

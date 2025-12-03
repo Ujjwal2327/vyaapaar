@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -15,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { DEFAULT_ACTIVE_UNITS, UNIT_CATEGORIES } from "@/lib/units-config"; // <-- Import UNIT_CATEGORIES
+import { DEFAULT_ACTIVE_UNITS, UNIT_CATEGORIES } from "@/lib/units-config";
 
 // Helper function to create the nested structure of active units
 const getNestedActiveUnits = (activeUnits) => {
@@ -36,30 +37,26 @@ const getNestedActiveUnits = (activeUnits) => {
   return nestedUnits;
 };
 
-// Assuming you pass the item data via a prop like `initialData`
-// and a function to save changes like `onSave`
-export const EditItemModal = ({ open, onOpenChange, initialData, onSave }) => {
+export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
   const [activeUnits, setActiveUnits] = useState(DEFAULT_ACTIVE_UNITS);
-  const [nestedActiveUnits, setNestedActiveUnits] = useState({}); // <-- State for nested units
-  const [formData, setFormData] = useState(
-    initialData || {
-      name: "",
-      sell: "",
-      cost: "",
-      sellUnit: "piece",
-      costUnit: "piece",
-    }
-  );
+  const [nestedActiveUnits, setNestedActiveUnits] = useState({});
+  // Initialize state as null/empty default for safe conditional rendering
+  const [formData, setFormData] = useState(null);
 
-  // Sync initialData with local state when modal opens or initialData changes
+  // 1. Sync data when the modal opens or editingItem changes
   useEffect(() => {
-    if (initialData) {
-      setFormData(initialData);
+    // Check if editingItem exists and has item data
+    if (editingItem && editingItem.data) {
+      // Initialize formData with the item data and ensure 'notes' and 'name' are present
+      setFormData(editingItem.data);
+    } else if (!editingItem && formData !== null) {
+      // Reset form data when the modal closes or editingItem is cleared
+      setFormData(null);
     }
-  }, [initialData]);
+  }, [editingItem]);
 
+  // 2. Load active units only once when open state changes
   useEffect(() => {
-    // Load active units from localStorage
     const loadActiveUnits = () => {
       const localUnits = localStorage.getItem("activeUnits");
       let units = DEFAULT_ACTIVE_UNITS;
@@ -69,7 +66,6 @@ export const EditItemModal = ({ open, onOpenChange, initialData, onSave }) => {
         setActiveUnits(units);
       }
 
-      // Calculate and set the nested structure
       setNestedActiveUnits(getNestedActiveUnits(units));
     };
 
@@ -77,15 +73,14 @@ export const EditItemModal = ({ open, onOpenChange, initialData, onSave }) => {
   }, [open]);
 
   const handleSubmit = () => {
-    if (!formData.name.trim()) return;
-    onSave(formData); // Call the save function with the updated data
+    if (!formData || !formData.name.trim()) return;
+    onSave(formData);
   };
 
   // Component to render the Select Content with nested units
   const UnitSelectContent = () => (
     <SelectContent>
       {Object.entries(nestedActiveUnits).map(([category, units]) => (
-        // Simulating optgroup/SelectGroup using a div and header
         <div key={category} className="py-1">
           <h4 className="px-2 py-1.5 text-sm font-semibold text-muted-foreground uppercase">
             {category}
@@ -100,6 +95,11 @@ export const EditItemModal = ({ open, onOpenChange, initialData, onSave }) => {
     </SelectContent>
   );
 
+  // Render nothing if item data hasn't been loaded yet
+  if (!formData) {
+    return null;
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -113,7 +113,7 @@ export const EditItemModal = ({ open, onOpenChange, initialData, onSave }) => {
             <Input
               id="name"
               placeholder="Name"
-              value={formData.name}
+              value={formData.name} // <-- This is the crucial field binding
               onChange={(e) =>
                 setFormData({ ...formData, name: e.target.value })
               }
@@ -149,7 +149,7 @@ export const EditItemModal = ({ open, onOpenChange, initialData, onSave }) => {
               <SelectTrigger id="sellUnit">
                 <SelectValue />
               </SelectTrigger>
-              <UnitSelectContent /> {/* <-- Using nested content */}
+              <UnitSelectContent />
             </Select>
           </div>
 
@@ -179,8 +179,21 @@ export const EditItemModal = ({ open, onOpenChange, initialData, onSave }) => {
               <SelectTrigger id="costUnit">
                 <SelectValue />
               </SelectTrigger>
-              <UnitSelectContent /> {/* <-- Using nested content */}
+              <UnitSelectContent />
             </Select>
+          </div>
+
+          {/* Notes/Textarea */}
+          <div className="space-y-2">
+            <Label htmlFor="notes">Notes (Optional)</Label>
+            <Textarea
+              id="notes"
+              placeholder="Add any specific details, supplier info, or remarks..."
+              value={formData.notes}
+              onChange={(e) =>
+                setFormData({ ...formData, notes: e.target.value })
+              }
+            />
           </div>
 
           <Button onClick={handleSubmit} className="w-full">
