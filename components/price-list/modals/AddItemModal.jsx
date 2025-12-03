@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -13,12 +13,36 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  SelectGroup, // <-- Import SelectGroup (though we'll simulate the look)
+  SelectLabel, // <-- Import SelectLabel (though we'll simulate the look)
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { DEFAULT_ACTIVE_UNITS, UNIT_CATEGORIES } from "@/lib/units-config"; // <-- Import UNIT_CATEGORIES
 
-const UNIT_OPTIONS = ["piece", "meter", "kg", "liter", "box", "set", "bag"];
+// Helper function to create the nested structure of active units
+const getNestedActiveUnits = (activeUnits) => {
+  const nestedUnits = {};
+
+  // Iterate through all categories
+  Object.entries(UNIT_CATEGORIES).forEach(([category, units]) => {
+    const activeUnitsInCategory = units.filter((unit) =>
+      activeUnits.includes(unit.name)
+    );
+
+    if (activeUnitsInCategory.length > 0) {
+      // Store the unit names for the selected category
+      nestedUnits[category] = activeUnitsInCategory.map((unit) => unit.name);
+    }
+  });
+
+  return nestedUnits;
+};
 
 export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
+  const [activeUnits, setActiveUnits] = useState(DEFAULT_ACTIVE_UNITS);
+  // Store the nested units structure for rendering the select fields
+  const [nestedActiveUnits, setNestedActiveUnits] = useState({});
+
   const [formData, setFormData] = useState({
     name: "",
     sell: "",
@@ -27,17 +51,64 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
     costUnit: "piece",
   });
 
+  useEffect(() => {
+    // Load active units from localStorage
+    const loadActiveUnits = () => {
+      const localUnits = localStorage.getItem("activeUnits");
+      let units = DEFAULT_ACTIVE_UNITS;
+
+      if (localUnits) {
+        units = JSON.parse(localUnits);
+        setActiveUnits(units);
+      }
+
+      // Calculate and set the nested structure
+      setNestedActiveUnits(getNestedActiveUnits(units));
+
+      // Set default units to first available unit if the current one is not active
+      if (units.length > 0 && !units.includes(formData.sellUnit)) {
+        setFormData((prev) => ({
+          ...prev,
+          sellUnit: units[0],
+          costUnit: units[0],
+        }));
+      }
+    };
+
+    loadActiveUnits();
+  }, [open]);
+
   const handleSubmit = () => {
     if (!formData.name.trim()) return;
     onAdd(formData);
+    // Resetting form data after submission
     setFormData({
       name: "",
       sell: "",
       cost: "",
-      sellUnit: "piece",
-      costUnit: "piece",
+      sellUnit: activeUnits[0] || "piece",
+      costUnit: activeUnits[0] || "piece",
     });
   };
+
+  // Component to render the Select Content with nested units
+  const UnitSelectContent = () => (
+    <SelectContent>
+      {Object.entries(nestedActiveUnits).map(([category, units]) => (
+        // Simulating optgroup/SelectGroup using a div and header
+        <div key={category} className="py-1">
+          <h4 className="px-2 py-1.5 text-sm font-semibold text-muted-foreground uppercase">
+            {category}
+          </h4>
+          {units.map((unit) => (
+            <SelectItem key={unit} value={unit}>
+              {unit.charAt(0).toUpperCase() + unit.slice(1)}
+            </SelectItem>
+          ))}
+        </div>
+      ))}
+    </SelectContent>
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -63,6 +134,7 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
 
           {type === "item" && (
             <>
+              {/* Sell Price */}
               <div className="space-y-2">
                 <Label htmlFor="sell">Sell Price</Label>
                 <Input
@@ -76,6 +148,7 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
                 />
               </div>
 
+              {/* Sell Unit - Using the new nested structure */}
               <div className="space-y-2">
                 <Label htmlFor="sellUnit">Sell Unit</Label>
                 <Select
@@ -91,16 +164,11 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
                   <SelectTrigger id="sellUnit">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
-                    {UNIT_OPTIONS.map((unit) => (
-                      <SelectItem key={unit} value={unit}>
-                        {unit.charAt(0).toUpperCase() + unit.slice(1)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
+                  <UnitSelectContent />
                 </Select>
               </div>
 
+              {/* Cost Price */}
               <div className="space-y-2">
                 <Label htmlFor="cost">Cost Price</Label>
                 <Input
@@ -114,6 +182,7 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
                 />
               </div>
 
+              {/* Cost Unit - Using the new nested structure */}
               <div className="space-y-2">
                 <Label htmlFor="costUnit">Cost Unit</Label>
                 <Select
@@ -125,13 +194,7 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
                   <SelectTrigger id="costUnit">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
-                    {UNIT_OPTIONS.map((unit) => (
-                      <SelectItem key={unit} value={unit}>
-                        {unit.charAt(0).toUpperCase() + unit.slice(1)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
+                  <UnitSelectContent />
                 </Select>
               </div>
             </>

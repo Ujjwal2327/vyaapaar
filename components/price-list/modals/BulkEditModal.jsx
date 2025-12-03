@@ -67,15 +67,21 @@ export const BulkEditModal = ({ open, onOpenChange, initialText, onSave }) => {
             <p>• Categories: Just write the name</p>
             <p>• Subcategories: Add 2 spaces</p>
             <p>
-              • Items: name | sell price | sell unit | cost price | cost unit
+              • Items: name | sell price | cost price | sell unit | cost unit
+            </p>
+            <p className="text-xs text-muted-foreground">
+              (You can use commas instead of pipes)
+            </p>
+            <p className="text-xs text-muted-foreground">
+              (If only one unit provided, both become same. Default: piece)
             </p>
             <details className="mt-2">
               <summary className="cursor-pointer">Show Example</summary>
               <pre className="bg-background p-2 rounded mt-2 text-xs overflow-x-auto">
                 {`Taps
   Novex
-    Angle valve | 50 | piece | 40 | piece
-    Bib cock | 40 | piece | 32 | piece`}
+    Angle valve | 50 | 40 | piece
+    Bib cock, 40, 32, piece, piece`}
               </pre>
             </details>
           </div>

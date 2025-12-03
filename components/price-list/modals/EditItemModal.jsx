@@ -15,35 +15,90 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { DEFAULT_ACTIVE_UNITS, UNIT_CATEGORIES } from "@/lib/units-config"; // <-- Import UNIT_CATEGORIES
 
-const UNIT_OPTIONS = ["piece", "meter", "kg", "liter", "box", "set", "bag"];
+// Helper function to create the nested structure of active units
+const getNestedActiveUnits = (activeUnits) => {
+  const nestedUnits = {};
 
-export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
-  const [formData, setFormData] = useState({
-    name: "",
-    sell: "",
-    cost: "",
-    sellUnit: "piece",
-    costUnit: "piece",
+  // Iterate through all categories
+  Object.entries(UNIT_CATEGORIES).forEach(([category, units]) => {
+    const activeUnitsInCategory = units.filter((unit) =>
+      activeUnits.includes(unit.name)
+    );
+
+    if (activeUnitsInCategory.length > 0) {
+      // Store the unit names for the selected category
+      nestedUnits[category] = activeUnitsInCategory.map((unit) => unit.name);
+    }
   });
 
-  useEffect(() => {
-    if (editingItem) {
-      setFormData({
-        name: editingItem.path.split(".").pop(),
-        sell: editingItem.data.sell || 0,
-        cost: editingItem.data.cost || 0,
-        sellUnit: editingItem.data.sellUnit || "piece",
-        costUnit:
-          editingItem.data.costUnit || editingItem.data.sellUnit || "piece",
-      });
+  return nestedUnits;
+};
+
+// Assuming you pass the item data via a prop like `initialData`
+// and a function to save changes like `onSave`
+export const EditItemModal = ({ open, onOpenChange, initialData, onSave }) => {
+  const [activeUnits, setActiveUnits] = useState(DEFAULT_ACTIVE_UNITS);
+  const [nestedActiveUnits, setNestedActiveUnits] = useState({}); // <-- State for nested units
+  const [formData, setFormData] = useState(
+    initialData || {
+      name: "",
+      sell: "",
+      cost: "",
+      sellUnit: "piece",
+      costUnit: "piece",
     }
-  }, [editingItem]);
+  );
+
+  // Sync initialData with local state when modal opens or initialData changes
+  useEffect(() => {
+    if (initialData) {
+      setFormData(initialData);
+    }
+  }, [initialData]);
+
+  useEffect(() => {
+    // Load active units from localStorage
+    const loadActiveUnits = () => {
+      const localUnits = localStorage.getItem("activeUnits");
+      let units = DEFAULT_ACTIVE_UNITS;
+
+      if (localUnits) {
+        units = JSON.parse(localUnits);
+        setActiveUnits(units);
+      }
+
+      // Calculate and set the nested structure
+      setNestedActiveUnits(getNestedActiveUnits(units));
+    };
+
+    loadActiveUnits();
+  }, [open]);
 
   const handleSubmit = () => {
     if (!formData.name.trim()) return;
-    onSave(formData);
+    onSave(formData); // Call the save function with the updated data
   };
+
+  // Component to render the Select Content with nested units
+  const UnitSelectContent = () => (
+    <SelectContent>
+      {Object.entries(nestedActiveUnits).map(([category, units]) => (
+        // Simulating optgroup/SelectGroup using a div and header
+        <div key={category} className="py-1">
+          <h4 className="px-2 py-1.5 text-sm font-semibold text-muted-foreground uppercase">
+            {category}
+          </h4>
+          {units.map((unit) => (
+            <SelectItem key={unit} value={unit}>
+              {unit.charAt(0).toUpperCase() + unit.slice(1)}
+            </SelectItem>
+          ))}
+        </div>
+      ))}
+    </SelectContent>
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -54,9 +109,9 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
 
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <Label htmlFor="edit-name">Name</Label>
+            <Label htmlFor="name">Name</Label>
             <Input
-              id="edit-name"
+              id="name"
               placeholder="Name"
               value={formData.name}
               onChange={(e) =>
@@ -65,10 +120,11 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
             />
           </div>
 
+          {/* Sell Price */}
           <div className="space-y-2">
-            <Label htmlFor="edit-sell">Sell Price</Label>
+            <Label htmlFor="sell">Sell Price</Label>
             <Input
-              id="edit-sell"
+              id="sell"
               type="number"
               placeholder="Sell Price"
               value={formData.sell}
@@ -78,35 +134,30 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
             />
           </div>
 
+          {/* Sell Unit - Using the new nested structure */}
           <div className="space-y-2">
-            <Label htmlFor="edit-sellUnit">Sell Unit</Label>
+            <Label htmlFor="sellUnit">Sell Unit</Label>
             <Select
               value={formData.sellUnit}
               onValueChange={(value) => {
                 setFormData({
                   ...formData,
                   sellUnit: value,
-                  costUnit: formData.costUnit || value,
                 });
               }}
             >
-              <SelectTrigger id="edit-sellUnit">
+              <SelectTrigger id="sellUnit">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
-                {UNIT_OPTIONS.map((unit) => (
-                  <SelectItem key={unit} value={unit}>
-                    {unit.charAt(0).toUpperCase() + unit.slice(1)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
+              <UnitSelectContent /> {/* <-- Using nested content */}
             </Select>
           </div>
 
+          {/* Cost Price */}
           <div className="space-y-2">
-            <Label htmlFor="edit-cost">Cost Price</Label>
+            <Label htmlFor="cost">Cost Price</Label>
             <Input
-              id="edit-cost"
+              id="cost"
               type="number"
               placeholder="Cost Price"
               value={formData.cost}
@@ -116,24 +167,19 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
             />
           </div>
 
+          {/* Cost Unit - Using the new nested structure */}
           <div className="space-y-2">
-            <Label htmlFor="edit-costUnit">Cost Unit</Label>
+            <Label htmlFor="costUnit">Cost Unit</Label>
             <Select
               value={formData.costUnit}
               onValueChange={(value) =>
                 setFormData({ ...formData, costUnit: value })
               }
             >
-              <SelectTrigger id="edit-costUnit">
+              <SelectTrigger id="costUnit">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
-                {UNIT_OPTIONS.map((unit) => (
-                  <SelectItem key={unit} value={unit}>
-                    {unit.charAt(0).toUpperCase() + unit.slice(1)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
+              <UnitSelectContent /> {/* <-- Using nested content */}
             </Select>
           </div>
 
