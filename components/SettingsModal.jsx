@@ -39,12 +39,9 @@ import {
 import { supabase } from "@/lib/supabase";
 import UserProfile from "@/components/UserProfile";
 import { countItemsAndCategories } from "@/lib/utils/priceListStats";
-import { usePriceList } from "@/hooks/usePriceList";
 import Accordion from "@/components/ui/accordion";
 
-const SettingsModal = () => {
-  const { sellPriceMode, toggleSellPriceMode } = usePriceList();
-
+const SettingsModal = ({ sellPriceMode, toggleSellPriceMode }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [fontSize, setFontSize] = useState(100);
   const [searchQuery, setSearchQuery] = useState("");
@@ -359,32 +356,6 @@ const SettingsModal = () => {
                   onCheckedChange={toggleShowCostProfit}
                 />
               </div>
-              <Separator />
-
-              {/* Retail/Bulk Toggle Button */}
-              <Button
-                onClick={toggleSellPriceMode}
-                variant="outline"
-                size="sm"
-                className="w-full flex items-center gap-2"
-                title={`Switch to ${sellPriceMode === "retail" ? "Bulk" : "Retail"} prices`}
-              >
-                {sellPriceMode === "retail" ? (
-                  <>
-                    <Package className="w-4 h-4" />
-                    <span >
-                      Show <span className="font-bold">Retail Prices / Profits</span>
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <Boxes className="w-4 h-4" />
-                    <span >
-                      Show <span className="font-bold">Bulk Prices / Profits</span>
-                    </span>
-                  </>
-                )}
-              </Button>
               <Separator />
 
               <Button

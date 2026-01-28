@@ -35,6 +35,7 @@ export const PriceListContainer = () => {
     expandAll,
     collapseAll,
     sellPriceMode,
+    toggleSellPriceMode,
     priceView,
     cyclePriceView,
     getPriceViewText,
@@ -274,6 +275,8 @@ export const PriceListContainer = () => {
         sortType={sortType}
         onSortChange={handleSortChange}
         hasAnyExpanded={hasAnyExpanded}
+        sellPriceMode={sellPriceMode}
+        toggleSellPriceMode={toggleSellPriceMode}
       />
 
       <PriceListContent

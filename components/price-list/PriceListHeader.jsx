@@ -33,6 +33,8 @@ export const PriceListHeader = ({
   sortType,
   onSortChange,
   hasAnyExpanded,
+  sellPriceMode,
+  toggleSellPriceMode,
 }) => {
   const handleToggleExpand = () => {
     if (hasAnyExpanded) {
@@ -48,7 +50,10 @@ export const PriceListHeader = ({
         <div className="flex justify-between items-center mb-4">
           <h1 className="text-2xl font-bold">Vyaapaar</h1>
           <div className="flex justify-center items-center gap-2">
-            <SettingsModal />
+            <SettingsModal
+              sellPriceMode={sellPriceMode}
+              toggleSellPriceMode={toggleSellPriceMode}
+            />
             <Button onClick={onBulkEdit} variant="outline" size="sm">
               <FileText className="w-4 h-4 md:mr-2" />
               <span className="hidden md:inline">Bulk Edit</span>
@@ -75,6 +80,14 @@ export const PriceListHeader = ({
             </span>
           </Button>
           <div className="flex items-center gap-4">
+            <Button
+              variant="secondary"
+              className="font-extrabold"
+              onClick={toggleSellPriceMode}
+              title={`Switch to ${sellPriceMode === "retail" ? "Bulk" : "Retail"} prices`}
+            >
+              {sellPriceMode == "retail" ? "R" : "B"}
+            </Button>
             <Button
               onClick={cyclePriceView}
               variant={
