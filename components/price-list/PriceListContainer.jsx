@@ -329,6 +329,7 @@ export const PriceListContainer = () => {
         onOpenChange={setShowItemDetailModal}
         itemData={viewingItem.data}
         itemName={viewingItem.name}
+        sellPriceMode={sellPriceMode}
       />
     </>
   );
