@@ -244,7 +244,7 @@ const SettingsModal = ({ sellPriceMode, toggleSellPriceMode }) => {
 
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Settings</DialogTitle>
+          <DialogTitle className="text-xl">Settings</DialogTitle>
           <DialogDescription>
             Customize your application and manage your profile
           </DialogDescription>
@@ -252,18 +252,18 @@ const SettingsModal = ({ sellPriceMode, toggleSellPriceMode }) => {
 
         {/* Inventory Stats */}
         <div className="grid grid-cols-2 gap-3 pb-2">
-          <div className="flex items-center gap-3 p-3 bg-gradient-to-br from-primary/10 to-primary/5 rounded-lg border">
+          <div className="flex items-center gap-3 p-3 bg-linear-to-br from-primary/10 to-primary/5 rounded-lg border">
             <Package className="w-8 h-8 text-primary" />
             <div>
               <p className="text-2xl font-bold">{totalItems}</p>
-              <p className="text-xs text-muted-foreground">Total Items</p>
+              <p className="text-sm text-muted-foreground">Total Items</p>
             </div>
           </div>
-          <div className="flex items-center gap-3 p-3 bg-gradient-to-br from-secondary/10 to-secondary/5 rounded-lg border">
+          <div className="flex items-center gap-3 p-3 bg-linear-to-br from-secondary/10 to-secondary/5 rounded-lg border">
             <FolderTree className="w-8 h-8 text-secondary-foreground" />
             <div>
               <p className="text-2xl font-bold">{totalCategories}</p>
-              <p className="text-xs text-muted-foreground">Categories</p>
+              <p className="text-sm text-muted-foreground">Categories</p>
             </div>
           </div>
         </div>
@@ -277,95 +277,94 @@ const SettingsModal = ({ sellPriceMode, toggleSellPriceMode }) => {
 
             {/* Display Settings Accordion */}
             <Accordion title="Display Settings">
-              {/* Theme Toggle */}
-              <div className="space-y-2">
-                <Label className="text-sm">Theme</Label>
+              <div className="space-y-5">
+                {/* Theme Toggle */}
+                <div className="space-y-2">
+                  <Label className="text-[16px]">Theme</Label>
+                  <Button
+                    onClick={() => {
+                      theme === "light" ? setTheme("dark") : setTheme("light");
+                    }}
+                    className="w-full"
+                    variant="outline"
+                  >
+                    {theme === "light" ? (
+                      <span className="flex gap-2 items-center">
+                        <Sun className="h-4 w-4" />
+                        <span>Light Theme</span>
+                      </span>
+                    ) : theme === "dark" ? (
+                      <span className="flex gap-2 items-center">
+                        <Moon className="h-4 w-4" />
+                        <span>Dark Theme</span>
+                      </span>
+                    ) : (
+                      <span className="flex gap-2 items-center">
+                        <Monitor className="h-4 w-4" />
+                        <span>System Theme</span>
+                      </span>
+                    )}
+                  </Button>
+                </div>
+
+                {/* Font Size Slider */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-[16px]">Font Size</Label>
+                    <span className="text-xs text-muted-foreground">
+                      {fontSize}%
+                    </span>
+                  </div>
+
+                  <Slider
+                    value={[fontSize]}
+                    onValueChange={handleFontSizeChange}
+                    min={75}
+                    max={150}
+                    step={5}
+                    className="w-full"
+                  />
+
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Small</span>
+                    <span>Large</span>
+                  </div>
+
+                  <div className="rounded-lg border bg-muted/50 p-3">
+                    <p className="text-center font-medium text-sm">
+                      Preview Text
+                    </p>
+                    <p className="text-center text-xs text-muted-foreground mt-1">
+                      The quick brown fox jumps over the lazy dog
+                    </p>
+                  </div>
+                </div>
+
+                {/* Show Cost/Profit Toggle */}
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <Label className="text-[16px]">
+                      Show Cost Prices & Profits
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Enable cycling between Sell, Cost, and Profit views
+                    </p>
+                  </div>
+                  <Switch
+                    checked={showCostProfit}
+                    onCheckedChange={toggleShowCostProfit}
+                  />
+                </div>
+
                 <Button
-                  onClick={() => {
-                    theme === "light" ? setTheme("dark") : setTheme("light");
-                  }}
-                  className="w-full"
-                  variant="outline"
+                  onClick={resetSettings}
+                  variant="secondary"
+                  className="w-full mt-2"
+                  size="sm"
                 >
-                  {theme === "light" ? (
-                    <span className="flex gap-2 items-center">
-                      <Sun className="h-4 w-4" />
-                      <span>Light Theme</span>
-                    </span>
-                  ) : theme === "dark" ? (
-                    <span className="flex gap-2 items-center">
-                      <Moon className="h-4 w-4" />
-                      <span>Dark Theme</span>
-                    </span>
-                  ) : (
-                    <span className="flex gap-2 items-center">
-                      <Monitor className="h-4 w-4" />
-                      <span>System Theme</span>
-                    </span>
-                  )}
+                  Reset Display Settings
                 </Button>
               </div>
-
-              <Separator />
-
-              {/* Font Size Slider */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm">Font Size</Label>
-                  <span className="text-xs text-muted-foreground">
-                    {fontSize}%
-                  </span>
-                </div>
-
-                <Slider
-                  value={[fontSize]}
-                  onValueChange={handleFontSizeChange}
-                  min={75}
-                  max={150}
-                  step={5}
-                  className="w-full"
-                />
-
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Small</span>
-                  <span>Large</span>
-                </div>
-
-                <div className="rounded-lg border bg-muted/50 p-3">
-                  <p className="text-center font-medium text-sm">
-                    Preview Text
-                  </p>
-                  <p className="text-center text-xs text-muted-foreground mt-1">
-                    The quick brown fox jumps over the lazy dog
-                  </p>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Show Cost/Profit Toggle */}
-              <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                  <Label className="text-sm">Show Cost Prices & Profits</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Enable cycling between Sell, Cost, and Profit views
-                  </p>
-                </div>
-                <Switch
-                  checked={showCostProfit}
-                  onCheckedChange={toggleShowCostProfit}
-                />
-              </div>
-              <Separator />
-
-              <Button
-                onClick={resetSettings}
-                variant="secondary"
-                className="w-full mt-2"
-                size="sm"
-              >
-                Reset Display Settings
-              </Button>
             </Accordion>
 
             {/* Active Units Accordion */}
@@ -386,7 +385,7 @@ const SettingsModal = ({ sellPriceMode, toggleSellPriceMode }) => {
 
               {/* Units by Category */}
 
-              <div className="space-y-4 max-h-80 overflow-y-auto  border rounded-lg p-3">
+              <div className="space-y-4 max-h-80 overflow-y-auto no-scrollbar border rounded-lg p-3 pt-0">
                 {Object.keys(filteredCategories).length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">
                     No units found
@@ -395,7 +394,7 @@ const SettingsModal = ({ sellPriceMode, toggleSellPriceMode }) => {
                   Object.entries(filteredCategories).map(
                     ([category, units]) => (
                       <div key={category} className="space-y-2">
-                        <h4 className="font-semibold text-xs uppercase text-muted-foreground sticky top-0 bg-background py-1">
+                        <h4 className="font-semibold text-sm uppercase text-muted-foreground sticky top-0 bg-background py-2">
                           {category}
                         </h4>
                         <div className="space-y-1">

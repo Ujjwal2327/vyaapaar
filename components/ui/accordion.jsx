@@ -10,7 +10,7 @@ export default function Accordion({
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
-    <div className="border rounded-lg overflow-hidden">
+    <div className="border rounded-lg overflow-hidden text-lg">
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="cursor-pointer w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"

@@ -134,7 +134,7 @@ export default function UserProfile() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-8 h-[404px]">
+      <div className="flex items-center justify-center py-8 h-[455px]">
         <div className="animate-pulse text-muted-foreground">
           Loading profile...
         </div>
@@ -143,10 +143,10 @@ export default function UserProfile() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* Email */}
       <div className="space-y-2">
-        <Label htmlFor="email" className="flex items-center gap-2">
+        <Label htmlFor="email" className="text-[16px] flex items-center gap-2">
           <Mail className="w-4 h-4" />
           Email
         </Label>
@@ -164,7 +164,7 @@ export default function UserProfile() {
 
       {/* Display Name */}
       <div className="space-y-2">
-        <Label htmlFor="user_name" className="flex items-center gap-2">
+        <Label htmlFor="user_name" className="text-[16px] flex items-center gap-2">
           <User className="w-4 h-4" />
           Display Name
         </Label>
@@ -181,7 +181,7 @@ export default function UserProfile() {
 
       {/* Business Name */}
       <div className="space-y-2">
-        <Label htmlFor="business_name" className="flex items-center gap-2">
+        <Label htmlFor="business_name" className="text-[16px] flex items-center gap-2">
           <Building2 className="w-4 h-4" />
           Business Name
           <span className="text-xs text-muted-foreground ml-auto">
@@ -203,7 +203,7 @@ export default function UserProfile() {
 
       {/* Phone */}
       <div className="space-y-2">
-        <Label htmlFor="phone" className="flex items-center gap-2">
+        <Label htmlFor="phone" className="text-[16px] flex items-center gap-2">
           <Phone className="w-4 h-4" />
           Phone Number
           <span className="text-xs text-muted-foreground ml-auto">
