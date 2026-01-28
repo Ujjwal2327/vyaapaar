@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import Logo from "@/components/Logo";
 
 export default function RegisterForm({ redirectTo = "/login" }) {
   const { signUp, user, loading: authLoading } = useAuth();
@@ -74,7 +75,7 @@ export default function RegisterForm({ redirectTo = "/login" }) {
 
   return (
     <Card className="w-full max-w-sm">
-      <h2 className="text-center text-2xl font-bold">Vyaapaar</h2>
+      <Logo/>
       <CardHeader>
         <CardTitle>Create an account</CardTitle>
 

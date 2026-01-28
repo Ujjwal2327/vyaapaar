@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import Logo from "@/components/Logo";
 
 export default function LoginForm({ redirectTo = "/pricelist" }) {
   const { signIn, user, loading: authLoading } = useAuth();
@@ -51,7 +52,7 @@ export default function LoginForm({ redirectTo = "/pricelist" }) {
 
   return (
     <Card className="w-full max-w-sm">
-      <h2 className="text-center text-2xl font-bold">Vyaapaar</h2>
+      <Logo />
       <CardHeader>
         <CardTitle>Login to your account</CardTitle>
 

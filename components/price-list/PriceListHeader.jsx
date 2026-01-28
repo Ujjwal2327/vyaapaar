@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import SettingsModal from "@/components/SettingsModal";
+import Logo from "@/components/Logo"
 
 export const PriceListHeader = ({
   searchTerm,
@@ -48,7 +49,7 @@ export const PriceListHeader = ({
     <div className="sticky top-0 z-40 bg-background border-b">
       <div className="max-w-4xl mx-auto p-2">
         <div className="flex justify-between items-center mb-4">
-          <h1 className="text-2xl font-bold">Vyaapaar</h1>
+          <Logo/>
           <div className="flex justify-center items-center gap-2">
             <SettingsModal
               sellPriceMode={sellPriceMode}
