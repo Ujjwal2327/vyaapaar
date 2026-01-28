@@ -372,14 +372,14 @@ const SettingsModal = () => {
                 {sellPriceMode === "retail" ? (
                   <>
                     <Package className="w-4 h-4" />
-                    <span className="hidden sm:inline">
+                    <span >
                       Show <span className="font-bold">Retail Prices / Profits</span>
                     </span>
                   </>
                 ) : (
                   <>
                     <Boxes className="w-4 h-4" />
-                    <span className="hidden sm:inline">
+                    <span >
                       Show <span className="font-bold">Bulk Prices / Profits</span>
                     </span>
                   </>
