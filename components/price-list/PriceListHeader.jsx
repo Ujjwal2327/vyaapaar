@@ -82,7 +82,7 @@ export const PriceListHeader = ({
           <div className="flex items-center gap-4">
             <Button
               variant="secondary"
-              className="font-extrabold"
+              className="font-extrabold text-xl"
               onClick={toggleSellPriceMode}
               title={`Switch to ${sellPriceMode === "retail" ? "Bulk" : "Retail"} prices`}
             >
