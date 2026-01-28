@@ -210,30 +210,39 @@ export const PriceItem = ({
   path,
   item,
   priceView,
+  sellPriceMode,
   editMode,
   onEdit,
   onDelete,
-  onViewDetails, // <--- NEW PROP
+  onViewDetails,
 }) => {
   // Normalize units (convert aliases to primary names)
   const sellUnit = normalizeUnit(item.sellUnit || "piece");
   const costUnit = normalizeUnit(item.costUnit || item.sellUnit || "piece");
 
+  // Handle backward compatibility: use retailSell if available, else fall back to sell
+  const retailSell = item.retailSell !== undefined ? item.retailSell : item.sell || 0;
+  const bulkSell = item.bulkSell !== undefined ? item.bulkSell : retailSell;
+
+  // Determine which sell price to use based on mode
+  const currentSellPrice = sellPriceMode === "bulk" ? bulkSell : retailSell;
+
   let displayValue;
+  
   if (priceView === "sell") {
-    displayValue = `₹${item.sell}/${sellUnit}`;
+    displayValue = `₹${currentSellPrice}/${sellUnit}`;
   } else if (priceView === "cost") {
     displayValue = `₹${item.cost}/${costUnit}`;
-  } else {
+  } else if (priceView === "profit") {
+    // Calculate profit using the current sell price mode
     if (sellUnit.toLowerCase() === costUnit.toLowerCase()) {
-      const profit = item.sell - item.cost;
+      const profit = currentSellPrice - item.cost;
       const profitPercent =
         item.cost > 0 ? ((profit / item.cost) * 100).toFixed(1) : 0;
       displayValue = `₹${profit} (${profitPercent}%)`;
     } else {
-      // Try conversion
       const conversionResult = calculateProfitWithConversion(
-        item.sell,
+        currentSellPrice,
         sellUnit,
         item.cost,
         costUnit
@@ -258,7 +267,7 @@ export const PriceItem = ({
           ? "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors"
           : ""
       }`}
-      onClick={() => isClickable && onViewDetails(name, item)} // <--- CLICK HANDLER
+      onClick={() => isClickable && onViewDetails(name, item)}
     >
       <span className="flex-1">{name}</span>
       <div className="flex items-center gap-3">

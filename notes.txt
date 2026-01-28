@@ -1,0 +1,116 @@
+CLI FOR FILE TREE STRUCTURE
+function Show-Tree($Path = ".", $Prefix = "") {
+    $items = Get-ChildItem $Path -Force | Where-Object {
+        $_.Name -notin @("node_modules", ".git", ".next")
+    }
+
+    $count = $items.Count
+    $i = 0
+
+    foreach ($item in $items) {
+        $i++
+        $isLast = ($i -eq $count)
+        $connector = if ($isLast) { "└── " } else { "├── " }
+
+        Write-Output "$Prefix$connector$item"
+
+        if ($item.PSIsContainer) {
+            $newPrefix = if ($isLast) { "$Prefix    " } else { "$Prefix│   " }
+            Show-Tree $item.FullName $newPrefix
+        }
+    }
+}
+
+Show-Tree
+
+
+
+
+
+
+
+
+FILE STRUCTURE
+├── app
+│   ├── (auth)
+│   │   ├── login
+│   │   │   └── page.jsx
+│   │   └── register
+│   │       └── page.jsx
+│   ├── (protected)
+│   │   ├── pricelist
+│   │   │   └── page.jsx
+│   │   └── layout.jsx
+│   ├── favicon.ico
+│   ├── globals.css
+│   ├── layout.tsx
+│   └── page.jsx
+├── components
+│   ├── auth
+│   │   ├── AuthProvider.jsx
+│   │   ├── LoginForm.jsx
+│   │   ├── Protected.jsx
+│   │   └── RegisterForm.jsx
+│   ├── price-list
+│   │   ├── modals
+│   │   │   ├── AddItemModal.jsx
+│   │   │   ├── BulkEditModal.jsx
+│   │   │   ├── EditItemModal.jsx
+│   │   │   ├── ItemDetailModal.jsx
+│   │   │   └── RenameCategoryModal.jsx
+│   │   ├── CategoryItem.jsx
+│   │   ├── PriceItem.jsx
+│   │   ├── PriceListContainer.jsx
+│   │   ├── PriceListContent.jsx
+│   │   └── PriceListHeader.jsx
+│   ├── ui
+│   │   ├── alert.tsx
+│   │   ├── avatar.tsx
+│   │   ├── badge.tsx
+│   │   ├── button.tsx
+│   │   ├── card.tsx
+│   │   ├── checkbox.tsx
+│   │   ├── dialog.tsx
+│   │   ├── dropdown-menu.tsx
+│   │   ├── input.tsx
+│   │   ├── label.tsx
+│   │   ├── scroll-area.tsx
+│   │   ├── select.tsx
+│   │   ├── separator.tsx
+│   │   ├── slider.tsx
+│   │   ├── sonner.tsx
+│   │   ├── switch.tsx
+│   │   └── textarea.tsx
+│   ├── LogoutBtn.jsx
+│   ├── providers.jsx
+│   ├── SettingsModal.jsx
+│   └── UserProfile.jsx
+├── hooks
+│   └── usePriceList.js
+├── lib
+│   ├── utils
+│   │   ├── dataTransform.js
+│   │   ├── priceListStats.js
+│   │   └── priceListUtils.js
+│   ├── supabase.ts
+│   ├── units-config.js
+│   └── utils.ts
+├── public
+│   ├── file.svg
+│   ├── globe.svg
+│   ├── next.svg
+│   ├── vercel.svg
+│   └── window.svg
+├── .env
+├── .gitignore
+├── components.json
+├── eslint.config.mjs
+├── next-env.d.ts
+├── next.config.ts
+├── package-lock.json
+├── package.json
+├── postcss.config.mjs
+├── README.md
+├── superbase_queries.txt
+└── tsconfig.json
+

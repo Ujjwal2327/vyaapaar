@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea"; // <-- NEW IMPORT
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -44,7 +44,8 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
 
   const [formData, setFormData] = useState({
     name: "",
-    sell: "",
+    retailSell: "",
+    bulkSell: "",
     cost: "",
     sellUnit: "piece",
     costUnit: "piece",
@@ -80,11 +81,20 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
 
   const handleSubmit = () => {
     if (!formData.name.trim()) return;
-    onAdd(formData);
+
+    // If bulk sell is empty, set it to retail sell
+    const dataToSubmit = {
+      ...formData,
+      bulkSell: formData.bulkSell || formData.retailSell,
+    };
+
+    onAdd(dataToSubmit);
+
     // Resetting form data after submission
     setFormData({
       name: "",
-      sell: "",
+      retailSell: "",
+      bulkSell: "",
       cost: "",
       sellUnit: activeUnits[0] || "piece",
       costUnit: activeUnits[0] || "piece",
@@ -135,20 +145,41 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
 
           {type === "item" && (
             <>
-              {/* Sell Price */}
+              <div className="flex gap-x-5">
+
+              {/* Retail Sell Price */}
               <div className="space-y-2">
-                <Label htmlFor="sell">Sell Price</Label>
+                <Label htmlFor="retailSell">Retail Sell Price</Label>
                 <Input
-                  id="sell"
+                  id="retailSell"
                   type="number"
-                  placeholder="Sell Price"
-                  value={formData.sell}
+                  placeholder="Retail Sell Price"
+                  value={formData.retailSell}
                   onChange={(e) =>
-                    setFormData({ ...formData, sell: e.target.value })
+                    setFormData({ ...formData, retailSell: e.target.value })
                   }
                 />
               </div>
 
+              {/* Bulk Sell Price */}
+              <div className="space-y-2">
+                <Label htmlFor="bulkSell">
+                  Bulk Sell Price{" "}
+                  <span className="text-xs text-muted-foreground">
+                    (Optional)
+                  </span>
+                </Label>
+                <Input
+                  id="bulkSell"
+                  type="number"
+                  placeholder="Bulk Sell Price"
+                  value={formData.bulkSell}
+                  onChange={(e) =>
+                    setFormData({ ...formData, bulkSell: e.target.value })
+                  }
+                />
+              </div>
+              </div>
               {/* Sell Unit - Using the new nested structure */}
               <div className="space-y-2">
                 <Label htmlFor="sellUnit">Sell Unit</Label>

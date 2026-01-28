@@ -9,12 +9,18 @@ import {
 export const ItemDetailModal = ({ open, onOpenChange, itemData, itemName }) => {
   if (!itemData) return null;
 
-  const { sell, cost, sellUnit, costUnit, notes } = itemData;
+  // Handle backward compatibility: use retailSell if available, else fall back to sell
+  const retailSell = itemData.retailSell !== undefined ? itemData.retailSell : itemData.sell || 0;
+  const bulkSell = itemData.bulkSell !== undefined ? itemData.bulkSell : retailSell;
+  const { cost, sellUnit, costUnit, notes } = itemData;
 
   // Function to format the price display
   const formatPrice = (price, unit) => {
     return `₹${price} / ${unit}`;
   };
+
+  // Check if retail and bulk are different
+  const hasDifferentBulkPrice = retailSell !== bulkSell;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -27,23 +33,27 @@ export const ItemDetailModal = ({ open, onOpenChange, itemData, itemName }) => {
         </DialogHeader>
 
         <div className="grid gap-4 py-4">
+          {/* Retail Sell Price */}
           <div className="flex justify-between items-center border-b pb-2">
             <span className="text-lg font-semibold text-primary">
-              Sell Price
+              Retail Sell Price
             </span>
             <span className="text-lg font-bold">
-              {formatPrice(sell, sellUnit)}
+              {formatPrice(retailSell, sellUnit)}
             </span>
           </div>
 
-          {/* <div className="flex justify-between items-center border-b pb-2">
-            <span className="text-lg font-semibold text-secondary-foreground">
-              Cost Price
-            </span>
-            <span className="text-lg font-medium">
-              {formatPrice(cost, costUnit)}
-            </span>
-          </div> */}
+          {/* Bulk Sell Price - Only show if different from retail */}
+          {hasDifferentBulkPrice && (
+            <div className="flex justify-between items-center border-b pb-2">
+              <span className="text-lg font-semibold text-blue-600 dark:text-blue-400">
+                Bulk Sell Price
+              </span>
+              <span className="text-lg font-bold">
+                {formatPrice(bulkSell, sellUnit)}
+              </span>
+            </div>
+          )}
 
           {/* Notes Section */}
           {notes && (

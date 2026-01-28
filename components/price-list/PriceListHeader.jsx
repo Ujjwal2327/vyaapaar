@@ -4,6 +4,8 @@ import {
   Plus,
   ChevronsDownUp,
   ArrowUpDown,
+  Package,
+  Boxes,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -73,6 +75,20 @@ export const PriceListHeader = ({
             </span>
           </Button>
           <div className="flex items-center gap-4">
+            <Button
+              onClick={cyclePriceView}
+              variant={
+                priceView === "sell"
+                  ? "default"
+                  : priceView === "cost"
+                    ? "secondary"
+                    : "outline"
+              }
+              className="w-fit"
+            >
+              {getPriceViewText()}
+            </Button>
+
             <div className="flex items-center justify-center gap-1 float-right">
               <ArrowUpDown className="w-4 h-4 text-muted-foreground shrink-0" />
               <Select value={sortType} onValueChange={onSortChange}>
@@ -98,20 +114,6 @@ export const PriceListHeader = ({
                 </SelectContent>
               </Select>
             </div>
-
-            <Button
-              onClick={cyclePriceView}
-              variant={
-                priceView === "sell"
-                  ? "default"
-                  : priceView === "cost"
-                  ? "secondary"
-                  : "outline"
-              }
-              className="w-fit"
-            >
-              {getPriceViewText()}
-            </Button>
           </div>
         </div>
 

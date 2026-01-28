@@ -67,21 +67,36 @@ export const BulkEditModal = ({ open, onOpenChange, initialText, onSave }) => {
             <p>• Categories: Just write the name</p>
             <p>• Subcategories: Add 2 spaces</p>
             <p>
-              • Items: name | sell price | cost price | sell unit | cost unit
+              • Items: name | retail sell / bulk sell | cost price | sell unit | cost unit
             </p>
             <p className="text-xs text-muted-foreground">
               (You can use commas instead of pipes)
             </p>
             <p className="text-xs text-muted-foreground">
+              (If bulk sell not provided, it defaults to retail sell)
+            </p>
+            <p className="text-xs text-muted-foreground">
+              (If only retail sell provided: name | retail sell | cost | unit)
+            </p>
+            <p className="text-xs text-muted-foreground">
               (If only one unit provided, both become same. Default: piece)
             </p>
             <details className="mt-2">
-              <summary className="cursor-pointer">Show Example</summary>
+              <summary className="cursor-pointer">Show Examples</summary>
               <pre className="bg-background p-2 rounded mt-2 text-xs overflow-x-auto">
-                {`Taps
+{`Taps
   Novex
-    Angle valve | 50 | 40 | piece
-    Bib cock, 40, 32, piece, piece`}
+    Angle valve | 50/45 | 40 | piece
+    Bib cock | 40 | 32 | piece
+    
+Electronics
+  Cables
+    HDMI Cable | 100/90 | 70 | piece | piece
+    USB Cable | 50 | 35 | piece
+    
+(Note: HDMI has retail ₹100, bulk ₹90, cost ₹70)
+(Note: USB has retail=bulk ₹50, cost ₹35)
+(Note: Bib cock has retail=bulk ₹40, cost ₹32)`}
               </pre>
             </details>
           </div>

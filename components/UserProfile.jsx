@@ -11,14 +11,18 @@ import { User, Building2, Phone, Mail } from "lucide-react";
 
 export default function UserProfile() {
   const { user } = useAuth();
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
   const [profile, setProfile] = useState({
     user_name: "",
     business_name: "",
     phone: "",
     email: "",
   });
+
+  const [initialProfile, setInitialProfile] = useState(null);
 
   useEffect(() => {
     if (user) {
@@ -38,7 +42,6 @@ export default function UserProfile() {
         .single();
 
       if (error) {
-        // If profile doesn't exist (shouldn't happen with trigger), create it
         if (error.code === "PGRST116") {
           await createProfile();
           return;
@@ -47,12 +50,15 @@ export default function UserProfile() {
       }
 
       if (data) {
-        setProfile({
+        const loadedProfile = {
           user_name: data.user_name || "",
           business_name: data.business_name || "",
           phone: data.phone || "",
           email: data.email || user.email || "",
-        });
+        };
+
+        setProfile(loadedProfile);
+        setInitialProfile(loadedProfile);
       }
     } catch (error) {
       console.error("Error loading profile:", error);
@@ -84,8 +90,7 @@ export default function UserProfile() {
   const saveProfile = async () => {
     if (!user) return;
 
-    // Validation
-    if (!profile.user_name?.trim()) {
+    if (!profile.user_name.trim()) {
       toast.error("Display name is required");
       return;
     }
@@ -102,7 +107,6 @@ export default function UserProfile() {
         .eq("id", user.id);
 
       if (error) {
-        // Handle unique constraint violation for business_name
         if (error.code === "23505" && error.message.includes("business_name")) {
           toast.error("This business name is already taken");
           return;
@@ -111,6 +115,7 @@ export default function UserProfile() {
       }
 
       toast.success("Profile updated successfully");
+      setInitialProfile(profile);
     } catch (error) {
       console.error("Error saving profile:", error);
       toast.error("Failed to save profile");
@@ -119,9 +124,17 @@ export default function UserProfile() {
     }
   };
 
+  const isDirty =
+    initialProfile &&
+    (
+      profile.user_name?.trim() !== initialProfile.user_name ||
+      profile.business_name?.trim() !== initialProfile.business_name ||
+      profile.phone?.trim() !== initialProfile.phone
+    );
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-8">
+      <div className="flex items-center justify-center py-8 h-[404px]">
         <div className="animate-pulse text-muted-foreground">
           Loading profile...
         </div>
@@ -131,7 +144,7 @@ export default function UserProfile() {
 
   return (
     <div className="space-y-4">
-      {/* Email (Read-only) */}
+      {/* Email */}
       <div className="space-y-2">
         <Label htmlFor="email" className="flex items-center gap-2">
           <Mail className="w-4 h-4" />
@@ -188,7 +201,7 @@ export default function UserProfile() {
         </p>
       </div>
 
-      {/* Phone Number */}
+      {/* Phone */}
       <div className="space-y-2">
         <Label htmlFor="phone" className="flex items-center gap-2">
           <Phone className="w-4 h-4" />
@@ -201,13 +214,19 @@ export default function UserProfile() {
           id="phone"
           type="tel"
           value={profile.phone}
-          onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+          onChange={(e) =>
+            setProfile({ ...profile, phone: e.target.value })
+          }
           placeholder="+1234567890"
         />
       </div>
 
       {/* Save Button */}
-      <Button onClick={saveProfile} disabled={saving} className="w-full mt-4">
+      <Button
+        onClick={saveProfile}
+        disabled={saving || !isDirty}
+        className="w-full mt-4"
+      >
         {saving ? "Saving..." : "Save Profile"}
       </Button>
     </div>

@@ -47,8 +47,16 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
   useEffect(() => {
     // Check if editingItem exists and has item data
     if (editingItem && editingItem.data) {
-      // Initialize formData with the item data and ensure 'notes' and 'name' are present
-      setFormData(editingItem.data);
+      // Handle backward compatibility: convert old 'sell' to 'retailSell'
+      const itemData = editingItem.data;
+      const retailSell = itemData.retailSell !== undefined ? itemData.retailSell : itemData.sell || 0;
+      const bulkSell = itemData.bulkSell !== undefined ? itemData.bulkSell : retailSell;
+      
+      setFormData({
+        ...itemData,
+        retailSell,
+        bulkSell,
+      });
     } else if (!editingItem && formData !== null) {
       // Reset form data when the modal closes or editingItem is cleared
       setFormData(null);
@@ -74,7 +82,14 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
 
   const handleSubmit = () => {
     if (!formData || !formData.name.trim()) return;
-    onSave(formData);
+    
+    // If bulk sell is empty, set it to retail sell
+    const dataToSubmit = {
+      ...formData,
+      bulkSell: formData.bulkSell || formData.retailSell,
+    };
+    
+    onSave(dataToSubmit);
   };
 
   // Component to render the Select Content with nested units
@@ -113,26 +128,49 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
             <Input
               id="name"
               placeholder="Name"
-              value={formData.name} // <-- This is the crucial field binding
+              value={formData.name}
               onChange={(e) =>
                 setFormData({ ...formData, name: e.target.value })
               }
             />
           </div>
 
-          {/* Sell Price */}
+              <div className="flex gap-x-5">
+
+          {/* Retail Sell Price */}
           <div className="space-y-2">
-            <Label htmlFor="sell">Sell Price</Label>
+            <Label htmlFor="retailSell">Retail Sell Price</Label>
             <Input
-              id="sell"
+              id="retailSell"
               type="number"
-              placeholder="Sell Price"
-              value={formData.sell}
+              placeholder="Retail Sell Price"
+              value={formData.retailSell}
               onChange={(e) =>
-                setFormData({ ...formData, sell: e.target.value })
+                setFormData({ ...formData, retailSell: e.target.value })
               }
             />
           </div>
+
+          {/* Bulk Sell Price */}
+          <div className="space-y-2">
+            <Label htmlFor="bulkSell">
+              Bulk Sell Price{" "}
+              <span className="text-xs text-muted-foreground">
+                (Optional)
+              </span>
+            </Label>
+            <Input
+              id="bulkSell"
+              type="number"
+              placeholder="Bulk Sell Price"
+              value={formData.bulkSell}
+              onChange={(e) =>
+                setFormData({ ...formData, bulkSell: e.target.value })
+              }
+            />
+          </div>
+          </div>
+
 
           {/* Sell Unit - Using the new nested structure */}
           <div className="space-y-2">
@@ -189,7 +227,7 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
             <Textarea
               id="notes"
               placeholder="Add any specific details, supplier info, or remarks..."
-              value={formData.notes}
+              value={formData.notes || ""}
               onChange={(e) =>
                 setFormData({ ...formData, notes: e.target.value })
               }

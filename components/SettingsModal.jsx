@@ -1,7 +1,17 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Settings, Sun, Moon, Monitor, Search, ChevronDown, Package, FolderTree } from "lucide-react";
+import {
+  Settings,
+  Sun,
+  Moon,
+  Monitor,
+  Search,
+  ChevronDown,
+  Package,
+  FolderTree,
+  Boxes,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -29,41 +39,18 @@ import {
 import { supabase } from "@/lib/supabase";
 import UserProfile from "@/components/UserProfile";
 import { countItemsAndCategories } from "@/lib/utils/priceListStats";
-
-// Accordion Component
-const Accordion = ({ title, children, defaultOpen = false, badge = null }) => {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-
-  return (
-    <div className="border rounded-lg overflow-hidden">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          <span className="font-semibold">{title}</span>
-          {badge && (
-            <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full font-medium">
-              {badge}
-            </span>
-          )}
-        </div>
-        <ChevronDown
-          className={`w-5 h-5 transition-transform duration-200 ${isOpen ? "rotate-180" : ""
-            }`}
-        />
-      </button>
-      {isOpen && <div className="p-4 pt-0 space-y-4">{children}</div>}
-    </div>
-  );
-};
+import { usePriceList } from "@/hooks/usePriceList";
+import Accordion from "@/components/ui/accordion";
 
 const SettingsModal = () => {
+  const { sellPriceMode, toggleSellPriceMode } = usePriceList();
+
   const [isOpen, setIsOpen] = useState(false);
   const [fontSize, setFontSize] = useState(100);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeUnits, setActiveUnits] = useState(DEFAULT_ACTIVE_UNITS);
-  const [initialActiveUnits, setInitialActiveUnits] = useState(DEFAULT_ACTIVE_UNITS);
+  const [initialActiveUnits, setInitialActiveUnits] =
+    useState(DEFAULT_ACTIVE_UNITS);
   const [showCostProfit, setShowCostProfit] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [totalItems, setTotalItems] = useState(0);
@@ -119,7 +106,7 @@ const SettingsModal = () => {
             setInitialActiveUnits(data.active_units);
             localStorage.setItem(
               "activeUnits",
-              JSON.stringify(data.active_units)
+              JSON.stringify(data.active_units),
             );
           } else {
             // Fallback to localStorage
@@ -238,7 +225,7 @@ const SettingsModal = () => {
 
     Object.entries(UNIT_CATEGORIES).forEach(([category, units]) => {
       const matchedUnits = units.filter((unit) =>
-        unitMatchesQuery(unit, searchQuery)
+        unitMatchesQuery(unit, searchQuery),
       );
       if (matchedUnits.length > 0) {
         filtered[category] = matchedUnits;
@@ -284,7 +271,7 @@ const SettingsModal = () => {
           </div>
         </div>
 
-        <ScrollArea className="flex-1 pr-4 max-h-[calc(90vh-200px)]">
+        <ScrollArea className="flex-1 max-h-[calc(90vh-200px)]">
           <div className="space-y-3">
             {/* User Profile Accordion */}
             <Accordion title="User Profile" defaultOpen={false}>
@@ -362,7 +349,7 @@ const SettingsModal = () => {
               {/* Show Cost/Profit Toggle */}
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
-                  <Label className="text-sm">Show Cost & Profit</Label>
+                  <Label className="text-sm">Show Cost Prices & Profits</Label>
                   <p className="text-xs text-muted-foreground">
                     Enable cycling between Sell, Cost, and Profit views
                   </p>
@@ -372,6 +359,33 @@ const SettingsModal = () => {
                   onCheckedChange={toggleShowCostProfit}
                 />
               </div>
+              <Separator />
+
+              {/* Retail/Bulk Toggle Button */}
+              <Button
+                onClick={toggleSellPriceMode}
+                variant="outline"
+                size="sm"
+                className="w-full flex items-center gap-2"
+                title={`Switch to ${sellPriceMode === "retail" ? "Bulk" : "Retail"} prices`}
+              >
+                {sellPriceMode === "retail" ? (
+                  <>
+                    <Package className="w-4 h-4" />
+                    <span className="hidden sm:inline">
+                      Show <span className="font-bold">Retail Prices / Profits</span>
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Boxes className="w-4 h-4" />
+                    <span className="hidden sm:inline">
+                      Show <span className="font-bold">Bulk Prices / Profits</span>
+                    </span>
+                  </>
+                )}
+              </Button>
+              <Separator />
 
               <Button
                 onClick={resetSettings}
@@ -401,7 +415,7 @@ const SettingsModal = () => {
 
               {/* Units by Category */}
 
-              <div className="space-y-4 max-h-80 overflow-y-auto border rounded-lg p-3">
+              <div className="space-y-4 max-h-80 overflow-y-auto  border rounded-lg p-3">
                 {Object.keys(filteredCategories).length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">
                     No units found
@@ -434,7 +448,7 @@ const SettingsModal = () => {
                           ))}
                         </div>
                       </div>
-                    )
+                    ),
                   )
                 )}
               </div>

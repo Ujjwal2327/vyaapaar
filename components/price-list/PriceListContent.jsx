@@ -4,6 +4,7 @@ import { PriceItem } from "./PriceItem";
 export const PriceListContent = ({
   data,
   priceView,
+  sellPriceMode,
   editMode,
   expandedCategories,
   onToggleCategory,
@@ -51,6 +52,7 @@ export const PriceListContent = ({
             path={currentPath}
             item={value}
             priceView={priceView}
+            sellPriceMode={sellPriceMode}
             editMode={editMode}
             onEdit={onEdit}
             onDelete={onDelete}

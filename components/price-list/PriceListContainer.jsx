@@ -34,6 +34,7 @@ export const PriceListContainer = () => {
     toggleCategory,
     expandAll,
     collapseAll,
+    sellPriceMode,
     priceView,
     cyclePriceView,
     getPriceViewText,
@@ -76,7 +77,7 @@ export const PriceListContainer = () => {
   const sortedData = sortData(filteredData, sortType);
 
   const hasAnyExpanded = Object.values(expandedCategories).some(
-    (val) => val === true
+    (val) => val === true,
   );
 
   const [showItemDetailModal, setShowItemDetailModal] = useState(false); // New state
@@ -165,7 +166,7 @@ export const PriceListContainer = () => {
       priceData,
       editingItem.path, // Path to parent category
       originalItemName, // Original name (key to find and delete)
-      formData // New item data (including potentially new name)
+      formData, // New item data (including potentially new name)
     );
 
     // 1. Close modal instantly
@@ -193,7 +194,7 @@ export const PriceListContainer = () => {
     const newData = editCategory(
       priceData,
       editingCategory.path, // Full path of the category to rename
-      newNameTitleCase // New name
+      newNameTitleCase, // New name
     );
 
     // 1. Close modal instantly
@@ -278,6 +279,7 @@ export const PriceListContainer = () => {
       <PriceListContent
         data={sortedData}
         priceView={priceView}
+        sellPriceMode={sellPriceMode}
         editMode={editMode}
         expandedCategories={expandedCategories}
         onToggleCategory={toggleCategory}

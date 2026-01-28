@@ -43,14 +43,16 @@ const defaultData = {
         children: {
           "Angle valve": {
             type: "item",
-            sell: 50,
+            retailSell: 50,
+            bulkSell: 45,
             cost: 40,
             sellUnit: "piece",
             costUnit: "piece",
           },
           "Bib cock": {
             type: "item",
-            sell: 40,
+            retailSell: 40,
+            bulkSell: 40,
             cost: 32,
             sellUnit: "piece",
             costUnit: "piece",
@@ -66,12 +68,13 @@ export const usePriceList = () => {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedCategories, setExpandedCategories] = useState({});
-  const [priceView, setPriceView] = useState("sell");
+  const [sellPriceMode, setSellPriceMode] = useState("retail"); // "retail" or "bulk"
+  const [priceView, setPriceView] = useState("sell"); // "sell", "cost", or "profit"
   const [editMode, setEditMode] = useState(false); // Data States
 
   const [priceData, setPriceData] = useState(defaultData);
   const [isHydrated, setIsHydrated] = useState(false);
-  const [isDataLoading, setIsDataLoading] = useState(true); // ðŸ”‘ FIX: Use a useRef to ensure the initial data fetch runs exactly once
+  const [isDataLoading, setIsDataLoading] = useState(true); // Fix: Use a useRef to ensure the initial data fetch runs exactly once
 
   const hasFetchedDb = useRef(false); // Helper to load from local storage
 
@@ -93,11 +96,20 @@ export const usePriceList = () => {
     } else {
       setPriceData(defaultData);
     }
-  }; // 1. LOAD DATA: Triggered when Auth finishes loading
+  };
 
+  // Load sellPriceMode from localStorage on mount
+  useEffect(() => {
+    const savedMode = localStorage.getItem("sellPriceMode");
+    if (savedMode === "bulk" || savedMode === "retail") {
+      setSellPriceMode(savedMode);
+    }
+  }, []);
+
+  // 1. LOAD DATA: Triggered when Auth finishes loading
   useEffect(() => {
     const loadData = async () => {
-      // ðŸ›‘ Check ref value for single execution.
+      // Check ref value for single execution.
       if (hasFetchedDb.current) {
         setIsDataLoading(false);
         setIsHydrated(true);
@@ -106,7 +118,7 @@ export const usePriceList = () => {
 
       if (authLoading) return;
 
-      setIsDataLoading(true); // ðŸ›‘ Set ref to true immediately before execution
+      setIsDataLoading(true); // Set ref to true immediately before execution
 
       hasFetchedDb.current = true;
 
@@ -168,8 +180,9 @@ export const usePriceList = () => {
     // Listen for storage changes (if user changes in another tab)
     window.addEventListener("storage", checkShowCostProfit);
     return () => window.removeEventListener("storage", checkShowCostProfit);
-  }, [priceView]); // 2. SAVE DATA: DB -> Local -> State (Modified to preserve order)
+  }, [priceView]);
 
+  // 2. SAVE DATA: DB -> Local -> State (Modified to preserve order)
   const savePriceData = async (newData) => {
     const toastId = toast.loading("Syncing changes...");
 
@@ -188,7 +201,7 @@ export const usePriceList = () => {
           user_id: user.id,
           data: dataToSave, // Save the data with the explicit order keys
         },
-        { onConflict: "user_id" }
+        { onConflict: "user_id" },
       );
 
       if (error) throw error;
@@ -227,25 +240,39 @@ export const usePriceList = () => {
 
   const collapseAll = () => setExpandedCategories({});
 
+  // Toggle between retail and bulk mode
+  const toggleSellPriceMode = () => {
+    const newMode = sellPriceMode === "retail" ? "bulk" : "retail";
+    setSellPriceMode(newMode);
+    localStorage.setItem("sellPriceMode", newMode);
+  };
+
+  // Cycle through price views: Sell -> Cost -> Profit -> Sell
   const cyclePriceView = () => {
     const showCostProfit = localStorage.getItem("showCostProfit") === "true";
-    
+
     if (!showCostProfit) {
       // If showCostProfit is disabled, keep it on "sell" only
       setPriceView("sell");
       return;
     }
-    
-    // Normal cycling behavior when enabled
-    if (priceView === "sell") setPriceView("cost");
-    else if (priceView === "cost") setPriceView("profit");
-    else setPriceView("sell");
+
+    // Simplified cycling: sell → cost → profit → sell
+    if (priceView === "sell") {
+      setPriceView("cost");
+    } else if (priceView === "cost") {
+      setPriceView("profit");
+    } else {
+      setPriceView("sell");
+    }
   };
 
+  // Get text for price view button based on current mode
   const getPriceViewText = () => {
     if (priceView === "sell") return "Sell Price";
     if (priceView === "cost") return "Cost Price";
-    return "Profit";
+    if (priceView === "profit") return "Profit";
+    return "Sell Price";
   };
 
   return {
@@ -257,6 +284,8 @@ export const usePriceList = () => {
     toggleCategory,
     expandAll,
     collapseAll,
+    sellPriceMode,
+    toggleSellPriceMode,
     priceView,
     cyclePriceView,
     getPriceViewText,

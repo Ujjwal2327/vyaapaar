@@ -174,3 +174,14 @@
     scrollbar-color: #666 #1a1a1a;
   }
 }
+
+/* Hide scrollbar but keep scroll */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE & Edge */
+  scrollbar-width: none;     /* Firefox */
+}
