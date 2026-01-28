@@ -1,0 +1,91 @@
+-- ============================================
+-- COMPLETE SUPABASE DATABASE SCHEMA
+-- Price List Application
+-- ============================================
+
+-- Step 1: Create the price_lists table
+CREATE TABLE IF NOT EXISTS public.price_lists (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    CONSTRAINT price_lists_user_id_unique UNIQUE (user_id)
+);
+
+-- Step 2: Create index for faster queries
+CREATE INDEX IF NOT EXISTS idx_price_lists_user_id ON public.price_lists(user_id);
+CREATE INDEX IF NOT EXISTS idx_price_lists_updated_at ON public.price_lists(updated_at);
+
+-- Step 3: Enable Row Level Security (RLS)
+ALTER TABLE public.price_lists ENABLE ROW LEVEL SECURITY;
+
+-- Step 4: Drop existing policies if any (to avoid conflicts)
+DROP POLICY IF EXISTS "Users can view their own price lists" ON public.price_lists;
+DROP POLICY IF EXISTS "Users can insert their own price lists" ON public.price_lists;
+DROP POLICY IF EXISTS "Users can update their own price lists" ON public.price_lists;
+DROP POLICY IF EXISTS "Users can delete their own price lists" ON public.price_lists;
+
+-- Step 5: Create RLS policies for secure access
+-- Policy: Users can only view their own data
+CREATE POLICY "Users can view their own price lists"
+    ON public.price_lists
+    FOR SELECT
+    USING (auth.uid() = user_id);
+
+-- Policy: Users can only insert their own data
+CREATE POLICY "Users can insert their own price lists"
+    ON public.price_lists
+    FOR INSERT
+    WITH CHECK (auth.uid() = user_id);
+
+-- Policy: Users can only update their own data
+CREATE POLICY "Users can update their own price lists"
+    ON public.price_lists
+    FOR UPDATE
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+
+-- Policy: Users can only delete their own data
+CREATE POLICY "Users can delete their own price lists"
+    ON public.price_lists
+    FOR DELETE
+    USING (auth.uid() = user_id);
+
+-- Step 6: Create function to automatically update updated_at timestamp
+-- BUT ONLY when updated_at is not explicitly provided
+CREATE OR REPLACE FUNCTION public.handle_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Only auto-update if the updated_at wasn't explicitly set
+    IF NEW.updated_at = OLD.updated_at THEN
+        NEW.updated_at = NOW();
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Step 7: Create trigger for updated_at (only on UPDATE, not INSERT)
+DROP TRIGGER IF EXISTS set_updated_at ON public.price_lists;
+CREATE TRIGGER set_updated_at
+    BEFORE UPDATE ON public.price_lists
+    FOR EACH ROW
+    EXECUTE FUNCTION public.handle_updated_at();
+
+-- Step 8: Grant necessary permissions to authenticated users
+GRANT USAGE ON SCHEMA public TO authenticated;
+GRANT ALL ON public.price_lists TO authenticated;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+
+
+
+
+-- Add active_units column to price_lists table
+ALTER TABLE public.price_lists 
+ADD COLUMN IF NOT EXISTS active_units TEXT[] DEFAULT ARRAY['piece', 'meter', 'kg', 'liter', 'pack'];
+
+-- Create index for active_units
+CREATE INDEX IF NOT EXISTS idx_price_lists_active_units ON public.price_lists USING GIN (active_units);
+
+
+

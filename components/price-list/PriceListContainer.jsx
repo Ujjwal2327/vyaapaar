@@ -58,6 +58,20 @@ export const PriceListContainer = () => {
   const [bulkEditText, setBulkEditText] = useState("");
   const [sortType, setSortType] = useState("none");
 
+  // Load sortType from localStorage on mount
+  useEffect(() => {
+    const savedSortType = localStorage.getItem("sortType");
+    if (savedSortType) {
+      setSortType(savedSortType);
+    }
+  }, []);
+
+  // Save sortType to localStorage whenever it changes
+  const handleSortChange = (newSortType) => {
+    setSortType(newSortType);
+    localStorage.setItem("sortType", newSortType);
+  };
+
   const filteredData = filterData(priceData, searchTerm);
   const sortedData = sortData(filteredData, sortType);
 
@@ -257,7 +271,7 @@ export const PriceListContainer = () => {
         onExpandAll={() => expandAll(sortedData)}
         onCollapseAll={collapseAll}
         sortType={sortType}
-        onSortChange={setSortType}
+        onSortChange={handleSortChange}
         hasAnyExpanded={hasAnyExpanded}
       />
 

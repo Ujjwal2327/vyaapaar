@@ -1,0 +1,215 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
+import { User, Building2, Phone, Mail } from "lucide-react";
+
+export default function UserProfile() {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [profile, setProfile] = useState({
+    user_name: "",
+    business_name: "",
+    phone: "",
+    email: "",
+  });
+
+  useEffect(() => {
+    if (user) {
+      loadProfile();
+    }
+  }, [user]);
+
+  const loadProfile = async () => {
+    if (!user) return;
+
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", user.id)
+        .single();
+
+      if (error) {
+        // If profile doesn't exist (shouldn't happen with trigger), create it
+        if (error.code === "PGRST116") {
+          await createProfile();
+          return;
+        }
+        throw error;
+      }
+
+      if (data) {
+        setProfile({
+          user_name: data.user_name || "",
+          business_name: data.business_name || "",
+          phone: data.phone || "",
+          email: data.email || user.email || "",
+        });
+      }
+    } catch (error) {
+      console.error("Error loading profile:", error);
+      toast.error("Failed to load profile");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createProfile = async () => {
+    if (!user) return;
+
+    try {
+      const { error } = await supabase.from("users").insert({
+        id: user.id,
+        email: user.email,
+        user_name: user.email?.split("@")[0] || "",
+      });
+
+      if (error) throw error;
+
+      await loadProfile();
+    } catch (error) {
+      console.error("Error creating profile:", error);
+      toast.error("Failed to create profile");
+    }
+  };
+
+  const saveProfile = async () => {
+    if (!user) return;
+
+    // Validation
+    if (!profile.user_name?.trim()) {
+      toast.error("Display name is required");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("users")
+        .update({
+          user_name: profile.user_name.trim(),
+          business_name: profile.business_name?.trim() || null,
+          phone: profile.phone?.trim() || null,
+        })
+        .eq("id", user.id);
+
+      if (error) {
+        // Handle unique constraint violation for business_name
+        if (error.code === "23505" && error.message.includes("business_name")) {
+          toast.error("This business name is already taken");
+          return;
+        }
+        throw error;
+      }
+
+      toast.success("Profile updated successfully");
+    } catch (error) {
+      console.error("Error saving profile:", error);
+      toast.error("Failed to save profile");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <div className="animate-pulse text-muted-foreground">
+          Loading profile...
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Email (Read-only) */}
+      <div className="space-y-2">
+        <Label htmlFor="email" className="flex items-center gap-2">
+          <Mail className="w-4 h-4" />
+          Email
+        </Label>
+        <Input
+          id="email"
+          type="email"
+          value={profile.email}
+          disabled
+          className="bg-muted cursor-not-allowed"
+        />
+        <p className="text-xs text-muted-foreground">
+          Email cannot be changed
+        </p>
+      </div>
+
+      {/* Display Name */}
+      <div className="space-y-2">
+        <Label htmlFor="user_name" className="flex items-center gap-2">
+          <User className="w-4 h-4" />
+          Display Name
+        </Label>
+        <Input
+          id="user_name"
+          value={profile.user_name}
+          onChange={(e) =>
+            setProfile({ ...profile, user_name: e.target.value })
+          }
+          placeholder="Your name"
+          required
+        />
+      </div>
+
+      {/* Business Name */}
+      <div className="space-y-2">
+        <Label htmlFor="business_name" className="flex items-center gap-2">
+          <Building2 className="w-4 h-4" />
+          Business Name
+          <span className="text-xs text-muted-foreground ml-auto">
+            Optional
+          </span>
+        </Label>
+        <Input
+          id="business_name"
+          value={profile.business_name}
+          onChange={(e) =>
+            setProfile({ ...profile, business_name: e.target.value })
+          }
+          placeholder="Your business name"
+        />
+        <p className="text-xs text-muted-foreground">
+          Must be unique if provided
+        </p>
+      </div>
+
+      {/* Phone Number */}
+      <div className="space-y-2">
+        <Label htmlFor="phone" className="flex items-center gap-2">
+          <Phone className="w-4 h-4" />
+          Phone Number
+          <span className="text-xs text-muted-foreground ml-auto">
+            Optional
+          </span>
+        </Label>
+        <Input
+          id="phone"
+          type="tel"
+          value={profile.phone}
+          onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+          placeholder="+1234567890"
+        />
+      </div>
+
+      {/* Save Button */}
+      <Button onClick={saveProfile} disabled={saving} className="w-full mt-4">
+        {saving ? "Saving..." : "Save Profile"}
+      </Button>
+    </div>
+  );
+}

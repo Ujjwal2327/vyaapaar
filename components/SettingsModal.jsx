@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Settings, Sun, Moon, Monitor, Search } from "lucide-react";
+import { Settings, Sun, Moon, Monitor, Search, ChevronDown, Package, FolderTree } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   UNIT_CATEGORIES,
@@ -26,16 +27,71 @@ import {
   unitMatchesQuery,
 } from "@/lib/units-config";
 import { supabase } from "@/lib/supabase";
+import UserProfile from "@/components/UserProfile";
+import { countItemsAndCategories } from "@/lib/utils/priceListStats";
+
+// Accordion Component
+const Accordion = ({ title, children, defaultOpen = false, badge = null }) => {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <span className="font-semibold">{title}</span>
+          {badge && (
+            <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full font-medium">
+              {badge}
+            </span>
+          )}
+        </div>
+        <ChevronDown
+          className={`w-5 h-5 transition-transform duration-200 ${isOpen ? "rotate-180" : ""
+            }`}
+        />
+      </button>
+      {isOpen && <div className="p-4 pt-0 space-y-4">{children}</div>}
+    </div>
+  );
+};
 
 const SettingsModal = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [fontSize, setFontSize] = useState(100);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeUnits, setActiveUnits] = useState(DEFAULT_ACTIVE_UNITS);
+  const [initialActiveUnits, setInitialActiveUnits] = useState(DEFAULT_ACTIVE_UNITS);
+  const [showCostProfit, setShowCostProfit] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalCategories, setTotalCategories] = useState(0);
   const { theme, setTheme } = useTheme();
   const { signOut, user } = useAuth();
   const router = useRouter();
+
+  // Load item count from database
+  const loadItemCount = async () => {
+    if (!user?.id) return;
+
+    try {
+      const { data, error } = await supabase
+        .from("price_lists")
+        .select("data")
+        .eq("user_id", user.id)
+        .single();
+
+      if (!error && data?.data) {
+        const { itemCount, categoryCount } = countItemsAndCategories(data.data);
+        setTotalItems(itemCount);
+        setTotalCategories(categoryCount);
+      }
+    } catch (error) {
+      console.error("Error loading item count:", error);
+    }
+  };
 
   // Load settings from localStorage and DB on mount
   useEffect(() => {
@@ -44,6 +100,10 @@ const SettingsModal = () => {
       const savedFontSize = localStorage.getItem("fontSize") || "100";
       setFontSize(parseInt(savedFontSize));
       document.documentElement.style.fontSize = `${savedFontSize}%`;
+
+      // Show Cost/Profit setting
+      const savedShowCostProfit = localStorage.getItem("showCostProfit");
+      setShowCostProfit(savedShowCostProfit === "true");
 
       // Active units - prioritize DB over localStorage
       if (user?.id) {
@@ -56,6 +116,7 @@ const SettingsModal = () => {
 
           if (!error && data?.active_units) {
             setActiveUnits(data.active_units);
+            setInitialActiveUnits(data.active_units);
             localStorage.setItem(
               "activeUnits",
               JSON.stringify(data.active_units)
@@ -64,21 +125,40 @@ const SettingsModal = () => {
             // Fallback to localStorage
             const localUnits = localStorage.getItem("activeUnits");
             if (localUnits) {
-              setActiveUnits(JSON.parse(localUnits));
+              const parsedUnits = JSON.parse(localUnits);
+              setActiveUnits(parsedUnits);
+              setInitialActiveUnits(parsedUnits);
+            } else {
+              setInitialActiveUnits(DEFAULT_ACTIVE_UNITS);
             }
           }
         } catch (error) {
           console.error("Error loading active units:", error);
           const localUnits = localStorage.getItem("activeUnits");
           if (localUnits) {
-            setActiveUnits(JSON.parse(localUnits));
+            const parsedUnits = JSON.parse(localUnits);
+            setActiveUnits(parsedUnits);
+            setInitialActiveUnits(parsedUnits);
+          } else {
+            setInitialActiveUnits(DEFAULT_ACTIVE_UNITS);
           }
         }
+      } else {
+        const localUnits = localStorage.getItem("activeUnits");
+        if (localUnits) {
+          const parsedUnits = JSON.parse(localUnits);
+          setInitialActiveUnits(parsedUnits);
+        }
       }
+
+      // Load item count
+      await loadItemCount();
     };
 
-    loadSettings();
-  }, [user]);
+    if (isOpen) {
+      loadSettings();
+    }
+  }, [user, isOpen]);
 
   const handleFontSizeChange = (value) => {
     const newSize = value[0];
@@ -120,8 +200,12 @@ const SettingsModal = () => {
 
   const handleCloseDialog = async (open) => {
     if (!open && isOpen) {
-      // Dialog is closing - save to DB
-      await saveUnitsToDb();
+      // Dialog is closing - only save to DB if activeUnits changed
+      const unitsChanged =
+        JSON.stringify(activeUnits) !== JSON.stringify(initialActiveUnits);
+      if (unitsChanged) {
+        await saveUnitsToDb();
+      }
     }
     setIsOpen(open);
   };
@@ -131,6 +215,13 @@ const SettingsModal = () => {
     setFontSize(100);
     localStorage.setItem("fontSize", "100");
     document.documentElement.style.fontSize = "100%";
+    setShowCostProfit(false);
+    localStorage.setItem("showCostProfit", "false");
+  };
+
+  const toggleShowCostProfit = (checked) => {
+    setShowCostProfit(checked);
+    localStorage.setItem("showCostProfit", checked.toString());
   };
 
   const handleLogout = async () => {
@@ -171,90 +262,132 @@ const SettingsModal = () => {
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
-            Customize your application appearance and preferences.
+            Customize your application and manage your profile
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 pr-4">
-          <div className="space-y-6 py-4">
-            {/* Theme Toggle */}
-            <div className="space-y-2">
-              <Label className="text-[1.05rem]">Theme</Label>
+        {/* Inventory Stats */}
+        <div className="grid grid-cols-2 gap-3 pb-2">
+          <div className="flex items-center gap-3 p-3 bg-gradient-to-br from-primary/10 to-primary/5 rounded-lg border">
+            <Package className="w-8 h-8 text-primary" />
+            <div>
+              <p className="text-2xl font-bold">{totalItems}</p>
+              <p className="text-xs text-muted-foreground">Total Items</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 p-3 bg-gradient-to-br from-secondary/10 to-secondary/5 rounded-lg border">
+            <FolderTree className="w-8 h-8 text-secondary-foreground" />
+            <div>
+              <p className="text-2xl font-bold">{totalCategories}</p>
+              <p className="text-xs text-muted-foreground">Categories</p>
+            </div>
+          </div>
+        </div>
+
+        <ScrollArea className="flex-1 pr-4 max-h-[calc(90vh-200px)]">
+          <div className="space-y-3">
+            {/* User Profile Accordion */}
+            <Accordion title="User Profile" defaultOpen={false}>
+              <UserProfile />
+            </Accordion>
+
+            {/* Display Settings Accordion */}
+            <Accordion title="Display Settings">
+              {/* Theme Toggle */}
+              <div className="space-y-2">
+                <Label className="text-sm">Theme</Label>
+                <Button
+                  onClick={() => {
+                    theme === "light" ? setTheme("dark") : setTheme("light");
+                  }}
+                  className="w-full"
+                  variant="outline"
+                >
+                  {theme === "light" ? (
+                    <span className="flex gap-2 items-center">
+                      <Sun className="h-4 w-4" />
+                      <span>Light Theme</span>
+                    </span>
+                  ) : theme === "dark" ? (
+                    <span className="flex gap-2 items-center">
+                      <Moon className="h-4 w-4" />
+                      <span>Dark Theme</span>
+                    </span>
+                  ) : (
+                    <span className="flex gap-2 items-center">
+                      <Monitor className="h-4 w-4" />
+                      <span>System Theme</span>
+                    </span>
+                  )}
+                </Button>
+              </div>
+
+              <Separator />
+
+              {/* Font Size Slider */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm">Font Size</Label>
+                  <span className="text-xs text-muted-foreground">
+                    {fontSize}%
+                  </span>
+                </div>
+
+                <Slider
+                  value={[fontSize]}
+                  onValueChange={handleFontSizeChange}
+                  min={75}
+                  max={150}
+                  step={5}
+                  className="w-full"
+                />
+
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Small</span>
+                  <span>Large</span>
+                </div>
+
+                <div className="rounded-lg border bg-muted/50 p-3">
+                  <p className="text-center font-medium text-sm">
+                    Preview Text
+                  </p>
+                  <p className="text-center text-xs text-muted-foreground mt-1">
+                    The quick brown fox jumps over the lazy dog
+                  </p>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Show Cost/Profit Toggle */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <Label className="text-sm">Show Cost & Profit</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Enable cycling between Sell, Cost, and Profit views
+                  </p>
+                </div>
+                <Switch
+                  checked={showCostProfit}
+                  onCheckedChange={toggleShowCostProfit}
+                />
+              </div>
+
               <Button
-                onClick={() => {
-                  theme === "light" ? setTheme("dark") : setTheme("light");
-                }}
-                className="w-full"
+                onClick={resetSettings}
+                variant="secondary"
+                className="w-full mt-2"
+                size="sm"
               >
-                {theme === "light" ? (
-                  <span className="flex gap-2 items-center">
-                    <Sun className="h-5 w-5" />
-                    <span>Light Theme</span>
-                  </span>
-                ) : theme === "dark" ? (
-                  <span className="flex gap-2 items-center">
-                    <Moon className="h-5 w-5" />
-                    <span>Dark Theme</span>
-                  </span>
-                ) : (
-                  <span className="flex gap-2 items-center">
-                    <Monitor className="h-5 w-5" />
-                    <span>System Theme</span>
-                  </span>
-                )}
+                Reset Display Settings
               </Button>
-            </div>
+            </Accordion>
 
-            {/* Font Size Slider */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <Label className="text-[1.05rem]">Font Size</Label>
-                <span className="text-sm text-muted-foreground">
-                  {fontSize}%
-                </span>
-              </div>
-
-              <Slider
-                value={[fontSize]}
-                onValueChange={handleFontSizeChange}
-                min={75}
-                max={150}
-                step={5}
-                className="w-full"
-              />
-
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>Small</span>
-                <span>Large</span>
-              </div>
-
-              <div className="rounded-lg border bg-muted/50 p-4">
-                <p className="text-center font-medium">Preview Text</p>
-                <p className="text-center text-sm text-muted-foreground mt-1">
-                  The quick brown fox jumps over the lazy dog
-                </p>
-              </div>
-            </div>
-
-            <Button
-              onClick={resetSettings}
-              variant="secondary"
-              className="w-full"
+            {/* Active Units Accordion */}
+            <Accordion
+              title="Active Units"
+              badge={`${activeUnits.length} selected`}
             >
-              Reset to Defaults
-            </Button>
-
-            <Separator />
-
-            {/* Active Units */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <Label className="text-[1.05rem]">Active Units</Label>
-                <span className="text-sm text-muted-foreground">
-                  {activeUnits.length} selected
-                </span>
-              </div>
-
               {/* Search Bar */}
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -267,7 +400,8 @@ const SettingsModal = () => {
               </div>
 
               {/* Units by Category */}
-              <div className="space-y-4 max-h-96 overflow-y-auto border rounded-lg p-4 pt-0">
+
+              <div className="space-y-4 max-h-80 overflow-y-auto border rounded-lg p-3">
                 {Object.keys(filteredCategories).length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">
                     No units found
@@ -275,25 +409,24 @@ const SettingsModal = () => {
                 ) : (
                   Object.entries(filteredCategories).map(
                     ([category, units]) => (
-                      <div key={category} className="space-y-3">
-                        <h4 className="font-semibold text-sm sticky top-0 bg-background py-1">
+                      <div key={category} className="space-y-2">
+                        <h4 className="font-semibold text-xs uppercase text-muted-foreground sticky top-0 bg-background py-1">
                           {category}
                         </h4>
-                        <div className="space-y-2">
+                        <div className="space-y-1">
                           {units.map((unit) => (
                             <div
                               key={unit.name}
-                              className="flex items-start space-x-2 p-2 rounded hover:bg-muted/50 transition-colors"
+                              className="flex items-center space-x-2 p-2 rounded hover:bg-muted/50 transition-colors"
                             >
                               <Checkbox
                                 id={unit.name}
                                 checked={activeUnits.includes(unit.name)}
                                 onCheckedChange={() => toggleUnit(unit.name)}
-                                className="mt-0.5"
                               />
                               <label
                                 htmlFor={unit.name}
-                                className="text-sm font-medium cursor-pointer capitalize flex-1"
+                                className="text-sm cursor-pointer capitalize flex-1"
                               >
                                 {unit.name}
                               </label>
@@ -305,14 +438,11 @@ const SettingsModal = () => {
                   )
                 )}
               </div>
-            </div>
+            </Accordion>
 
-            {/* Added a custom margin-top for clear separation before the Logout button */}
-            <div className="pt-4">
-              <Separator />
-            </div>
+            <Separator className="my-4" />
 
-            {/* Logout Button - Now visually separated from Reset */}
+            {/* Logout Button */}
             <Button
               onClick={handleLogout}
               variant="destructive"
@@ -324,8 +454,10 @@ const SettingsModal = () => {
         </ScrollArea>
 
         {isSaving && (
-          <div className="absolute inset-0 bg-background/50 flex items-center justify-center">
-            <p className="text-sm">Saving...</p>
+          <div className="absolute inset-0 bg-background/80 flex items-center justify-center rounded-lg">
+            <div className="bg-card p-4 rounded-lg shadow-lg border">
+              <p className="text-sm font-medium">Saving changes...</p>
+            </div>
           </div>
         )}
       </DialogContent>

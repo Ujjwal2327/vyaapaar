@@ -71,7 +71,7 @@ export const usePriceList = () => {
 
   const [priceData, setPriceData] = useState(defaultData);
   const [isHydrated, setIsHydrated] = useState(false);
-  const [isDataLoading, setIsDataLoading] = useState(true); // 🔑 FIX: Use a useRef to ensure the initial data fetch runs exactly once
+  const [isDataLoading, setIsDataLoading] = useState(true); // ðŸ”‘ FIX: Use a useRef to ensure the initial data fetch runs exactly once
 
   const hasFetchedDb = useRef(false); // Helper to load from local storage
 
@@ -97,7 +97,7 @@ export const usePriceList = () => {
 
   useEffect(() => {
     const loadData = async () => {
-      // 🛑 Check ref value for single execution.
+      // ðŸ›‘ Check ref value for single execution.
       if (hasFetchedDb.current) {
         setIsDataLoading(false);
         setIsHydrated(true);
@@ -106,7 +106,7 @@ export const usePriceList = () => {
 
       if (authLoading) return;
 
-      setIsDataLoading(true); // 🛑 Set ref to true immediately before execution
+      setIsDataLoading(true); // ðŸ›‘ Set ref to true immediately before execution
 
       hasFetchedDb.current = true;
 
@@ -151,7 +151,24 @@ export const usePriceList = () => {
     };
 
     loadData();
-  }, [user, authLoading]); // 2. SAVE DATA: DB -> Local -> State (Modified to preserve order)
+  }, [user, authLoading]);
+
+  // Effect to reset priceView when showCostProfit setting changes
+  useEffect(() => {
+    const checkShowCostProfit = () => {
+      const showCostProfit = localStorage.getItem("showCostProfit") === "true";
+      if (!showCostProfit && priceView !== "sell") {
+        setPriceView("sell");
+      }
+    };
+
+    // Check on mount
+    checkShowCostProfit();
+
+    // Listen for storage changes (if user changes in another tab)
+    window.addEventListener("storage", checkShowCostProfit);
+    return () => window.removeEventListener("storage", checkShowCostProfit);
+  }, [priceView]); // 2. SAVE DATA: DB -> Local -> State (Modified to preserve order)
 
   const savePriceData = async (newData) => {
     const toastId = toast.loading("Syncing changes...");
@@ -211,6 +228,15 @@ export const usePriceList = () => {
   const collapseAll = () => setExpandedCategories({});
 
   const cyclePriceView = () => {
+    const showCostProfit = localStorage.getItem("showCostProfit") === "true";
+    
+    if (!showCostProfit) {
+      // If showCostProfit is disabled, keep it on "sell" only
+      setPriceView("sell");
+      return;
+    }
+    
+    // Normal cycling behavior when enabled
     if (priceView === "sell") setPriceView("cost");
     else if (priceView === "cost") setPriceView("profit");
     else setPriceView("sell");
