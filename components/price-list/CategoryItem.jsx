@@ -1,5 +1,6 @@
-import { ChevronDown, ChevronUp, Plus, Trash2, Edit2 } from "lucide-react"; // Import Edit2
+import { ChevronDown, ChevronUp, Plus, Trash2, Edit2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useState, useRef } from "react";
 
 export const CategoryItem = ({
   name,
@@ -11,14 +12,47 @@ export const CategoryItem = ({
   onDelete,
   onAddSubcategory,
   onAddItem,
-  onEditCategory, // <-- New Prop for category editing
+  onEditCategory,
+  onViewCategoryDetails, // New prop for viewing category details
   children,
 }) => {
+  // Double-tap detection state
+  const [tapCount, setTapCount] = useState(0);
+  const tapTimeoutRef = useRef(null);
+
+  const handleCategoryClick = () => {
+    if (editMode) {
+      // In edit mode, just toggle
+      onToggle();
+      return;
+    }
+
+    // Not in edit mode - handle double tap
+    setTapCount((prev) => prev + 1);
+
+    // Clear existing timeout
+    if (tapTimeoutRef.current) {
+      clearTimeout(tapTimeoutRef.current);
+    }
+
+    // Set new timeout
+    tapTimeoutRef.current = setTimeout(() => {
+      if (tapCount + 1 === 1) {
+        // Single tap - toggle expand/collapse
+        onToggle();
+      } else if (tapCount + 1 === 2) {
+        // Double tap - view details
+        onViewCategoryDetails(path, name);
+      }
+      setTapCount(0);
+    }, 300); // 300ms window for double tap
+  };
+
   return (
     <div className="mb-2">
       <div className="flex gap-2">
         <Button
-          onClick={onToggle}
+          onClick={handleCategoryClick}
           className={`flex-1 justify-between ${
             level === 0
               ? "text-xl font-bold"
@@ -37,11 +71,9 @@ export const CategoryItem = ({
         </Button>
         {editMode && (
           <div className="flex gap-2">
-            {/* --- ADDED EDIT BUTTON --- */}
             <Button
               onClick={(e) => {
                 e.stopPropagation();
-                // Pass the category name and its full path to the handler
                 onEditCategory(path, name);
               }}
               variant="secondary"
@@ -49,7 +81,6 @@ export const CategoryItem = ({
             >
               <Edit2 className="w-4 h-4" />
             </Button>
-            {/* --- END ADDED EDIT BUTTON --- */}
             <Button
               onClick={(e) => {
                 e.stopPropagation();

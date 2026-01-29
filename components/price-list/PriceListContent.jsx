@@ -13,6 +13,7 @@ export const PriceListContent = ({
   onAddSubcategory,
   onAddItem,
   onEditCategory,
+  onViewCategoryDetails, // New prop
   onViewDetails,
   parentPath = "",
   level = 0,
@@ -38,6 +39,7 @@ export const PriceListContent = ({
             onAddSubcategory={onAddSubcategory}
             onAddItem={onAddItem}
             onEditCategory={onEditCategory}
+            onViewCategoryDetails={onViewCategoryDetails} // Pass the new prop
           >
             {value.children &&
               renderItems(value.children, currentPath, currentLevel + 1)}

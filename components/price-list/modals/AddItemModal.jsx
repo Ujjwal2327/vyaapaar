@@ -143,6 +143,29 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
             />
           </div>
 
+          {type === "category" && (
+            <>
+              {/* Category Notes */}
+              <div className="space-y-2">
+                <Label htmlFor="category-notes">
+                  Notes{" "}
+                  <span className="text-xs text-muted-foreground">
+                    (Optional)
+                  </span>
+                </Label>
+                <Textarea
+                  id="category-notes"
+                  placeholder="Add any notes about this category..."
+                  value={formData.notes}
+                  onChange={(e) =>
+                    setFormData({ ...formData, notes: e.target.value })
+                  }
+                  rows={4}
+                />
+              </div>
+            </>
+          )}
+
           {type === "item" && (
             <>
               <div className="flex gap-x-5">

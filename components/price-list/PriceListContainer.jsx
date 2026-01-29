@@ -14,6 +14,7 @@ import {
   deleteItem,
   sortData,
   editCategory,
+  getItemAtPath,
 } from "@/lib/utils/priceListUtils";
 import {
   exportToText,
@@ -21,7 +22,8 @@ import {
   toTitleCase,
 } from "@/lib/utils/dataTransform";
 import { toast } from "sonner";
-import { RenameCategoryModal } from "./modals/RenameCategoryModal";
+import { EditCategoryModal } from "./modals/EditCategoryModal";
+import { CategoryDetailModal } from "./modals/CategoryDetailModal";
 import { ItemDetailModal } from "./modals/ItemDetailModal";
 
 export const PriceListContainer = () => {
@@ -49,9 +51,14 @@ export const PriceListContainer = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showBulkModal, setShowBulkModal] = useState(false);
 
-  // --- NEW STATE FOR CATEGORY RENAMING ---
-  const [showRenameCategoryModal, setShowRenameCategoryModal] = useState(false);
+  // --- STATE FOR CATEGORY EDITING ---
+  const [showEditCategoryModal, setShowEditCategoryModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState(null);
+  // ---------------------------------------
+
+  // --- STATE FOR CATEGORY VIEWING ---
+  const [showCategoryDetailModal, setShowCategoryDetailModal] = useState(false);
+  const [viewingCategory, setViewingCategory] = useState({ name: "", notes: "" });
   // ---------------------------------------
 
   const [modalType, setModalType] = useState("");
@@ -81,8 +88,8 @@ export const PriceListContainer = () => {
     (val) => val === true,
   );
 
-  const [showItemDetailModal, setShowItemDetailModal] = useState(false); // New state
-  const [viewingItem, setViewingItem] = useState({ data: null, name: "" }); // New state
+  const [showItemDetailModal, setShowItemDetailModal] = useState(false);
+  const [viewingItem, setViewingItem] = useState({ data: null, name: "" });
 
   // Auto-expand when searching
   useEffect(() => {
@@ -125,29 +132,20 @@ export const PriceListContainer = () => {
   // Add Item/Category Wrapper (OPTIMISTIC/BACKGROUND SAVE)
   const handleAdd = async (formData) => {
     formData.name = toTitleCase(formData.name);
-    // 1. Calculate result locally
     const newData = addItem(priceData, modalContext.path, modalType, formData);
-
-    // 2. IMPORTANT: We close the modal first for fast UX.
     setShowAddModal(false);
-
-    // 3. Push to DB in the background. The hook handles state update on success.
-    // NOTE: This call must NOT use await here if you want the modal to close instantly.
     savePriceData(newData);
   };
 
   const handleEditItem = (path, itemData) => {
-    // The last segment of the path is the item's name.
-    // Example: path = "category1.category2.ItemName"
     const pathSegments = path.split(".");
     const itemName = pathSegments[pathSegments.length - 1];
 
-    // The data for editing should include the name of the item.
     setEditingItem({
-      path: path.substring(0, path.lastIndexOf(".")), // Path to the parent (category)
+      path: path.substring(0, path.lastIndexOf(".")),
       data: {
         ...itemData,
-        name: itemName, // Inject the name into the item data
+        name: itemName,
       },
     });
     setShowEditModal(true);
@@ -157,53 +155,57 @@ export const PriceListContainer = () => {
   const handleEdit = async (formData) => {
     if (!editingItem) return;
 
-    // Store the original name before applying title case to the form data
     const originalItemName = editingItem.data.name;
-
     formData.name = toTitleCase(formData.name);
 
-    // Pass parent path, original name (key), and new data for order preservation
     const newData = editItem(
       priceData,
-      editingItem.path, // Path to parent category
-      originalItemName, // Original name (key to find and delete)
-      formData, // New item data (including potentially new name)
+      editingItem.path,
+      originalItemName,
+      formData,
     );
 
-    // 1. Close modal instantly
     setShowEditModal(false);
     setEditingItem(null);
-
-    // 2. Push to DB in the background.
     savePriceData(newData);
   };
 
   // --- CATEGORY EDIT HANDLERS ---
   const handleEditCategory = (path, name) => {
-    // Path is the full path to the category (e.g., "CatA.SubCatB")
-    setEditingCategory({ path, name });
-    setShowRenameCategoryModal(true);
+    // Get the category data to retrieve existing notes
+    const categoryData = getItemAtPath(priceData, path);
+    const existingNotes = categoryData?.notes || "";
+
+    setEditingCategory({ path, name, notes: existingNotes });
+    setShowEditCategoryModal(true);
   };
 
-  const handleRenameCategory = async (newName) => {
-    if (!editingCategory || !newName.trim()) return;
+  const handleSaveCategory = async (formData) => {
+    if (!editingCategory || !formData.name.trim()) return;
 
-    const newNameTitleCase = toTitleCase(newName);
+    const newNameTitleCase = toTitleCase(formData.name);
 
-    // Assuming editCategory utility handles the actual replacement/renaming
-    // and preserves the order of keys.
     const newData = editCategory(
       priceData,
-      editingCategory.path, // Full path of the category to rename
-      newNameTitleCase, // New name
+      editingCategory.path,
+      newNameTitleCase,
+      formData.notes, // Pass the notes to editCategory
     );
 
-    // 1. Close modal instantly
-    setShowRenameCategoryModal(false);
+    setShowEditCategoryModal(false);
     setEditingCategory(null);
-
-    // 2. Push to DB in the background.
     savePriceData(newData);
+  };
+  // ---------------------------------
+
+  // --- CATEGORY VIEW HANDLERS ---
+  const handleViewCategoryDetails = (path, name) => {
+    // Get the category data to retrieve notes
+    const categoryData = getItemAtPath(priceData, path);
+    const categoryNotes = categoryData?.notes || "";
+
+    setViewingCategory({ name, notes: categoryNotes });
+    setShowCategoryDetailModal(true);
   };
   // ---------------------------------
 
@@ -214,13 +216,12 @@ export const PriceListContainer = () => {
       e.stopPropagation();
     }
 
-    // Use toast confirmation instead of window.confirm for better integration
     toast.warning("Are you sure you want to delete this item?", {
       action: {
         label: "Delete",
         onClick: () => {
           const newData = deleteItem(priceData, path);
-          savePriceData(newData); // Save in background after confirmation
+          savePriceData(newData);
         },
       },
       duration: 5000,
@@ -237,15 +238,10 @@ export const PriceListContainer = () => {
   const handleBulkSave = async (bulkText) => {
     try {
       const newData = importFromText(bulkText);
-
-      // 1. Close modal instantly
       setShowBulkModal(false);
-
-      // 2. Push to DB in the background.
       savePriceData(newData);
     } catch (error) {
       console.error("Import error:", error);
-      // Use toast instead of alert for consistent UI
       toast.error("Import Error", {
         description: "Data format is invalid. Please check the text.",
       });
@@ -290,8 +286,9 @@ export const PriceListContainer = () => {
         onEdit={handleEditItem}
         onAddSubcategory={handleAddSubcategory}
         onAddItem={handleAddItem}
-        onEditCategory={handleEditCategory} // Passed down to PriceListContent
-        onViewDetails={handleViewDetails} // <--- NEW PROP
+        onEditCategory={handleEditCategory}
+        onViewCategoryDetails={handleViewCategoryDetails} // New prop
+        onViewDetails={handleViewDetails}
       />
 
       <AddItemModal
@@ -315,12 +312,21 @@ export const PriceListContainer = () => {
         onSave={handleBulkSave}
       />
 
-      {/* Placeholder for Rename Category Modal - UNCOMMENT and implement when ready */}
-      <RenameCategoryModal
-        open={showRenameCategoryModal}
-        onOpenChange={setShowRenameCategoryModal}
+      {/* Edit Category Modal */}
+      <EditCategoryModal
+        open={showEditCategoryModal}
+        onOpenChange={setShowEditCategoryModal}
         initialName={editingCategory?.name || ""}
-        onSave={handleRenameCategory}
+        initialNotes={editingCategory?.notes || ""}
+        onSave={handleSaveCategory}
+      />
+
+      {/* Category Detail Modal */}
+      <CategoryDetailModal
+        open={showCategoryDetailModal}
+        onOpenChange={setShowCategoryDetailModal}
+        categoryName={viewingCategory.name}
+        categoryNotes={viewingCategory.notes}
       />
 
       {/* Item Detail Modal */}
