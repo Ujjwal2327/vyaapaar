@@ -17,8 +17,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Logo from "@/components/Logo";
+import Loader from "../Loader";
 
-export default function LoginForm({ redirectTo = "/pricelist" }) {
+export default function LoginForm({ redirectTo = "/catalog" }) {
   const { signIn, user, loading: authLoading } = useAuth();
   const router = useRouter();
 
@@ -49,6 +50,8 @@ export default function LoginForm({ redirectTo = "/pricelist" }) {
 
     router.replace(redirectTo);
   }
+
+  if (authLoading) return <Loader/>
 
   return (
     <Card className="w-full max-w-sm">

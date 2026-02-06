@@ -17,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Logo from "@/components/Logo";
+import Loader from "../Loader";
 
 export default function RegisterForm({ redirectTo = "/login" }) {
   const { signUp, user, loading: authLoading } = useAuth();
@@ -31,7 +32,7 @@ export default function RegisterForm({ redirectTo = "/login" }) {
 
   useEffect(() => {
     if (!authLoading && user) {
-      router.replace("/pricelist");
+      router.replace("/catalog");
     }
   }, [authLoading, user, router, redirectTo]);
 
@@ -72,6 +73,8 @@ export default function RegisterForm({ redirectTo = "/login" }) {
       router.replace(redirectTo);
     }, 900);
   }
+
+  if(authLoading)return <Loader/>
 
   return (
     <Card className="w-full max-w-sm">

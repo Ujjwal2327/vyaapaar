@@ -1,3 +1,4 @@
+// components/SettingsModalUpdated.jsx
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -38,6 +39,7 @@ import {
 } from "@/lib/units-config";
 import { supabase } from "@/lib/supabase";
 import UserProfile from "@/components/UserProfile";
+import ShareBusinessLink from "@/components/ShareBusinessLink";
 import { countItemsAndCategories } from "@/lib/utils/priceListStats";
 import Accordion from "@/components/ui/accordion";
 
@@ -275,6 +277,11 @@ const SettingsModal = ({ sellPriceMode, toggleSellPriceMode }) => {
               <UserProfile />
             </Accordion>
 
+            {/* Share Business Link Accordion */}
+            <Accordion title="Share Your Business" defaultOpen={false}>
+              <ShareBusinessLink />
+            </Accordion>
+
             {/* Display Settings Accordion */}
             <Accordion title="Display Settings">
               <div className="space-y-5">
@@ -384,7 +391,6 @@ const SettingsModal = ({ sellPriceMode, toggleSellPriceMode }) => {
               </div>
 
               {/* Units by Category */}
-
               <div className="space-y-4 max-h-80 overflow-y-auto no-scrollbar border rounded-lg p-3 pt-0">
                 {Object.keys(filteredCategories).length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">

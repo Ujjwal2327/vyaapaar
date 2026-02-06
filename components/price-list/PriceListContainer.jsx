@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import { EditCategoryModal } from "./modals/EditCategoryModal";
 import { CategoryDetailModal } from "./modals/CategoryDetailModal";
 import { ItemDetailModal } from "./modals/ItemDetailModal";
+import Loader from "../Loader";
 
 export const PriceListContainer = () => {
   const {
@@ -99,17 +100,7 @@ export const PriceListContainer = () => {
   }, [searchTerm]);
 
   // Prevent hydration mismatch and show loading during DB fetch
-  if (!isHydrated || isDataLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-pulse text-muted-foreground">
-            Loading data...
-          </div>
-        </div>
-      </div>
-    );
-  }
+  if (!isHydrated || isDataLoading) return <Loader content="Loading catalog..."/>
 
   const handleAddCategory = () => {
     setModalType("category");

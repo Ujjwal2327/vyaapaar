@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Vyaapaar",
   description:
-    "Simple shop management app for tracking items, prices, and daily operations.",
+    "The modern way to manage inventory, prices, and share your catalog with customers. No spreadsheets, no complexity.",
 };
 
 export default function RootLayout({
