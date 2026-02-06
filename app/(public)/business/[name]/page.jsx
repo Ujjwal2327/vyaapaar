@@ -3,48 +3,47 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { PublicPriceListHeader } from "@/components/public/PublicPriceListHeader";
-import { PublicPriceListContent } from "@/components/public/PublicPriceListContent";
-import { PublicItemModal } from "@/components/public/PublicItemModal";
-import { PublicCategoryModal } from "@/components/public/PublicCategoryModal";
-import { filterData, sortData } from "@/lib/utils/priceListUtils";
-import { Package } from "lucide-react";
 import Loader from "@/components/Loader";
+import Logo from "@/components/Logo";
+import { Store, MapPin, Phone, Mail, Search, Plus } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import {PublicPriceListContent} from "@/components/public/PublicPriceListContent";
+import {PublicItemModal} from "@/components/public/PublicItemModal";
+import {PublicCategoryModal} from "@/components/public/PublicCategoryModal";
+import { filterData, sortData } from "@/lib/utils/priceListUtils";
 
 export default function PublicBusinessPage() {
   const params = useParams();
-  const businessName = params.name;
+  const businessName = decodeURIComponent(params.name);
 
-  const [priceData, setPriceData] = useState({});
-  const [businessInfo, setBusinessInfo] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  // UI States
+  const [businessData, setBusinessData] = useState(null);
+  const [priceData, setPriceData] = useState({});
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedCategories, setExpandedCategories] = useState({});
-  const [sortType, setSortType] = useState("none");
+  const [error, setError] = useState(null);
 
-  // Modal States
+  // Modal states
   const [showItemModal, setShowItemModal] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
-  const [selectedItem, setSelectedItem] = useState({ data: null, name: "" });
-  const [selectedCategory, setSelectedCategory] = useState({ name: "", notes: "" });
+  const [viewingItem, setViewingItem] = useState({ data: null, name: "" });
+  const [viewingCategory, setViewingCategory] = useState({ name: "", notes: "" });
 
   useEffect(() => {
     loadBusinessData();
   }, [businessName]);
 
   const loadBusinessData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+    setLoading(true);
+    setError(null);
 
-      // Fetch user by business_name
+    try {
+      // First, get user info by business_name
       const { data: userData, error: userError } = await supabase
         .from("users")
-        .select("id, user_name, business_name, phone")
-        .eq("business_name", decodeURIComponent(businessName))
+        .select("id, business_name, business_address, phone, email")
+        .eq("business_name", businessName)
         .single();
 
       if (userError) {
@@ -53,34 +52,31 @@ export default function PublicBusinessPage() {
         } else {
           throw userError;
         }
-        setLoading(false);
         return;
       }
 
-      setBusinessInfo(userData);
+      if (!userData) {
+        setError("Business not found");
+        return;
+      }
 
-      // Fetch price list data for this user
-      const { data: priceListData, error: priceListError } = await supabase
+      // Get price list data
+      const { data: priceListData, error: priceError } = await supabase
         .from("price_lists")
         .select("data")
         .eq("user_id", userData.id)
         .single();
 
-      if (priceListError) {
-        if (priceListError.code === "PGRST116") {
-          // No price list yet
-          setPriceData({});
-        } else {
-          throw priceListError;
-        }
-      } else {
-        setPriceData(priceListData.data || {});
+      if (priceError && priceError.code !== "PGRST116") {
+        throw priceError;
       }
 
-      setLoading(false);
+      setBusinessData(userData);
+      setPriceData(priceListData?.data || {});
     } catch (err) {
       console.error("Error loading business data:", err);
       setError("Failed to load business information");
+    } finally {
       setLoading(false);
     }
   };
@@ -89,100 +85,160 @@ export default function PublicBusinessPage() {
     setExpandedCategories((prev) => ({ ...prev, [path]: !prev[path] }));
   };
 
-  const expandAll = (data) => {
-    const allPaths = {};
-    const collectPaths = (obj, parentPath = "") => {
-      Object.entries(obj).forEach(([key, value]) => {
-        const currentPath = parentPath ? `${parentPath}.${key}` : key;
-        if (value.type === "category") {
-          allPaths[currentPath] = true;
-          if (value.children) collectPaths(value.children, currentPath);
-        }
-      });
-    };
-    collectPaths(data);
-    setExpandedCategories(allPaths);
-  };
-
-  const collapseAll = () => setExpandedCategories({});
-
   const handleViewItem = (itemName, itemData) => {
-    setSelectedItem({ data: itemData, name: itemName });
+    setViewingItem({ data: itemData, name: itemName });
     setShowItemModal(true);
   };
 
   const handleViewCategory = (categoryName, categoryNotes) => {
-    setSelectedCategory({ name: categoryName, notes: categoryNotes });
+    setViewingCategory({ name: categoryName, notes: categoryNotes });
     setShowCategoryModal(true);
   };
 
   // Auto-expand when searching
   useEffect(() => {
     if (searchTerm && searchTerm.trim()) {
-      expandAll(filteredData);
+      const filtered = filterData(priceData, searchTerm);
+      const allPaths = {};
+      const collectPaths = (obj, parentPath = "") => {
+        Object.entries(obj).forEach(([key, value]) => {
+          const currentPath = parentPath ? `${parentPath}.${key}` : key;
+          if (value.type === "category") {
+            allPaths[currentPath] = true;
+            if (value.children) collectPaths(value.children, currentPath);
+          }
+        });
+      };
+      collectPaths(filtered);
+      setExpandedCategories(allPaths);
     }
-  }, [searchTerm]);
+  }, [searchTerm, priceData]);
 
-  const filteredData = filterData(priceData, searchTerm);
-  const sortedData = sortData(filteredData, sortType);
-  const hasAnyExpanded = Object.values(expandedCategories).some(
-    (val) => val === true
-  );
-
-  if (loading) {
-    return <Loader content="Loading business information..."/>
-  }
+  if (loading) return <Loader content="Loading business information..." />;
 
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center space-y-4">
-          <Package className="w-16 h-16 mx-auto text-destructive" />
-          <div className="text-xl font-semibold text-destructive">{error}</div>
+          <Store className="w-16 h-16 mx-auto text-muted-foreground" />
+          <h1 className="text-2xl font-bold">{error}</h1>
           <p className="text-muted-foreground">
-            The business you're looking for doesn't exist or is not available.
+            This business page is not available or doesn't exist.
           </p>
         </div>
       </div>
     );
   }
 
+  const filteredData = filterData(priceData, searchTerm);
+  const sortedData = sortData(filteredData, "none");
+
   return (
     <div className="min-h-screen bg-background">
-      <PublicPriceListHeader
-        businessName={businessInfo?.business_name || "Business"}
-        userName={businessInfo?.user_name}
-        phone={businessInfo?.phone}
-        searchTerm={searchTerm}
-        setSearchTerm={setSearchTerm}
-        sortType={sortType}
-        onSortChange={setSortType}
-        onExpandAll={() => expandAll(sortedData)}
-        onCollapseAll={collapseAll}
-        hasAnyExpanded={hasAnyExpanded}
-      />
+      {/* Header */}
+      <div className="sticky top-0 z-40 bg-background border-b">
+        <div className="max-w-4xl mx-auto p-4">
+          {/* Business Info */}
+          <div className="flex items-start gap-4 mb-4">
+            <div className="w-16 h-16 rounded-2xl bg-linear-to-br from-primary to-primary/60 flex items-center justify-center shadow-lg flex-shrink-0">
+              <Store className="w-8 h-8 text-primary-foreground" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-2xl font-bold mb-1 break-words">
+                {businessData.business_name}
+              </h1>
+              <div className="space-y-1 text-sm text-muted-foreground">
+                {businessData.business_address && (
+                  <div className="flex items-start gap-2">
+                    <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <span className="break-words whitespace-pre-line">
+                      {businessData.business_address}
+                    </span>
+                  </div>
+                )}
+                {businessData.phone && (
+                  <div className="flex items-center gap-2">
+                    <Phone className="w-4 h-4 flex-shrink-0" />
+                    <a
+                      href={`tel:${businessData.phone}`}
+                      className="hover:underline"
+                    >
+                      {businessData.phone}
+                    </a>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
 
-      <PublicPriceListContent
-        data={sortedData}
-        expandedCategories={expandedCategories}
-        onToggleCategory={toggleCategory}
-        onViewItem={handleViewItem}
-        onViewCategory={handleViewCategory}
-      />
+         
 
+          {/* Search Bar */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground w-5 h-5 pointer-events-none" />
+            <Input
+              type="text"
+              placeholder="Search products..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 pr-10"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Clear search"
+              >
+                <Plus className="w-5 h-5 rotate-45" />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="max-w-4xl mx-auto p-4">
+        {Object.keys(sortedData).length > 0 ? (
+          <PublicPriceListContent
+            data={sortedData}
+            expandedCategories={expandedCategories}
+            onToggleCategory={toggleCategory}
+            onViewItem={handleViewItem}
+            onViewCategory={handleViewCategory}
+          />
+        ) : (
+          <div className="bg-card rounded-lg border p-8 text-center">
+            <p className="text-muted-foreground">
+              {searchTerm ? "No items found" : "No products available"}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Modals */}
       <PublicItemModal
         open={showItemModal}
         onOpenChange={setShowItemModal}
-        itemName={selectedItem.name}
-        itemData={selectedItem.data}
+        itemData={viewingItem.data}
+        itemName={viewingItem.name}
       />
 
       <PublicCategoryModal
         open={showCategoryModal}
         onOpenChange={setShowCategoryModal}
-        categoryName={selectedCategory.name}
-        categoryNotes={selectedCategory.notes}
+        categoryName={viewingCategory.name}
+        categoryNotes={viewingCategory.notes}
       />
+
+      {/* Footer */}
+      <footer className="mt-12 py-6 border-t bg-muted/30">
+        <div className="max-w-4xl mx-auto px-4 text-center">
+          <Logo className="mb-2" />
+          <p className="text-sm text-muted-foreground">
+            Powered by Vyaapaar - Modern catalog management
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }

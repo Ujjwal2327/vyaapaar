@@ -13,23 +13,24 @@ import { Share2, Copy, ExternalLink } from "lucide-react";
 export default function ShareBusinessLink() {
   const { user } = useAuth();
   const [businessName, setBusinessName] = useState("");
+  const [businessAddress, setBusinessAddress] = useState("");
   const [loading, setLoading] = useState(true);
   const [publicUrl, setPublicUrl] = useState("");
 
   useEffect(() => {
     if (user) {
-      loadBusinessName();
+      loadBusinessInfo();
     }
   }, [user]);
 
-  const loadBusinessName = async () => {
+  const loadBusinessInfo = async () => {
     if (!user) return;
 
     setLoading(true);
     try {
       const { data, error } = await supabase
         .from("users")
-        .select("business_name")
+        .select("business_name, business_address")
         .eq("id", user.id)
         .single();
 
@@ -37,12 +38,13 @@ export default function ShareBusinessLink() {
 
       if (data?.business_name) {
         setBusinessName(data.business_name);
+        setBusinessAddress(data.business_address || "");
         // Generate public URL
         const url = `${window.location.origin}/business/${encodeURIComponent(data.business_name)}`;
         setPublicUrl(url);
       }
     } catch (error) {
-      console.error("Error loading business name:", error);
+      console.error("Error loading business info:", error);
     } finally {
       setLoading(false);
     }
@@ -124,6 +126,7 @@ export default function ShareBusinessLink() {
         <p className="font-semibold">What customers will see:</p>
         <ul className="list-disc list-inside space-y-1 text-muted-foreground">
           <li>Your business name</li>
+          {businessAddress && <li>Your business address</li>}
           <li>All categories and items</li>
           <li>Retail sell prices only (no bulk sell, cost or profit information)</li>
           <li>Item and category notes</li>

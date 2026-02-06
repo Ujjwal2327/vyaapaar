@@ -5,9 +5,10 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { User, Building2, Phone, Mail } from "lucide-react";
+import { User, Building2, Phone, Mail, MapPin } from "lucide-react";
 
 export default function UserProfile() {
   const { user } = useAuth();
@@ -18,6 +19,7 @@ export default function UserProfile() {
   const [profile, setProfile] = useState({
     user_name: "",
     business_name: "",
+    business_address: "",
     phone: "",
     email: "",
   });
@@ -53,6 +55,7 @@ export default function UserProfile() {
         const loadedProfile = {
           user_name: data.user_name || "",
           business_name: data.business_name || "",
+          business_address: data.business_address || "",
           phone: data.phone || "",
           email: data.email || user.email || "",
         };
@@ -102,6 +105,7 @@ export default function UserProfile() {
         .update({
           user_name: profile.user_name.trim(),
           business_name: profile.business_name?.trim() || null,
+          business_address: profile.business_address?.trim() || null,
           phone: profile.phone?.trim() || null,
         })
         .eq("id", user.id);
@@ -129,12 +133,13 @@ export default function UserProfile() {
     (
       profile.user_name?.trim() !== initialProfile.user_name ||
       profile.business_name?.trim() !== initialProfile.business_name ||
+      profile.business_address?.trim() !== initialProfile.business_address ||
       profile.phone?.trim() !== initialProfile.phone
     );
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-8 h-[455px]">
+      <div className="flex items-center justify-center py-8 h-[596px]">
         <div className="animate-pulse text-muted-foreground">
           Loading profile...
         </div>
@@ -198,6 +203,30 @@ export default function UserProfile() {
         />
         <p className="text-xs text-muted-foreground">
           Must be unique if provided
+        </p>
+      </div>
+
+      {/* Business Address */}
+      <div className="space-y-2">
+        <Label htmlFor="business_address" className="text-[16px] flex items-center gap-2">
+          <MapPin className="w-4 h-4" />
+          Business Address
+          <span className="text-xs text-muted-foreground ml-auto">
+            Optional
+          </span>
+        </Label>
+        <Textarea
+          id="business_address"
+          value={profile.business_address}
+          onChange={(e) =>
+            setProfile({ ...profile, business_address: e.target.value })
+          }
+          placeholder="Street address, City, State, ZIP"
+          rows={3}
+          maxLength={500}
+        />
+        <p className="text-xs text-muted-foreground">
+          Displayed on your public business page
         </p>
       </div>
 
