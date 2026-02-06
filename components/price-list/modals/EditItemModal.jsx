@@ -42,6 +42,9 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
   const [nestedActiveUnits, setNestedActiveUnits] = useState({});
   // Initialize state as null/empty default for safe conditional rendering
   const [formData, setFormData] = useState(null);
+  
+  // Store the bulk discount percentage for real-time calculation
+  const [bulkDiscountPercent, setBulkDiscountPercent] = useState(0);
 
   // 1. Sync data when the modal opens or editingItem changes
   useEffect(() => {
@@ -52,6 +55,18 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
       const retailSell = itemData.retailSell !== undefined ? itemData.retailSell : itemData.sell || 0;
       const bulkSell = itemData.bulkSell !== undefined ? itemData.bulkSell : retailSell;
       
+      // Calculate existing discount percentage
+      let existingDiscount = 0;
+      if (retailSell > 0 && bulkSell < retailSell) {
+        existingDiscount = ((retailSell - bulkSell) / retailSell) * 100;
+      }
+      // Use stored discount if available, otherwise calculate
+      const discount = itemData.bulkDiscountPercent !== undefined 
+        ? itemData.bulkDiscountPercent 
+        : existingDiscount;
+      
+      setBulkDiscountPercent(discount);
+      
       setFormData({
         ...itemData,
         retailSell,
@@ -60,6 +75,7 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
     } else if (!editingItem && formData !== null) {
       // Reset form data when the modal closes or editingItem is cleared
       setFormData(null);
+      setBulkDiscountPercent(0);
     }
   }, [editingItem]);
 
@@ -80,13 +96,71 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
     loadActiveUnits();
   }, [open]);
 
+  // Handle retail sell price change - auto-update bulk price based on discount %
+  const handleRetailSellChange = (value) => {
+    const numValue = Math.max(0, parseFloat(value) || 0);
+    
+    setFormData((prev) => {
+      // Calculate new bulk price based on stored discount %
+      const newBulkSell = bulkDiscountPercent > 0 
+        ? numValue * (1 - bulkDiscountPercent / 100)
+        : prev.bulkSell;
+
+      return {
+        ...prev,
+        retailSell: value,
+        bulkSell: typeof newBulkSell === 'number' ? newBulkSell.toFixed(2) : newBulkSell,
+      };
+    });
+  };
+
+  // Handle bulk sell price change - recalculate and store new discount %
+  const handleBulkSellChange = (value) => {
+    const numValue = Math.max(0, parseFloat(value) || 0);
+    
+    setFormData((prev) => {
+      const retailNum = parseFloat(prev.retailSell) || 0;
+      
+      // Calculate new discount percentage
+      if (retailNum > 0 && numValue < retailNum) {
+        const discount = ((retailNum - numValue) / retailNum) * 100;
+        setBulkDiscountPercent(discount);
+      } else {
+        setBulkDiscountPercent(0);
+      }
+
+      return {
+        ...prev,
+        bulkSell: value,
+      };
+    });
+  };
+
+  // Handle cost price change - enforce minimum 0
+  const handleCostChange = (value) => {
+    const numValue = Math.max(0, parseFloat(value) || 0);
+    setFormData((prev) => ({
+      ...prev,
+      cost: value,
+    }));
+  };
+
   const handleSubmit = () => {
     if (!formData || !formData.name.trim()) return;
     
-    // If bulk sell is empty, set it to retail sell
+    // Ensure all prices are >= 0
+    const retailSell = Math.max(0, parseFloat(formData.retailSell) || 0);
+    const bulkSell = formData.bulkSell 
+      ? Math.max(0, parseFloat(formData.bulkSell))
+      : retailSell;
+    const cost = Math.max(0, parseFloat(formData.cost) || 0);
+    
     const dataToSubmit = {
       ...formData,
-      bulkSell: formData.bulkSell || formData.retailSell,
+      retailSell,
+      bulkSell,
+      cost,
+      bulkDiscountPercent, // Store the current discount % for future edits
     };
     
     onSave(dataToSubmit);
@@ -135,42 +209,45 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
             />
           </div>
 
-              <div className="flex gap-x-5">
+          <div className="flex gap-x-5">
+            {/* Retail Sell Price */}
+            <div className="space-y-2 flex-1">
+              <Label htmlFor="retailSell">Retail Sell Price</Label>
+              <Input
+                id="retailSell"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Retail Sell Price"
+                value={formData.retailSell}
+                onChange={(e) => handleRetailSellChange(e.target.value)}
+              />
+            </div>
 
-          {/* Retail Sell Price */}
-          <div className="space-y-2">
-            <Label htmlFor="retailSell">Retail Sell Price</Label>
-            <Input
-              id="retailSell"
-              type="number"
-              placeholder="Retail Sell Price"
-              value={formData.retailSell}
-              onChange={(e) =>
-                setFormData({ ...formData, retailSell: e.target.value })
-              }
-            />
+            {/* Bulk Sell Price */}
+            <div className="space-y-2 flex-1">
+              <Label htmlFor="bulkSell">
+                Bulk Sell Price{" "}
+                <span className="text-xs text-muted-foreground">
+                  (Optional)
+                </span>
+              </Label>
+              <Input
+                id="bulkSell"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Bulk Sell Price"
+                value={formData.bulkSell}
+                onChange={(e) => handleBulkSellChange(e.target.value)}
+              />
+              {bulkDiscountPercent > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {bulkDiscountPercent.toFixed(1)}% discount
+                </p>
+              )}
+            </div>
           </div>
-
-          {/* Bulk Sell Price */}
-          <div className="space-y-2">
-            <Label htmlFor="bulkSell">
-              Bulk Sell Price{" "}
-              <span className="text-xs text-muted-foreground">
-                (Optional)
-              </span>
-            </Label>
-            <Input
-              id="bulkSell"
-              type="number"
-              placeholder="Bulk Sell Price"
-              value={formData.bulkSell}
-              onChange={(e) =>
-                setFormData({ ...formData, bulkSell: e.target.value })
-              }
-            />
-          </div>
-          </div>
-
 
           {/* Sell Unit - Using the new nested structure */}
           <div className="space-y-2">
@@ -197,11 +274,11 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
             <Input
               id="cost"
               type="number"
+              min="0"
+              step="0.01"
               placeholder="Cost Price"
               value={formData.cost}
-              onChange={(e) =>
-                setFormData({ ...formData, cost: e.target.value })
-              }
+              onChange={(e) => handleCostChange(e.target.value)}
             />
           </div>
 

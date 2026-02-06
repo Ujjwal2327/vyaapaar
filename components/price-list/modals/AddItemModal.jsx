@@ -52,6 +52,9 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
     notes: "",
   });
 
+  // Store the discount percentage (retailSell - bulkSell) / retailSell * 100
+  const [bulkDiscountPercent, setBulkDiscountPercent] = useState(0);
+
   useEffect(() => {
     // Load active units from localStorage
     const loadActiveUnits = () => {
@@ -77,20 +80,93 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
     };
 
     loadActiveUnits();
+
+    // Reset form when modal closes
+    if (!open) {
+      setFormData({
+        name: "",
+        retailSell: "",
+        bulkSell: "",
+        cost: "",
+        sellUnit: activeUnits[0] || "piece",
+        costUnit: activeUnits[0] || "piece",
+        notes: "",
+      });
+      setBulkDiscountPercent(0);
+    }
   }, [open]);
+
+  // Handle retail sell price change - auto-update bulk price based on discount %
+  const handleRetailSellChange = (value) => {
+    const numValue = Math.max(0, parseFloat(value) || 0);
+    
+    setFormData((prev) => {
+      // If bulk is empty, it will auto-populate on submit
+      // If bulk discount % exists, calculate new bulk price
+      const newBulkSell = bulkDiscountPercent > 0 
+        ? numValue * (1 - bulkDiscountPercent / 100)
+        : "";
+
+      return {
+        ...prev,
+        retailSell: value,
+        bulkSell: newBulkSell ? newBulkSell.toFixed(2) : "",
+      };
+    });
+  };
+
+  // Handle bulk sell price change - calculate and store discount %
+  const handleBulkSellChange = (value) => {
+    const numValue = Math.max(0, parseFloat(value) || 0);
+    
+    setFormData((prev) => {
+      const retailNum = parseFloat(prev.retailSell) || 0;
+      
+      // Calculate discount percentage if retail price exists
+      if (retailNum > 0 && numValue < retailNum) {
+        const discount = ((retailNum - numValue) / retailNum) * 100;
+        setBulkDiscountPercent(discount);
+      } else {
+        setBulkDiscountPercent(0);
+      }
+
+      return {
+        ...prev,
+        bulkSell: value,
+      };
+    });
+  };
+
+  // Handle cost price change - enforce minimum 0
+  const handleCostChange = (value) => {
+    const numValue = Math.max(0, parseFloat(value) || 0);
+    setFormData((prev) => ({
+      ...prev,
+      cost: value,
+    }));
+  };
 
   const handleSubmit = () => {
     if (!formData.name.trim()) return;
 
-    // If bulk sell is empty, set it to retail sell
+    // Ensure all prices are >= 0
+    const retailSell = Math.max(0, parseFloat(formData.retailSell) || 0);
+    const bulkSell = formData.bulkSell 
+      ? Math.max(0, parseFloat(formData.bulkSell))
+      : retailSell; // If bulk is empty, default to retail
+    const cost = Math.max(0, parseFloat(formData.cost) || 0);
+
     const dataToSubmit = {
       ...formData,
-      bulkSell: formData.bulkSell || formData.retailSell,
+      retailSell,
+      bulkSell,
+      cost,
+      bulkDiscountPercent, // Store the discount % for future edits
     };
 
     onAdd(dataToSubmit);
 
-    // Resetting form data after submission
+    // Reset form data after submission
     setFormData({
       name: "",
       retailSell: "",
@@ -100,13 +176,13 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
       costUnit: activeUnits[0] || "piece",
       notes: "",
     });
+    setBulkDiscountPercent(0);
   };
 
   // Component to render the Select Content with nested units
   const UnitSelectContent = () => (
     <SelectContent>
       {Object.entries(nestedActiveUnits).map(([category, units]) => (
-        // Simulating optgroup/SelectGroup using a div and header
         <div key={category} className="py-1">
           <h4 className="px-2 py-1.5 text-sm font-semibold text-muted-foreground uppercase">
             {category}
@@ -169,40 +245,45 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
           {type === "item" && (
             <>
               <div className="flex gap-x-5">
+                {/* Retail Sell Price */}
+                <div className="space-y-2 flex-1">
+                  <Label htmlFor="retailSell">Retail Sell Price</Label>
+                  <Input
+                    id="retailSell"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Retail Sell Price"
+                    value={formData.retailSell}
+                    onChange={(e) => handleRetailSellChange(e.target.value)}
+                  />
+                </div>
 
-              {/* Retail Sell Price */}
-              <div className="space-y-2">
-                <Label htmlFor="retailSell">Retail Sell Price</Label>
-                <Input
-                  id="retailSell"
-                  type="number"
-                  placeholder="Retail Sell Price"
-                  value={formData.retailSell}
-                  onChange={(e) =>
-                    setFormData({ ...formData, retailSell: e.target.value })
-                  }
-                />
+                {/* Bulk Sell Price */}
+                <div className="space-y-2 flex-1">
+                  <Label htmlFor="bulkSell">
+                    Bulk Sell Price{" "}
+                    <span className="text-xs text-muted-foreground">
+                      (Optional)
+                    </span>
+                  </Label>
+                  <Input
+                    id="bulkSell"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Bulk Sell Price"
+                    value={formData.bulkSell}
+                    onChange={(e) => handleBulkSellChange(e.target.value)}
+                  />
+                  {bulkDiscountPercent > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {bulkDiscountPercent.toFixed(1)}% discount
+                    </p>
+                  )}
+                </div>
               </div>
 
-              {/* Bulk Sell Price */}
-              <div className="space-y-2">
-                <Label htmlFor="bulkSell">
-                  Bulk Sell Price{" "}
-                  <span className="text-xs text-muted-foreground">
-                    (Optional)
-                  </span>
-                </Label>
-                <Input
-                  id="bulkSell"
-                  type="number"
-                  placeholder="Bulk Sell Price"
-                  value={formData.bulkSell}
-                  onChange={(e) =>
-                    setFormData({ ...formData, bulkSell: e.target.value })
-                  }
-                />
-              </div>
-              </div>
               {/* Sell Unit - Using the new nested structure */}
               <div className="space-y-2">
                 <Label htmlFor="sellUnit">Sell Unit</Label>
@@ -229,11 +310,11 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
                 <Input
                   id="cost"
                   type="number"
+                  min="0"
+                  step="0.01"
                   placeholder="Cost Price"
                   value={formData.cost}
-                  onChange={(e) =>
-                    setFormData({ ...formData, cost: e.target.value })
-                  }
+                  onChange={(e) => handleCostChange(e.target.value)}
                 />
               </div>
 
