@@ -97,7 +97,7 @@ export default function LoginForm({ redirectTo = "/catalog" }) {
                 <button
                   type="button"
                   onClick={() => router.push("/forgot-password")}
-                  className="ml-auto text-sm underline-offset-4 hover:underline text-muted-foreground"
+                  className="cursor-pointer ml-auto text-sm underline-offset-4 hover:underline text-muted-foreground"
                 >
                   Forgot your password?
                 </button>

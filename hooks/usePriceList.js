@@ -72,7 +72,7 @@ export const usePriceList = () => {
   const [priceView, setPriceView] = useState("sell"); // "sell", "cost", or "profit"
   const [editMode, setEditMode] = useState(false); // Data States
 
-  const [priceData, setPriceData] = useState(defaultData);
+  const [priceData, setPriceData] = useState({});
   const [isHydrated, setIsHydrated] = useState(false);
   const [isDataLoading, setIsDataLoading] = useState(true); // Fix: Use a useRef to ensure the initial data fetch runs exactly once
 
@@ -91,11 +91,13 @@ export const usePriceList = () => {
         }
       } catch (e) {
         console.error("Local parse error", e);
-        setPriceData(defaultData);
+        setPriceData({});
+        // setPriceData(defaultData);
       }
-    } else {
-      setPriceData(defaultData);
-    }
+    } 
+    // else {
+    //   setPriceData(defaultData);
+    // }
   };
 
   // Load sellPriceMode from localStorage on mount
