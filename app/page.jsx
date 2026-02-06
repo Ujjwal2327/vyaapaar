@@ -75,7 +75,7 @@ export default function LandingPageAlternative() {
       {/* Hero Section with Gradient Background */}
       <section className="relative pt-32 pb-20 overflow-hidden">
         {/* Animated Background */}
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-primary/10 -z-10" />
+        <div className="absolute inset-0 bg-linear-to-br from-primary/5 via-background to-primary/10 -z-10" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(120,119,198,0.1),transparent_50%)] -z-10" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_80%,rgba(120,119,198,0.1),transparent_50%)] -z-10" />
 
@@ -91,7 +91,7 @@ export default function LandingPageAlternative() {
               <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold leading-tight">
                 Your Business,
                 <br />
-                <span className="bg-gradient-to-r from-primary via-primary/80 to-primary/60 bg-clip-text text-transparent">
+                <span className="bg-linear-to-r from-primary via-primary/80 to-primary/60 bg-clip-text text-transparent">
                   Simplified
                 </span>
               </h1>
@@ -145,14 +145,14 @@ export default function LandingPageAlternative() {
               {/* Floating Card */}
               <div className="relative bg-card rounded-3xl border shadow-2xl p-8 hover:shadow-3xl transition-all duration-300 hover:scale-105">
                 <div className="absolute top-4 right-4">
-                  <Badge className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white border-0 gap-1">
+                  <Badge className="bg-linear-to-r from-yellow-500 to-orange-500 text-white border-0 gap-1">
                     <Star className="w-3 h-3 fill-white" />
                     Featured
                   </Badge>
                 </div>
 
                 <div className="flex items-center gap-4 mb-6">
-                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center shadow-lg">
+                  <div className="w-16 h-16 rounded-2xl bg-linear-to-br from-primary to-primary/60 flex items-center justify-center shadow-lg">
                     <Store className="w-8 h-8 text-primary-foreground" />
                   </div>
                   <div>
@@ -302,7 +302,7 @@ export default function LandingPageAlternative() {
                 className="group relative bg-card border rounded-2xl p-6 hover:shadow-lg transition-all duration-300 hover:-translate-y-1"
               >
                 <div
-                  className={`w-12 h-12 rounded-xl bg-gradient-to-br ${feature.gradient} flex items-center justify-center mb-4 group-hover:scale-110 transition-transform`}
+                  className={`w-12 h-12 rounded-xl bg-linear-to-br ${feature.gradient} flex items-center justify-center mb-4 group-hover:scale-110 transition-transform`}
                 >
                   <feature.icon className="w-6 h-6 text-white" />
                 </div>
@@ -343,7 +343,7 @@ export default function LandingPageAlternative() {
                 public catalog feature brings in new customers every day!"
               </p>
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/60" />
+                <div className="w-10 h-10 rounded-full bg-linear-to-br from-primary to-primary/60" />
                 <div>
                   <div className="font-semibold">Maheshwari Sanitary Store</div>
                   <div className="text-sm text-muted-foreground">
@@ -367,7 +367,7 @@ export default function LandingPageAlternative() {
                 spreadsheets. Highly recommended for any retail business."
               </p>
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500" />
+                <div className="w-10 h-10 rounded-full bg-linear-to-br from-blue-500 to-cyan-500" />
                 <div>
                   <div className="font-semibold">Rajesh Kumar</div>
                   <div className="text-sm text-muted-foreground">
@@ -391,7 +391,7 @@ export default function LandingPageAlternative() {
                 design, and customers love the online catalog!"
               </p>
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-500 to-emerald-500" />
+                <div className="w-10 h-10 rounded-full bg-linear-to-br from-green-500 to-emerald-500" />
                 <div>
                   <div className="font-semibold">Priya Sharma</div>
                   <div className="text-sm text-muted-foreground">
@@ -406,7 +406,7 @@ export default function LandingPageAlternative() {
 
       {/* CTA Section */}
       <section className="py-24 relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary via-primary/90 to-primary/80" />
+        <div className="absolute inset-0 bg-linear-to-br from-primary via-primary/90 to-primary/80" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.1),transparent_70%)]" />
 
         <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-primary-foreground">
