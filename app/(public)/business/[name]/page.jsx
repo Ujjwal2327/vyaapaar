@@ -140,25 +140,25 @@ export default function PublicBusinessPage() {
         <div className="max-w-4xl mx-auto p-4">
           {/* Business Info */}
           <div className="flex items-start gap-4 mb-4">
-            <div className="w-16 h-16 rounded-2xl bg-linear-to-br from-primary to-primary/60 flex items-center justify-center shadow-lg flex-shrink-0">
+            <div className="w-16 h-16 rounded-2xl bg-linear-to-br from-primary to-primary/60 flex items-center justify-center shadow-lg shrink-0">
               <Store className="w-8 h-8 text-primary-foreground" />
             </div>
             <div className="flex-1 min-w-0">
-              <h1 className="text-2xl font-bold mb-1 break-words">
+              <h1 className="text-2xl font-bold mb-1 wrap-break-word">
                 {businessData.business_name}
               </h1>
               <div className="space-y-1 text-sm text-muted-foreground">
                 {businessData.business_address && (
                   <div className="flex items-start gap-2">
-                    <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                    <span className="break-words whitespace-pre-line">
+                    <MapPin className="w-4 h-4 mt-0.5 shrink-0" />
+                    <span className="wrap-break-word whitespace-pre-line">
                       {businessData.business_address}
                     </span>
                   </div>
                 )}
                 {businessData.phone && (
                   <div className="flex items-center gap-2">
-                    <Phone className="w-4 h-4 flex-shrink-0" />
+                    <Phone className="w-4 h-4 shrink-0" />
                     <a
                       href={`tel:${businessData.phone}`}
                       className="hover:underline"
