@@ -35,19 +35,15 @@ export default function LandingPageAlternative() {
     setMounted(true);
   }, []);
 
-  // useEffect(() => {
-  //   if (!loading && user && mounted) {
-  //     router.replace("/catalog");
-  //   }
-  // }, [user, loading, router, mounted]);
+  useEffect(() => {
+    if (!loading && user && mounted) {
+      router.replace("/catalog");
+    }
+  }, [user, loading, router, mounted]);
 
-  if (!mounted || loading) 
-     return <Loader/>
-  
+  if (!mounted || loading) return <Loader />;
 
-  // if (user) {
-  //   return null;
-  // }
+  if (user) return null;
 
   return (
     <div className="min-h-screen">
