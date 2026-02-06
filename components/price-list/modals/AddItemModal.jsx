@@ -147,7 +147,7 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
   };
 
   const handleSubmit = () => {
-    if (!formData.name.trim()) return;
+    if (!isFormValid) return;
 
     // Ensure all prices are >= 0
     const retailSell = Math.max(0, parseFloat(formData.retailSell) || 0);
@@ -179,6 +179,18 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
     setBulkDiscountPercent(0);
   };
 
+  // Validation logic
+  const isFormValid = (() => {
+    // Name is always required
+    if (!formData.name.trim()) return false;
+
+    // For items, retail sell price is required
+    if (type === "item" && !formData.retailSell) return false;
+
+    // All mandatory fields are filled
+    return true;
+  })();
+
   // Component to render the Select Content with nested units
   const UnitSelectContent = () => (
     <SelectContent>
@@ -208,7 +220,7 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
 
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <Label htmlFor="name">Name</Label>
+            <Label htmlFor="name">Name*</Label>
             <Input
               id="name"
               placeholder="Name"
@@ -224,10 +236,7 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
               {/* Category Notes */}
               <div className="space-y-2">
                 <Label htmlFor="category-notes">
-                  Notes{" "}
-                  <span className="text-xs text-muted-foreground">
-                    (Optional)
-                  </span>
+                  Notes
                 </Label>
                 <Textarea
                   id="category-notes"
@@ -247,7 +256,7 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
               <div className="flex gap-x-5">
                 {/* Retail Sell Price */}
                 <div className="space-y-2 flex-1">
-                  <Label htmlFor="retailSell">Retail Sell Price</Label>
+                  <Label htmlFor="retailSell">Retail Sell Price*</Label>
                   <Input
                     id="retailSell"
                     type="number"
@@ -262,10 +271,7 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
                 {/* Bulk Sell Price */}
                 <div className="space-y-2 flex-1">
                   <Label htmlFor="bulkSell">
-                    Bulk Sell Price{" "}
-                    <span className="text-xs text-muted-foreground">
-                      (Optional)
-                    </span>
+                    Bulk Sell Price
                   </Label>
                   <Input
                     id="bulkSell"
@@ -336,7 +342,7 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
 
               {/* Notes/Textarea */}
               <div className="space-y-2">
-                <Label htmlFor="notes">Notes (Optional)</Label>
+                <Label htmlFor="notes">Notes</Label>
                 <Textarea
                   id="notes"
                   placeholder="Add any specific details, supplier info, or remarks..."
@@ -349,7 +355,11 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
             </>
           )}
 
-          <Button onClick={handleSubmit} className="w-full">
+          <Button 
+            onClick={handleSubmit} 
+            className="w-full"
+            disabled={!isFormValid}
+          >
             Add
           </Button>
         </div>

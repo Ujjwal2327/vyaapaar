@@ -20,18 +20,16 @@ export const BulkEditModal = ({ open, onOpenChange, initialText, onSave }) => {
   }, [open, initialText]);
 
   const handleClose = () => {
-    if (
-      bulkText !== initialText &&
-      !window.confirm(
-        "You have unsaved changes. Are you sure you want to close?"
-      )
-    ) {
+    if (hasChanges && !window.confirm(
+      "You have unsaved changes. Are you sure you want to close?"
+    )) {
       return;
     }
     onOpenChange(false);
   };
 
   const handleSave = () => {
+    if (!isFormValid) return;
     onSave(bulkText);
     onOpenChange(false);
   };
@@ -53,6 +51,10 @@ export const BulkEditModal = ({ open, onOpenChange, initialText, onSave }) => {
     navigator.clipboard.writeText(bulkText);
     alert("Copied to clipboard!");
   };
+
+  // Validation logic
+  const hasChanges = bulkText !== initialText;
+  const isFormValid = hasChanges;
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -121,7 +123,11 @@ Electronics
         </div>
 
         <div className="flex gap-2 pt-4 border-t">
-          <Button onClick={handleSave} className="flex-1">
+          <Button 
+            onClick={handleSave} 
+            className="flex-1"
+            disabled={!isFormValid}
+          >
             Save & Close
           </Button>
           <Button onClick={handleCopy} variant="outline">

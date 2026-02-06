@@ -42,6 +42,7 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
   const [nestedActiveUnits, setNestedActiveUnits] = useState({});
   // Initialize state as null/empty default for safe conditional rendering
   const [formData, setFormData] = useState(null);
+  const [initialFormData, setInitialFormData] = useState(null);
   
   // Store the bulk discount percentage for real-time calculation
   const [bulkDiscountPercent, setBulkDiscountPercent] = useState(0);
@@ -67,14 +68,18 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
       
       setBulkDiscountPercent(discount);
       
-      setFormData({
+      const currentFormData = {
         ...itemData,
         retailSell,
         bulkSell,
-      });
+      };
+      
+      setFormData(currentFormData);
+      setInitialFormData(currentFormData);
     } else if (!editingItem && formData !== null) {
       // Reset form data when the modal closes or editingItem is cleared
       setFormData(null);
+      setInitialFormData(null);
       setBulkDiscountPercent(0);
     }
   }, [editingItem]);
@@ -146,7 +151,7 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
   };
 
   const handleSubmit = () => {
-    if (!formData || !formData.name.trim()) return;
+    if (!isFormValid) return;
     
     // Ensure all prices are >= 0
     const retailSell = Math.max(0, parseFloat(formData.retailSell) || 0);
@@ -165,6 +170,29 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
     
     onSave(dataToSubmit);
   };
+
+  // Validation logic
+  const isFormValid = (() => {
+    if (!formData || !initialFormData) return false;
+
+    // Name is required
+    if (!formData.name.trim()) return false;
+
+    // Retail sell price is required
+    if (!formData.retailSell) return false;
+
+    // Check if any changes were made
+    const hasChanges = 
+      formData.name !== initialFormData.name ||
+      parseFloat(formData.retailSell) !== parseFloat(initialFormData.retailSell) ||
+      parseFloat(formData.bulkSell || formData.retailSell) !== parseFloat(initialFormData.bulkSell || initialFormData.retailSell) ||
+      parseFloat(formData.cost || 0) !== parseFloat(initialFormData.cost || 0) ||
+      formData.sellUnit !== initialFormData.sellUnit ||
+      formData.costUnit !== initialFormData.costUnit ||
+      (formData.notes || "") !== (initialFormData.notes || "");
+
+    return hasChanges;
+  })();
 
   // Component to render the Select Content with nested units
   const UnitSelectContent = () => (
@@ -198,7 +226,7 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
 
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <Label htmlFor="name">Name</Label>
+            <Label htmlFor="name">Name*</Label>
             <Input
               id="name"
               placeholder="Name"
@@ -212,7 +240,7 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
           <div className="flex gap-x-5">
             {/* Retail Sell Price */}
             <div className="space-y-2 flex-1">
-              <Label htmlFor="retailSell">Retail Sell Price</Label>
+              <Label htmlFor="retailSell">Retail Sell Price*</Label>
               <Input
                 id="retailSell"
                 type="number"
@@ -227,10 +255,7 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
             {/* Bulk Sell Price */}
             <div className="space-y-2 flex-1">
               <Label htmlFor="bulkSell">
-                Bulk Sell Price{" "}
-                <span className="text-xs text-muted-foreground">
-                  (Optional)
-                </span>
+                Bulk Sell Price
               </Label>
               <Input
                 id="bulkSell"
@@ -300,7 +325,7 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
 
           {/* Notes/Textarea */}
           <div className="space-y-2">
-            <Label htmlFor="notes">Notes (Optional)</Label>
+            <Label htmlFor="notes">Notes</Label>
             <Textarea
               id="notes"
               placeholder="Add any specific details, supplier info, or remarks..."
@@ -311,7 +336,11 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
             />
           </div>
 
-          <Button onClick={handleSubmit} className="w-full">
+          <Button 
+            onClick={handleSubmit} 
+            className="w-full"
+            disabled={!isFormValid}
+          >
             Save Changes
           </Button>
         </div>

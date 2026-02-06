@@ -30,16 +30,27 @@ export const EditCategoryModal = ({
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (categoryName.trim() === "") {
-      // Prevent saving an empty name
-      return;
-    }
+    if (!isFormValid) return;
+    
     // Pass the new name and notes up to the container
     onSave({
       name: categoryName.trim(),
       notes: categoryNotes.trim(),
     });
   };
+
+  // Validation logic
+  const isFormValid = (() => {
+    // Name cannot be empty
+    if (!categoryName.trim()) return false;
+
+    // Check if any changes were made
+    const hasChanges = 
+      categoryName.trim() !== (initialName || "").trim() ||
+      categoryNotes.trim() !== (initialNotes || "").trim();
+
+    return hasChanges;
+  })();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -54,7 +65,7 @@ export const EditCategoryModal = ({
           <div className="grid gap-4 py-4">
             {/* Category Name */}
             <div className="space-y-2">
-              <Label htmlFor="category-name">Category Name</Label>
+              <Label htmlFor="category-name">Category Name*</Label>
               <Input
                 id="category-name"
                 placeholder="Enter category name"
@@ -68,10 +79,7 @@ export const EditCategoryModal = ({
             {/* Category Notes */}
             <div className="space-y-2">
               <Label htmlFor="category-notes">
-                Notes{" "}
-                <span className="text-xs text-muted-foreground">
-                  (Optional)
-                </span>
+                Notes
               </Label>
               <Textarea
                 id="category-notes"
@@ -90,7 +98,7 @@ export const EditCategoryModal = ({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={categoryName.trim() === ""}>
+            <Button type="submit" disabled={!isFormValid}>
               Save Changes
             </Button>
           </div>
