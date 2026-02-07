@@ -126,10 +126,11 @@ export default function ShareBusinessLink() {
         <p className="font-semibold">What customers will see:</p>
         <ul className="list-disc list-inside space-y-1 text-muted-foreground">
           <li>Your business name</li>
-          {businessAddress && <li>Your business address</li>}
+          {businessAddress && <li>Your business address (clickable - opens in Google Maps)</li>}
           <li>All categories and items</li>
           <li>Retail sell prices only (no bulk sell, cost or profit information)</li>
           <li>Item and category notes</li>
+          <li>Contact information (phone & email if provided)</li>
         </ul>
       </div>
     </div>
