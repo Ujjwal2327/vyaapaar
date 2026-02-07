@@ -17,7 +17,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import SettingsModal from "@/components/SettingsModal";
-import Logo from "@/components/Logo"
+import Logo from "@/components/Logo";
+import Navigation from "@/components/Navigation";
 
 export const PriceListHeader = ({
   searchTerm,
@@ -49,12 +50,16 @@ export const PriceListHeader = ({
     <div className="sticky top-0 z-40 bg-background border-b">
       <div className="max-w-4xl mx-auto p-2">
         <div className="flex justify-between items-center mb-4">
-          <Logo/>
+          <div className="flex items-center gap-4">
+            <Logo titleClassName="hidden sm:inline" />
+            <Navigation />
+          </div>
           <div className="flex justify-center items-center gap-2">
             <SettingsModal
               sellPriceMode={sellPriceMode}
               toggleSellPriceMode={toggleSellPriceMode}
             />
+
             <Button onClick={onBulkEdit} variant="outline" size="sm">
               <FileText className="w-4 h-4 md:mr-2" />
               <span className="hidden md:inline">Bulk Edit</span>
