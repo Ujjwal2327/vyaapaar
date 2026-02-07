@@ -93,8 +93,9 @@ export default function LandingPageAlternative() {
               </h1>
 
               <p className="text-xl text-muted-foreground leading-relaxed">
-                The modern way to manage inventory, prices, and share your
-                catalog with customers. No spreadsheets, no complexity.
+                The modern way to manage inventory, prices, and business contacts. 
+                Track products, customers, suppliers, and more—all in one place. 
+                No spreadsheets, no complexity.
               </p>
 
               <div className="flex flex-col sm:flex-row gap-4">
@@ -233,6 +234,97 @@ export default function LandingPageAlternative() {
         </div>
       </section>
 
+      {/* Complete Business Solution - Two Modules */}
+      <section className="py-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <Badge variant="secondary" className="mb-4">
+              Complete Solution
+            </Badge>
+            <h2 className="text-4xl font-bold mb-4">Two Powerful Modules in One</h2>
+            <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
+              Everything you need to manage your business in a single, integrated platform
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-8">
+            {/* Catalog Module */}
+            <div className="relative group">
+              <div className="absolute inset-0 bg-linear-to-br from-blue-500/10 to-cyan-500/10 rounded-3xl blur-xl group-hover:blur-2xl transition-all" />
+              <div className="relative bg-card border-2 border-primary/20 rounded-3xl p-8 hover:border-primary/40 transition-all">
+                <div className="w-16 h-16 rounded-2xl bg-linear-to-br from-blue-500 to-cyan-500 flex items-center justify-center mb-6">
+                  <Package className="w-8 h-8 text-white" />
+                </div>
+                <h3 className="text-2xl font-bold mb-4">Product Catalog</h3>
+                <p className="text-muted-foreground mb-6">
+                  Complete inventory management with nested categories, multiple pricing tiers, 
+                  and customizable units. Perfect for retail, wholesale, and manufacturing businesses.
+                </p>
+                <ul className="space-y-3">
+                  <li className="flex items-start gap-3">
+                    <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+                    <span className="text-sm">Retail & Bulk pricing with profit tracking</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+                    <span className="text-sm">Unlimited nested categories & subcategories</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+                    <span className="text-sm">50+ customizable units (kg, meter, piece, etc.)</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+                    <span className="text-sm">Public shareable catalog for customers</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+                    <span className="text-sm">Bulk import/export for easy data management</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Contacts Module */}
+            <div className="relative group">
+              <div className="absolute inset-0 bg-linear-to-br from-indigo-500/10 to-purple-500/10 rounded-3xl blur-xl group-hover:blur-2xl transition-all" />
+              <div className="relative bg-card border-2 border-primary/20 rounded-3xl p-8 hover:border-primary/40 transition-all">
+                <div className="w-16 h-16 rounded-2xl bg-linear-to-br from-indigo-500 to-purple-500 flex items-center justify-center mb-6">
+                  <Users className="w-8 h-8 text-white" />
+                </div>
+                <h3 className="text-2xl font-bold mb-4">Contact Management</h3>
+                <p className="text-muted-foreground mb-6">
+                  Centralize all your business contacts with custom categories, multiple phone numbers, 
+                  and detailed notes. Perfect for customers, suppliers, and maintaining key relationships.
+                </p>
+                <ul className="space-y-3">
+                  <li className="flex items-start gap-3">
+                    <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+                    <span className="text-sm">Custom categories (Customer, Supplier, Helper, etc.)</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+                    <span className="text-sm">Multiple phone numbers per contact with priority</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+                    <span className="text-sm">Store addresses, specialties, and detailed notes</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+                    <span className="text-sm">Photo support for easy visual identification</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+                    <span className="text-sm">Bulk edit for managing hundreds of contacts</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Features Grid */}
       <section className="py-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -258,6 +350,13 @@ export default function LandingPageAlternative() {
                 gradient: "from-blue-500 to-cyan-500",
               },
               {
+                icon: Users,
+                title: "Contact Management",
+                description:
+                  "Store customer, supplier, and worker details with custom categories, multiple phone numbers, and notes.",
+                gradient: "from-indigo-500 to-blue-500",
+              },
+              {
                 icon: Globe,
                 title: "Public Catalog",
                 description:
@@ -268,28 +367,42 @@ export default function LandingPageAlternative() {
                 icon: Search,
                 title: "Instant Search",
                 description:
-                  "Find any product in milliseconds with intelligent search and filtering.",
+                  "Find any product or contact in milliseconds with intelligent search and filtering.",
                 gradient: "from-orange-500 to-red-500",
               },
               {
                 icon: TrendingUp,
-                title: "Profit Analytics",
+                title: "Dual Pricing & Analytics",
                 description:
-                  "Track margins, compare retail vs bulk pricing, and optimize your strategy.",
+                  "Set retail and bulk prices separately. Track margins and optimize your pricing strategy.",
                 gradient: "from-green-500 to-emerald-500",
               },
               {
                 icon: Zap,
                 title: "Bulk Operations",
                 description:
-                  "Update hundreds of products at once with our powerful bulk edit mode.",
+                  "Update hundreds of products or contacts at once with our powerful bulk edit mode.",
                 gradient: "from-yellow-500 to-amber-500",
+              },
+              {
+                icon: Smartphone,
+                title: "Mobile Responsive",
+                description:
+                  "Access your catalog and contacts from any device. Perfect for on-the-go business management.",
+                gradient: "from-cyan-500 to-teal-500",
+              },
+              {
+                icon: Share2,
+                title: "Custom Units & Categories",
+                description:
+                  "Define your own product units and contact categories. Organize data exactly how you need it.",
+                gradient: "from-purple-500 to-pink-500",
               },
               {
                 icon: Shield,
                 title: "Secure & Private",
                 description:
-                  "Your data is encrypted and backed up automatically. Control what customers see.",
+                  "Your data is encrypted and backed up automatically. Control what customers see in your public catalog.",
                 gradient: "from-pink-500 to-rose-500",
               },
             ].map((feature, index) => (
@@ -444,7 +557,7 @@ export default function LandingPageAlternative() {
               <Logo className="mb-4" />
               <p className="text-muted-foreground mb-4 max-w-sm">
                 Modern inventory and price list management for growing
-                businesses. Built with ❤️ for small business owners.
+                businesses. Built with â¤ï¸ for small business owners.
               </p>
             </div>
 
@@ -485,7 +598,7 @@ export default function LandingPageAlternative() {
           <div className="border-t pt-8 text-center text-sm text-muted-foreground">
             <p>
               &copy; {new Date().getFullYear()} Vyaapaar. All rights reserved.
-              Made with ❤️ in India.
+              Made with â¤ï¸ in India.
             </p>
           </div>
         </div>
