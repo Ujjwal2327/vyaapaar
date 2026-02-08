@@ -9,6 +9,7 @@ import { EditPersonModal } from "./modals/EditPersonModal";
 import { PersonDetailModal } from "./modals/PersonDetailModal";
 import { BulkEditPeopleModal } from "./modals/BulkEditPeopleModal";
 import { ExportPDFModal } from "./modals/ExportPDFModal";
+import { ImportVCFModal } from "./modals/ImportVCFModal";
 import { toast } from "sonner";
 import Loader from "../Loader";
 
@@ -40,6 +41,7 @@ export const PeopleContainer = () => {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [showExportPDFModal, setShowExportPDFModal] = useState(false);
+  const [showImportVCFModal, setShowImportVCFModal] = useState(false);
   const [editingPerson, setEditingPerson] = useState(null);
   const [viewingPerson, setViewingPerson] = useState(null);
   const [sortType, setSortType] = useState("name-asc");
@@ -137,6 +139,10 @@ export const PeopleContainer = () => {
     setShowExportPDFModal(true);
   };
 
+  const handleImportVCF = () => {
+    setShowImportVCFModal(true);
+  };
+
   const handleBulkSave = async (newPeopleData) => {
     try {
       setShowBulkModal(false);
@@ -145,6 +151,23 @@ export const PeopleContainer = () => {
     } catch (error) {
       console.error("Bulk save error:", error);
       toast.error("Failed to save contacts", {
+        description: error.message || "Please try again",
+      });
+    }
+  };
+
+  const handleVCFImport = async (importedContacts) => {
+    try {
+      // Merge imported contacts with existing data
+      const newData = [...peopleData, ...importedContacts];
+      await savePeopleData(newData);
+      
+      toast.success(`Imported ${importedContacts.length} contact(s) successfully`, {
+        description: `Added to ${availableCategories.find(c => c.id === importedContacts[0].category)?.label || 'category'}`,
+      });
+    } catch (error) {
+      console.error("Import save error:", error);
+      toast.error("Failed to save imported contacts", {
         description: error.message || "Please try again",
       });
     }
@@ -191,6 +214,7 @@ export const PeopleContainer = () => {
         onAddPerson={handleAddPerson}
         onBulkEdit={handleBulkEdit}
         onExportPDF={handleExportPDF}
+        onImportVCF={handleImportVCF}
         sortType={sortType}
         onSortChange={handleSortChange}
         totalCount={peopleData.length}
@@ -243,6 +267,13 @@ export const PeopleContainer = () => {
         open={showExportPDFModal}
         onOpenChange={setShowExportPDFModal}
         peopleData={peopleData}
+        availableCategories={availableCategories}
+      />
+
+      <ImportVCFModal
+        open={showImportVCFModal}
+        onOpenChange={setShowImportVCFModal}
+        onImport={handleVCFImport}
         availableCategories={availableCategories}
       />
     </>

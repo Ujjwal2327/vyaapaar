@@ -7,6 +7,7 @@ import {
   FileText,
   FileDown,
   Download,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +34,7 @@ export const PeopleHeader = ({
   onAddPerson,
   onBulkEdit,
   onExportPDF,
+  onImportVCF,
   sortType,
   onSortChange,
   totalCount,
@@ -103,10 +105,17 @@ export const PeopleHeader = ({
         </div>
 
         <div className="flex items-center gap-4 mb-4 justify-between overflow-x-auto">
-          <Button onClick={onExportPDF} variant="outline" size="sm">
-            <Download className="w-4 h-4 md:mr-2" />
-            <span className="hidden md:inline">Export PDF</span>
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={onExportPDF} variant="outline" size="sm">
+              <Download className="w-4 h-4 md:mr-2" />
+              <span className="hidden md:inline">Export PDF</span>
+            </Button>
+
+            <Button onClick={onImportVCF} variant="outline" size="sm">
+              <Upload className="w-4 h-4 md:mr-2" />
+              <span className="hidden md:inline">Import VCF</span>
+            </Button>
+          </div>
 
 <div className="flex justify-center gap-x-4">
           <div className="flex items-center gap-2 ">
@@ -124,7 +133,7 @@ export const PeopleHeader = ({
                   <>
                     <div className="flex items-center justify-between w-full gap-3">
                       <span>{getCurrentCategoryLabel()}</span>
-                      <Badge variant="secondary" className="text-xs">
+                      <Badge variant="secondary" className="text-xs hidden sm:inline">
                         {getCurrentCategoryCount()}
                       </Badge>
                     </div>
