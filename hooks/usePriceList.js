@@ -191,7 +191,7 @@ export const usePriceList = () => {
     if (!user) {
       toast.dismiss(toastId);
       toast.error("You must be logged in to save changes.");
-      return;
+      throw new Error("User not logged in");
     }
 
     try {
@@ -218,6 +218,7 @@ export const usePriceList = () => {
         id: toastId,
         description: "Please check your internet connection.",
       });
+      throw error; // Re-throw so calling code can handle it
     }
   };
 

@@ -76,8 +76,16 @@ export const PeopleContainer = () => {
 
   const handleAdd = async (formData) => {
     const newData = [...peopleData, { id: Date.now().toString(), ...formData }];
-    setShowAddModal(false);
-    await savePeopleData(newData);
+    try {
+      await savePeopleData(newData);
+      setShowAddModal(false);
+    } catch (error) {
+      // Modal stays open on error so user doesn't lose their data
+      console.error("Failed to add contact:", error);
+    toast.error("Failed to add contact", {
+      description: "Please check your connection and try again",
+    });
+    }
   };
 
   const handleEditPerson = (person) => {
@@ -92,9 +100,17 @@ export const PeopleContainer = () => {
       person.id === editingPerson.id ? { ...person, ...formData } : person
     );
 
-    setShowEditModal(false);
-    setEditingPerson(null);
-    await savePeopleData(newData);
+    try {
+      await savePeopleData(newData);
+      setShowEditModal(false);
+      setEditingPerson(null);
+    } catch (error) {
+      // Modal stays open on error so user doesn't lose their changes
+      console.error("Failed to edit contact:", error);
+    toast.error("Failed to edit contact", {
+      description: "Please check your connection and try again",
+    });
+    }
   };
 
   const handleDelete = async (personId) => {
@@ -145,14 +161,15 @@ export const PeopleContainer = () => {
 
   const handleBulkSave = async (newPeopleData) => {
     try {
-      setShowBulkModal(false);
       await savePeopleData(newPeopleData);
+      setShowBulkModal(false);
       toast.success("Contacts updated successfully");
     } catch (error) {
       console.error("Bulk save error:", error);
       toast.error("Failed to save contacts", {
         description: error.message || "Please try again",
       });
+      // Modal stays open on error
     }
   };
 

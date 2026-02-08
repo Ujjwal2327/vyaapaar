@@ -21,6 +21,11 @@ import {
   Shield,
   Clock,
   Star,
+  FileDown,
+  Upload,
+  FileText,
+  Settings,
+  Image,
 } from "lucide-react";
 import Link from "next/link";
 import Loader from "@/components/Loader";
@@ -281,6 +286,10 @@ export default function LandingPageAlternative() {
                     <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
                     <span className="text-sm">Bulk import/export for easy data management</span>
                   </li>
+                  <li className="flex items-start gap-3">
+                    <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+                    <span className="text-sm">Category & item notes for detailed documentation</span>
+                  </li>
                 </ul>
               </div>
             </div>
@@ -317,6 +326,14 @@ export default function LandingPageAlternative() {
                   <li className="flex items-start gap-3">
                     <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
                     <span className="text-sm">Bulk edit for managing hundreds of contacts</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+                    <span className="text-sm">Import contacts from VCF files</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+                    <span className="text-sm">Export contacts to professional PDF formats</span>
                   </li>
                 </ul>
               </div>
@@ -404,6 +421,41 @@ export default function LandingPageAlternative() {
                 description:
                   "Your data is encrypted and backed up automatically. Control what customers see in your public catalog.",
                 gradient: "from-pink-500 to-rose-500",
+              },
+              {
+                icon: FileDown,
+                title: "PDF Export",
+                description:
+                  "Export contacts to professional PDF with multiple layout options (table, grid, bento).",
+                gradient: "from-red-500 to-orange-500",
+              },
+              {
+                icon: Upload,
+                title: "VCF Import",
+                description:
+                  "Import contacts from .vcf files with automatic validation and category assignment.",
+                gradient: "from-emerald-500 to-green-500",
+              },
+              {
+                icon: Image,
+                title: "Photo Support",
+                description:
+                  "Add photos to contacts for easy visual identification. Supports import from VCF files.",
+                gradient: "from-blue-500 to-indigo-500",
+              },
+              {
+                icon: FileText,
+                title: "Detailed Notes",
+                description:
+                  "Add comprehensive notes to products, categories, and contacts for better documentation.",
+                gradient: "from-amber-500 to-yellow-500",
+              },
+              {
+                icon: Settings,
+                title: "Business Profile",
+                description:
+                  "Set up your business name, address, and contact details to appear on your public catalog.",
+                gradient: "from-teal-500 to-cyan-500",
               },
             ].map((feature, index) => (
               <div
@@ -538,9 +590,9 @@ export default function LandingPageAlternative() {
             </Button>
             <Button
               size="lg"
-              variant="primary"
+              variant="outline"
               onClick={() => router.push("/business/Maheshwari Sanitary Store")}
-              className="text-lg gap-2 h-14 px-8"
+              className="text-lg gap-2 h-14 px-8 bg-white/10 hover:bg-white/20 text-white border-white/20"
             >
               <Store className="w-5 h-5" />
               View Live Demo
@@ -557,7 +609,7 @@ export default function LandingPageAlternative() {
               <Logo className="mb-4" />
               <p className="text-muted-foreground mb-4 max-w-sm">
                 Modern inventory and price list management for growing
-                businesses. Built with â¤ï¸ for small business owners.
+                businesses. Built with ❤️ for small business owners.
               </p>
             </div>
 
@@ -598,7 +650,7 @@ export default function LandingPageAlternative() {
           <div className="border-t pt-8 text-center text-sm text-muted-foreground">
             <p>
               &copy; {new Date().getFullYear()} Vyaapaar. All rights reserved.
-              Made with â¤ï¸ in India.
+              Made with ❤️ in India.
             </p>
           </div>
         </div>

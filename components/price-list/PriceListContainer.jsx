@@ -59,7 +59,10 @@ export const PriceListContainer = () => {
 
   // --- STATE FOR CATEGORY VIEWING ---
   const [showCategoryDetailModal, setShowCategoryDetailModal] = useState(false);
-  const [viewingCategory, setViewingCategory] = useState({ name: "", notes: "" });
+  const [viewingCategory, setViewingCategory] = useState({
+    name: "",
+    notes: "",
+  });
   // ---------------------------------------
 
   const [modalType, setModalType] = useState("");
@@ -100,7 +103,8 @@ export const PriceListContainer = () => {
   }, [searchTerm]);
 
   // Prevent hydration mismatch and show loading during DB fetch
-  if (!isHydrated || isDataLoading) return <Loader content="Loading catalog..."/>
+  if (!isHydrated || isDataLoading)
+    return <Loader content="Loading catalog..." />;
 
   const handleAddCategory = () => {
     setModalType("category");
@@ -124,8 +128,16 @@ export const PriceListContainer = () => {
   const handleAdd = async (formData) => {
     formData.name = toTitleCase(formData.name);
     const newData = addItem(priceData, modalContext.path, modalType, formData);
-    setShowAddModal(false);
-    savePriceData(newData);
+    try {
+      await savePriceData(newData);
+      setShowAddModal(false);
+    } catch (error) {
+      // Modal stays open on error so user doesn't lose their data
+      console.error("Failed to add item:", error);
+      toast.error("Failed to add item", {
+        description: "Please check your connection and try again",
+      });
+    }
   };
 
   const handleEditItem = (path, itemData) => {
@@ -156,9 +168,17 @@ export const PriceListContainer = () => {
       formData,
     );
 
-    setShowEditModal(false);
-    setEditingItem(null);
-    savePriceData(newData);
+    try {
+      await savePriceData(newData);
+      setShowEditModal(false);
+      setEditingItem(null);
+    } catch (error) {
+      // Modal stays open on error so user doesn't lose their changes
+      console.error("Failed to edit item:", error);
+      toast.error("Failed to edit item", {
+        description: "Please check your connection and try again",
+      });
+    }
   };
 
   // --- CATEGORY EDIT HANDLERS ---
@@ -183,9 +203,17 @@ export const PriceListContainer = () => {
       formData.notes, // Pass the notes to editCategory
     );
 
-    setShowEditCategoryModal(false);
-    setEditingCategory(null);
-    savePriceData(newData);
+    try {
+      await savePriceData(newData);
+      setShowEditCategoryModal(false);
+      setEditingCategory(null);
+    } catch (error) {
+      // Modal stays open on error so user doesn't lose their changes
+      console.error("Failed to edit category:", error);
+      toast.error("Failed to edit category", {
+        description: "Please check your connection and try again",
+      });
+    }
   };
   // ---------------------------------
 
@@ -229,13 +257,15 @@ export const PriceListContainer = () => {
   const handleBulkSave = async (bulkText) => {
     try {
       const newData = importFromText(bulkText);
+      await savePriceData(newData);
       setShowBulkModal(false);
-      savePriceData(newData);
     } catch (error) {
       console.error("Import error:", error);
       toast.error("Import Error", {
-        description: "Data format is invalid. Please check the text.",
+        description:
+          error.message || "Data format is invalid. Please check the text.",
       });
+      // Modal stays open on error
     }
   };
 
