@@ -108,7 +108,7 @@ export const PriceListHeader = ({
               {getPriceViewText()}
             </Button>
 
-            <div className="flex items-center justify-center gap-1 float-right">
+            <div className="flex items-center justify-center gap-2 float-right">
               <ArrowUpDown className="w-4 h-4 text-muted-foreground shrink-0" />
               <Select value={sortType} onValueChange={onSortChange}>
                 <SelectTrigger className="flex-1 text-xs">

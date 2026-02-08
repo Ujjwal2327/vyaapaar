@@ -5,6 +5,8 @@ import {
   Users,
   Filter,
   FileText,
+  FileDown,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +32,7 @@ export const PeopleHeader = ({
   setEditMode,
   onAddPerson,
   onBulkEdit,
+  onExportPDF,
   sortType,
   onSortChange,
   totalCount,
@@ -100,13 +103,21 @@ export const PeopleHeader = ({
         </div>
 
         <div className="flex items-center gap-4 mb-4 justify-between overflow-x-auto">
-          <div className="flex items-center gap-2 flex-1">
+          <Button onClick={onExportPDF} variant="outline" size="sm">
+            <Download className="w-4 h-4 md:mr-2" />
+            <span className="hidden md:inline">Export PDF</span>
+          </Button>
+
+<div className="flex justify-center gap-x-4">
+          <div className="flex items-center gap-2 ">
             <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
             <Select
               value={categoryFilter || "all"}
-              onValueChange={(value) =>
-                setCategoryFilter(value === "all" ? "" : value)
-              }
+              onValueChange={(value) => {
+                setCategoryFilter(value === "all" ? "" : value);
+                if (value !== "all" && sortType === "category")
+                  onSortChange("name-asc");
+              }}
             >
               <SelectTrigger className="flex-1 text-xs">
                 <SelectValue>
@@ -117,7 +128,6 @@ export const PeopleHeader = ({
                         {getCurrentCategoryCount()}
                       </Badge>
                     </div>
-                    
                   </>
                 </SelectValue>
               </SelectTrigger>
@@ -141,24 +151,29 @@ export const PeopleHeader = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <ArrowUpDown className="w-4 h-4 text-muted-foreground shrink-0" />
+              <ArrowUpDown className="w-4 h-4 text-muted-foreground shrink-0" />
             <Select value={sortType} onValueChange={onSortChange}>
               <SelectTrigger className="flex-1 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="name-asc" className="text-xs">
-                  Name: A to Z
+                  A to Z
                 </SelectItem>
                 <SelectItem value="name-desc" className="text-xs">
-                  Name: Z to A
+                  Z to A
                 </SelectItem>
-                <SelectItem value="category" className="text-xs">
-                  By Category
-                </SelectItem>
+                {categoryFilter === "" ? (
+                  <SelectItem value="category" className="text-xs">
+                    By Category
+                  </SelectItem>
+                ) : (
+                  ""
+                )}
               </SelectContent>
             </Select>
           </div>
+        </div>
         </div>
 
         <div className="relative mb-4">

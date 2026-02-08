@@ -8,6 +8,7 @@ import { AddPersonModal } from "./modals/AddPersonModal";
 import { EditPersonModal } from "./modals/EditPersonModal";
 import { PersonDetailModal } from "./modals/PersonDetailModal";
 import { BulkEditPeopleModal } from "./modals/BulkEditPeopleModal";
+import { ExportPDFModal } from "./modals/ExportPDFModal";
 import { toast } from "sonner";
 import Loader from "../Loader";
 
@@ -38,6 +39,7 @@ export const PeopleContainer = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showBulkModal, setShowBulkModal] = useState(false);
+  const [showExportPDFModal, setShowExportPDFModal] = useState(false);
   const [editingPerson, setEditingPerson] = useState(null);
   const [viewingPerson, setViewingPerson] = useState(null);
   const [sortType, setSortType] = useState("name-asc");
@@ -131,6 +133,10 @@ export const PeopleContainer = () => {
     setShowBulkModal(true);
   };
 
+  const handleExportPDF = () => {
+    setShowExportPDFModal(true);
+  };
+
   const handleBulkSave = async (newPeopleData) => {
     try {
       setShowBulkModal(false);
@@ -184,6 +190,7 @@ export const PeopleContainer = () => {
         setEditMode={setEditMode}
         onAddPerson={handleAddPerson}
         onBulkEdit={handleBulkEdit}
+        onExportPDF={handleExportPDF}
         sortType={sortType}
         onSortChange={handleSortChange}
         totalCount={peopleData.length}
@@ -230,6 +237,13 @@ export const PeopleContainer = () => {
         peopleData={peopleData}
         categories={availableCategories}
         onSave={handleBulkSave}
+      />
+
+      <ExportPDFModal
+        open={showExportPDFModal}
+        onOpenChange={setShowExportPDFModal}
+        peopleData={peopleData}
+        availableCategories={availableCategories}
       />
     </>
   );
