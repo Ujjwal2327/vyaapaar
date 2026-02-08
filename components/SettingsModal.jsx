@@ -69,7 +69,7 @@ const DEFAULT_CONTACT_CATEGORIES = [
  * Unified Settings Modal
  * Adapts content based on current page:
  * - /catalog: Shows catalog-specific settings (units, cost/profit toggle)
- * - /people: Shows people-specific settings (contact categories)
+ * - /contacts: Shows people-specific settings (contact categories)
  * - Common: Profile, Business Link, Display Settings, Logout
  */
 const SettingsModal = ({
@@ -107,7 +107,7 @@ const SettingsModal = ({
 
   // Determine current page context
   const isCatalogPage = pathname?.includes("/catalog");
-  const isPeoplePage = pathname?.includes("/people");
+  const isPeoplePage = pathname?.includes("/contacts");
 
   // Load settings based on context
   useEffect(() => {
