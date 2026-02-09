@@ -10,8 +10,15 @@ import { PersonDetailModal } from "./modals/PersonDetailModal";
 import { BulkEditPeopleModal } from "./modals/BulkEditPeopleModal";
 import { ExportPDFModal } from "./modals/ExportPDFModal";
 import { ImportVCFModal } from "./modals/ImportVCFModal";
+import { DuplicateContactsModal } from "./modals/DuplicateContactsModal";
 import { toast } from "sonner";
 import Loader from "../Loader";
+import {
+  batchFindDuplicates,
+  findPotentialDuplicates,
+  mergeContacts,
+  areContactsIdentical,
+} from "@/lib/utils/duplicateContactUtils";
 
 const DEFAULT_CATEGORIES = [
   { id: "customer", label: "Customer", isDefault: true },
@@ -70,12 +77,19 @@ export const PeopleContainer = () => {
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [showExportPDFModal, setShowExportPDFModal] = useState(false);
   const [showImportVCFModal, setShowImportVCFModal] = useState(false);
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  
   const [editingPerson, setEditingPerson] = useState(null);
   const [viewingPerson, setViewingPerson] = useState(null);
   const [sortType, setSortType] = useState("name-asc");
   const [availableCategories, setAvailableCategories] = useState(
     categories || DEFAULT_CATEGORIES,
   );
+
+  // Duplicate detection state
+  const [pendingContacts, setPendingContacts] = useState([]);
+  const [duplicateData, setDuplicateData] = useState([]);
+  const [pendingAction, setPendingAction] = useState(null);
 
   // Sync categories from hook
   useEffect(() => {
@@ -101,23 +115,191 @@ export const PeopleContainer = () => {
   if (!isHydrated || isDataLoading)
     return <Loader content="Loading contacts..." />;
 
+  /**
+   * Check for duplicates and handle accordingly
+   * - Auto-skip exact duplicates
+   * - Show modal for potential duplicates
+   * - Add directly if no duplicates
+   */
+  const checkAndHandleDuplicates = async (newContacts, action) => {
+    // Ensure array
+    const contactsArray = Array.isArray(newContacts) ? newContacts : [newContacts];
+    
+    // Find duplicates (threshold: 0.5 = 50% match)
+    const duplicates = batchFindDuplicates(contactsArray, peopleData, 0.5);
+    
+    // Categorize duplicates
+    const exactDuplicates = [];
+    const potentialDuplicates = [];
+    const noDuplicates = [];
+    
+    contactsArray.forEach((contact, index) => {
+      const dup = duplicates.find(d => d.index === index);
+      
+      if (!dup) {
+        // No duplicates found
+        noDuplicates.push(contact);
+      } else if (dup.isExactDuplicate) {
+        // Exact duplicate - skip automatically
+        exactDuplicates.push({ contact, duplicate: dup });
+      } else {
+        // Potential duplicate - needs user decision
+        potentialDuplicates.push({
+          newContact: contact,
+          duplicates: dup.duplicates
+        });
+      }
+    });
+    
+    // Auto-skip exact duplicates
+    if (exactDuplicates.length > 0) {
+      const names = exactDuplicates.map(d => d.contact.name).join(', ');
+      toast.info(`Skipped ${exactDuplicates.length} exact duplicate(s)`, {
+        description: names.length > 50 ? `${names.substring(0, 50)}...` : names
+      });
+    }
+    
+    // Show modal for potential duplicates
+    if (potentialDuplicates.length > 0) {
+      setPendingContacts(noDuplicates);
+      setDuplicateData(potentialDuplicates);
+      setPendingAction(action);
+      setShowDuplicateModal(true);
+      return;
+    }
+    
+    // No duplicates - add directly
+    if (noDuplicates.length > 0) {
+      await finalizeAddContacts(noDuplicates);
+    } else if (exactDuplicates.length === 0) {
+      // All were duplicates but handled - show message
+      toast.info("No new contacts to add");
+    }
+  };
+
+  /**
+   * Finalize adding contacts (no duplicates)
+   */
+  const finalizeAddContacts = async (contacts) => {
+    const newData = [...peopleData];
+    
+    contacts.forEach(contact => {
+      newData.push({
+        ...contact,
+        id: contact.id || (Date.now().toString() + Math.random().toString(36).substr(2, 9))
+      });
+    });
+    
+    const loadingToast = toast.loading("Adding contacts...");
+    
+    try {
+      await savePeopleData(newData);
+      toast.success(`${contacts.length} contact(s) added successfully`, { id: loadingToast });
+    } catch (error) {
+      console.error("Failed to add contacts:", error);
+      toast.error(getErrorMessage(error), { id: loadingToast });
+      throw error; // Re-throw to prevent modal from closing
+    }
+  };
+
+  /**
+   * Handle duplicate resolution from modal
+   */
+  const handleDuplicateResolution = async (resolutions) => {
+    const contactsToAdd = [...pendingContacts]; // Non-duplicate contacts
+    const contactsToUpdate = [];
+    
+    resolutions.forEach(resolution => {
+      const { newContact, action, targetContact } = resolution;
+      
+      switch (action) {
+        case 'merge':
+          // Merge new contact into existing
+          const merged = mergeContacts(targetContact, newContact, {
+            preferNew: true,
+            mergePhones: true,
+            mergeNotes: true
+          });
+          contactsToUpdate.push(merged);
+          break;
+          
+        case 'replace':
+          // Replace existing with new (keep ID)
+          contactsToUpdate.push({
+            ...newContact,
+            id: targetContact.id // Keep existing ID
+          });
+          break;
+          
+        case 'skip':
+          // Do nothing - keep existing, don't add new
+          break;
+          
+        default:
+          console.warn('Unknown resolution action:', action);
+      }
+    });
+    
+    // Build final data array
+    let finalData = [...peopleData];
+    
+    // Apply updates
+    contactsToUpdate.forEach(updated => {
+      const index = finalData.findIndex(p => p.id === updated.id);
+      if (index !== -1) {
+        finalData[index] = updated;
+      }
+    });
+    
+    // Add new contacts
+    contactsToAdd.forEach(contact => {
+      finalData.push({
+        ...contact,
+        id: contact.id || (Date.now().toString() + Math.random().toString(36).substr(2, 9))
+      });
+    });
+    
+    // Save to database
+    const loadingToast = toast.loading("Saving contacts...");
+    
+    try {
+      await savePeopleData(finalData);
+      
+      const addedCount = contactsToAdd.length;
+      const mergedCount = resolutions.filter(r => r.action === 'merge').length;
+      const replacedCount = resolutions.filter(r => r.action === 'replace').length;
+      const skippedCount = resolutions.filter(r => r.action === 'skip').length;
+      
+      let message = [];
+      if (addedCount > 0) message.push(`${addedCount} added`);
+      if (mergedCount > 0) message.push(`${mergedCount} merged`);
+      if (replacedCount > 0) message.push(`${replacedCount} replaced`);
+      if (skippedCount > 0) message.push(`${skippedCount} skipped`);
+      
+      toast.success("Contacts saved successfully", {
+        description: message.join(', '),
+        id: loadingToast
+      });
+      
+      setShowDuplicateModal(false);
+      setPendingContacts([]);
+      setDuplicateData([]);
+      setPendingAction(null);
+    } catch (error) {
+      console.error("Failed to save contacts:", error);
+      toast.error(getErrorMessage(error), { id: loadingToast });
+      // Modal stays open on error
+    }
+  };
+
   const handleAddPerson = () => {
     setShowAddModal(true);
   };
 
   const handleAdd = async (formData) => {
-    const newData = [...peopleData, { id: Date.now().toString(), ...formData }];
-    const loadingToast = toast.loading("Adding contact...");
-    
-    try {
-      await savePeopleData(newData);
-      toast.success("Contact added successfully", { id: loadingToast });
-      setShowAddModal(false);
-    } catch (error) {
-      console.error("Failed to add contact:", error);
-      toast.error(getErrorMessage(error), { id: loadingToast });
-      // Modal stays open on error
-    }
+    setShowAddModal(false);
+    // Check for duplicates before adding
+    await checkAndHandleDuplicates([formData], 'add');
   };
 
   const handleEditPerson = (person) => {
@@ -214,40 +396,15 @@ export const PeopleContainer = () => {
   };
 
   const handleBulkSave = async (newPeopleData) => {
-    const loadingToast = toast.loading("Saving contacts...");
-    
-    try {
-      await savePeopleData(newPeopleData);
-      toast.success("Contacts updated successfully", { id: loadingToast });
-      setShowBulkModal(false);
-    } catch (error) {
-      console.error("Bulk save error:", error);
-      toast.error(getErrorMessage(error), { id: loadingToast });
-      // Modal stays open on error
-    }
+    setShowBulkModal(false);
+    // Check for duplicates before saving
+    await checkAndHandleDuplicates(newPeopleData, 'bulkEdit');
   };
 
   const handleVCFImport = async (importedContacts) => {
-    const loadingToast = toast.loading("Importing contacts...");
-    
-    try {
-      const newData = [...peopleData, ...importedContacts];
-      await savePeopleData(newData);
-
-      const categoryLabel = availableCategories.find(
-        (c) => c.id === importedContacts[0].category
-      )?.label || "category";
-      
-      toast.success(
-        `Imported ${importedContacts.length} contact(s) to ${categoryLabel}`,
-        { id: loadingToast }
-      );
-      setShowImportVCFModal(false);
-    } catch (error) {
-      console.error("Import save error:", error);
-      toast.error(getErrorMessage(error), { id: loadingToast });
-      // Modal stays open on error
-    }
+    setShowImportVCFModal(false);
+    // Check for duplicates before importing
+    await checkAndHandleDuplicates(importedContacts, 'import');
   };
 
   // Filter and sort data
@@ -357,6 +514,13 @@ export const PeopleContainer = () => {
         onOpenChange={setShowImportVCFModal}
         onImport={handleVCFImport}
         availableCategories={availableCategories}
+      />
+
+      <DuplicateContactsModal
+        open={showDuplicateModal}
+        onOpenChange={setShowDuplicateModal}
+        duplicates={duplicateData}
+        onResolve={handleDuplicateResolution}
       />
     </>
   );

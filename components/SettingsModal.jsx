@@ -57,6 +57,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { toTitleCase } from "@/lib/utils/dataTransform";
 
 const DEFAULT_CONTACT_CATEGORIES = [
   { id: "customer", label: "Customer", isDefault: true },
@@ -92,14 +93,19 @@ const SettingsModal = ({
   // Catalog-specific states
   const [searchQuery, setSearchQuery] = useState("");
   const [activeUnits, setActiveUnits] = useState(DEFAULT_ACTIVE_UNITS);
-  const [initialActiveUnits, setInitialActiveUnits] = useState(DEFAULT_ACTIVE_UNITS);
+  const [initialActiveUnits, setInitialActiveUnits] =
+    useState(DEFAULT_ACTIVE_UNITS);
   const [showCostProfit, setShowCostProfit] = useState(false);
   const [totalItems, setTotalItems] = useState(0);
   const [totalCategories, setTotalCategories] = useState(0);
 
   // People-specific states
-  const [contactCategories, setContactCategories] = useState(DEFAULT_CONTACT_CATEGORIES);
-  const [initialContactCategories, setInitialContactCategories] = useState(DEFAULT_CONTACT_CATEGORIES);
+  const [contactCategories, setContactCategories] = useState(
+    DEFAULT_CONTACT_CATEGORIES,
+  );
+  const [initialContactCategories, setInitialContactCategories] = useState(
+    DEFAULT_CONTACT_CATEGORIES,
+  );
   const [totalContacts, setTotalContacts] = useState(0);
   const [editingCategoryId, setEditingCategoryId] = useState(null);
   const [editingCategoryLabel, setEditingCategoryLabel] = useState("");
@@ -259,7 +265,7 @@ const SettingsModal = ({
     setFontSize(100);
     localStorage.setItem("fontSize", "100");
     document.documentElement.style.fontSize = "100%";
-    
+
     if (isCatalogPage) {
       setShowCostProfit(false);
       localStorage.setItem("showCostProfit", "false");
@@ -294,7 +300,7 @@ const SettingsModal = ({
     const filtered = {};
     Object.entries(UNIT_CATEGORIES).forEach(([category, units]) => {
       const matchedUnits = units.filter((unit) =>
-        unitMatchesQuery(unit, searchQuery)
+        unitMatchesQuery(unit, searchQuery),
       );
       if (matchedUnits.length > 0) {
         filtered[category] = matchedUnits;
@@ -305,7 +311,9 @@ const SettingsModal = ({
 
   // People-specific handlers
   const getCategoryCount = (categoryId) => {
-    return peopleData?.filter((person) => person.category === categoryId).length || 0;
+    return (
+      peopleData?.filter((person) => person.category === categoryId).length || 0
+    );
   };
 
   const handleAddCategory = () => {
@@ -315,7 +323,7 @@ const SettingsModal = ({
     }
 
     const exists = contactCategories.some(
-      (cat) => cat.label.toLowerCase() === newCategoryLabel.toLowerCase()
+      (cat) => cat.label.toLowerCase() === newCategoryLabel.toLowerCase(),
     );
     if (exists) {
       toast.error("A category with this name already exists");
@@ -324,7 +332,7 @@ const SettingsModal = ({
 
     const newCategory = {
       id: newCategoryLabel.toLowerCase().replace(/\s+/g, "_"),
-      label: newCategoryLabel.trim(),
+      label: toTitleCase(newCategoryLabel),
       isDefault: false,
     };
 
@@ -337,7 +345,7 @@ const SettingsModal = ({
     const category = contactCategories.find((cat) => cat.id === categoryId);
     if (category) {
       setEditingCategoryId(categoryId);
-      setEditingCategoryLabel(category.label);
+      setEditingCategoryLabel(toTitleCase(category.label));
     }
   };
 
@@ -350,7 +358,7 @@ const SettingsModal = ({
     const exists = contactCategories.some(
       (cat) =>
         cat.id !== editingCategoryId &&
-        cat.label.toLowerCase() === editingCategoryLabel.toLowerCase()
+        cat.label.toLowerCase() === editingCategoryLabel.toLowerCase(),
     );
     if (exists) {
       toast.error("A category with this name already exists");
@@ -360,9 +368,9 @@ const SettingsModal = ({
     setContactCategories(
       contactCategories.map((cat) =>
         cat.id === editingCategoryId
-          ? { ...cat, label: editingCategoryLabel.trim() }
-          : cat
-      )
+          ? { ...cat, label: toTitleCase(editingCategoryLabel) }
+          : cat,
+      ),
     );
     setEditingCategoryId(null);
     setEditingCategoryLabel("");
@@ -378,12 +386,15 @@ const SettingsModal = ({
     const count = getCategoryCount(categoryId);
     if (count > 0) {
       toast.error(`Cannot delete category with ${count} contact(s)`, {
-        description: "Please move or delete contacts first, or merge with another category.",
+        description:
+          "Please move or delete contacts first, or merge with another category.",
       });
       return;
     }
 
-    setContactCategories(contactCategories.filter((cat) => cat.id !== categoryId));
+    setContactCategories(
+      contactCategories.filter((cat) => cat.id !== categoryId),
+    );
     toast.success("Category deleted");
   };
 
@@ -404,7 +415,7 @@ const SettingsModal = ({
           }
 
           setContactCategories(
-            contactCategories.filter((cat) => cat.id !== fromCategoryId)
+            contactCategories.filter((cat) => cat.id !== fromCategoryId),
           );
           toast.success("Categories merged successfully");
         },
@@ -427,7 +438,12 @@ const SettingsModal = ({
         <DialogHeader>
           <DialogTitle className="text-xl">Settings</DialogTitle>
           <DialogDescription>
-            Customize your experience and manage your {isCatalogPage ? "catalog" : isPeoplePage ? "contacts" : "application"}
+            Customize your experience and manage your{" "}
+            {isCatalogPage
+              ? "catalog"
+              : isPeoplePage
+                ? "contacts"
+                : "application"}
           </DialogDescription>
         </DialogHeader>
 
@@ -458,13 +474,17 @@ const SettingsModal = ({
                   <Users className="w-8 h-8 text-primary" />
                   <div>
                     <p className="text-2xl font-bold">{totalContacts}</p>
-                    <p className="text-sm text-muted-foreground">Total Contacts</p>
+                    <p className="text-sm text-muted-foreground">
+                      Total Contacts
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 p-3 bg-linear-to-br from-secondary/10 to-secondary/5 rounded-lg border">
                   <Users className="w-8 h-8 text-secondary-foreground" />
                   <div>
-                    <p className="text-2xl font-bold">{contactCategories.length}</p>
+                    <p className="text-2xl font-bold">
+                      {contactCategories.length}
+                    </p>
                     <p className="text-sm text-muted-foreground">Categories</p>
                   </div>
                 </div>
@@ -619,7 +639,9 @@ const SettingsModal = ({
                                   <Checkbox
                                     id={unit.name}
                                     checked={activeUnits.includes(unit.name)}
-                                    onCheckedChange={() => toggleUnit(unit.name)}
+                                    onCheckedChange={() =>
+                                      toggleUnit(unit.name)
+                                    }
                                   />
                                   <label
                                     htmlFor={unit.name}
@@ -631,7 +653,7 @@ const SettingsModal = ({
                               ))}
                             </div>
                           </div>
-                        )
+                        ),
                       )
                     )}
                   </div>
@@ -714,18 +736,23 @@ const SettingsModal = ({
                               ) : (
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-3 flex-1">
-                                      <span className="font-medium text-base">
-                                        {category.label}
-                                      </span>
-                                      
-                                    <Badge variant="secondary" className="text-xs">
+                                    <span className="font-medium text-base">
+                                      {category.label}
+                                    </span>
+
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-xs"
+                                    >
                                       {count}
                                     </Badge>
                                   </div>
 
                                   <div className="flex items-center gap-1">
                                     <Button
-                                      onClick={() => handleEditCategory(category.id)}
+                                      onClick={() =>
+                                        handleEditCategory(category.id)
+                                      }
                                       size="sm"
                                       variant="ghost"
                                       className="h-8 w-8 p-0"
@@ -770,10 +797,12 @@ const SettingsModal = ({
                         <ul className="list-disc list-inside space-y-1 text-muted-foreground">
                           <li>Categories with contacts cannot be deleted</li>
                           <li>
-                            Use merge to move contacts to another category before
-                            deleting
+                            Use merge to move contacts to another category
+                            before deleting
                           </li>
-                          <li>Default categories can be renamed but not deleted</li>
+                          <li>
+                            Default categories can be renamed but not deleted
+                          </li>
                         </ul>
                       </div>
                     </div>
@@ -839,7 +868,12 @@ const MergeCategoryButton = ({ category, categories, onMerge }) => {
             ))}
           </SelectContent>
         </Select>
-        <Button onClick={handleMerge} size="sm" variant="default" className="h-8 px-2">
+        <Button
+          onClick={handleMerge}
+          size="sm"
+          variant="default"
+          className="h-8 px-2"
+        >
           <Check className="w-4 h-4" />
         </Button>
         <Button
