@@ -27,6 +27,33 @@ import { CategoryDetailModal } from "./modals/CategoryDetailModal";
 import { ItemDetailModal } from "./modals/ItemDetailModal";
 import Loader from "../Loader";
 
+// Helper function to get user-friendly error messages
+const getErrorMessage = (error) => {
+  if (!error) return "An error occurred";
+  
+  // User errors
+  if (error.message === "NOT_AUTHENTICATED") {
+    return "You must be logged in to save changes";
+  }
+  
+  // Import/validation errors (user errors)
+  if (error.message?.includes("format") || 
+      error.message?.includes("invalid") ||
+      error.message?.includes("Line")) {
+    return error.message; // Show specific validation error
+  }
+  
+  // Server/DB errors - generic message
+  if (error.message?.includes("fetch") || 
+      error.message?.includes("network") ||
+      error.code?.startsWith("PGRST")) {
+    return "Unable to connect to the server. Please check your internet connection";
+  }
+  
+  // Default error
+  return "Failed to save changes. Please try again";
+};
+
 export const PriceListContainer = () => {
   const {
     priceData,
@@ -52,18 +79,14 @@ export const PriceListContainer = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showBulkModal, setShowBulkModal] = useState(false);
 
-  // --- STATE FOR CATEGORY EDITING ---
   const [showEditCategoryModal, setShowEditCategoryModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState(null);
-  // ---------------------------------------
 
-  // --- STATE FOR CATEGORY VIEWING ---
   const [showCategoryDetailModal, setShowCategoryDetailModal] = useState(false);
   const [viewingCategory, setViewingCategory] = useState({
     name: "",
     notes: "",
   });
-  // ---------------------------------------
 
   const [modalType, setModalType] = useState("");
   const [modalContext, setModalContext] = useState({});
@@ -79,7 +102,6 @@ export const PriceListContainer = () => {
     }
   }, []);
 
-  // Save sortType to localStorage whenever it changes
   const handleSortChange = (newSortType) => {
     setSortType(newSortType);
     localStorage.setItem("sortType", newSortType);
@@ -124,19 +146,25 @@ export const PriceListContainer = () => {
     setShowAddModal(true);
   };
 
-  // Add Item/Category Wrapper (OPTIMISTIC/BACKGROUND SAVE)
   const handleAdd = async (formData) => {
     formData.name = toTitleCase(formData.name);
     const newData = addItem(priceData, modalContext.path, modalType, formData);
+    
+    const loadingToast = toast.loading(
+      `Adding ${modalType === "category" ? "category" : "item"}...`
+    );
+    
     try {
       await savePriceData(newData);
+      toast.success(
+        `${modalType === "category" ? "Category" : "Item"} added successfully`,
+        { id: loadingToast }
+      );
       setShowAddModal(false);
     } catch (error) {
-      // Modal stays open on error so user doesn't lose their data
       console.error("Failed to add item:", error);
-      toast.error("Failed to add item", {
-        description: "Please check your connection and try again",
-      });
+      toast.error(getErrorMessage(error), { id: loadingToast });
+      // Modal stays open on error
     }
   };
 
@@ -154,7 +182,6 @@ export const PriceListContainer = () => {
     setShowEditModal(true);
   };
 
-  // Edit Item Wrapper (OPTIMISTIC/BACKGROUND SAVE)
   const handleEdit = async (formData) => {
     if (!editingItem) return;
 
@@ -168,22 +195,21 @@ export const PriceListContainer = () => {
       formData,
     );
 
+    const loadingToast = toast.loading("Updating item...");
+    
     try {
       await savePriceData(newData);
+      toast.success("Item updated successfully", { id: loadingToast });
       setShowEditModal(false);
       setEditingItem(null);
     } catch (error) {
-      // Modal stays open on error so user doesn't lose their changes
       console.error("Failed to edit item:", error);
-      toast.error("Failed to edit item", {
-        description: "Please check your connection and try again",
-      });
+      toast.error(getErrorMessage(error), { id: loadingToast });
+      // Modal stays open on error
     }
   };
 
-  // --- CATEGORY EDIT HANDLERS ---
   const handleEditCategory = (path, name) => {
-    // Get the category data to retrieve existing notes
     const categoryData = getItemAtPath(priceData, path);
     const existingNotes = categoryData?.notes || "";
 
@@ -200,35 +226,31 @@ export const PriceListContainer = () => {
       priceData,
       editingCategory.path,
       newNameTitleCase,
-      formData.notes, // Pass the notes to editCategory
+      formData.notes,
     );
 
+    const loadingToast = toast.loading("Updating category...");
+    
     try {
       await savePriceData(newData);
+      toast.success("Category updated successfully", { id: loadingToast });
       setShowEditCategoryModal(false);
       setEditingCategory(null);
     } catch (error) {
-      // Modal stays open on error so user doesn't lose their changes
       console.error("Failed to edit category:", error);
-      toast.error("Failed to edit category", {
-        description: "Please check your connection and try again",
-      });
+      toast.error(getErrorMessage(error), { id: loadingToast });
+      // Modal stays open on error
     }
   };
-  // ---------------------------------
 
-  // --- CATEGORY VIEW HANDLERS ---
   const handleViewCategoryDetails = (path, name) => {
-    // Get the category data to retrieve notes
     const categoryData = getItemAtPath(priceData, path);
     const categoryNotes = categoryData?.notes || "";
 
     setViewingCategory({ name, notes: categoryNotes });
     setShowCategoryDetailModal(true);
   };
-  // ---------------------------------
 
-  // Delete Wrapper (OPTIMISTIC/BACKGROUND SAVE)
   const handleDelete = async (path, e) => {
     if (e) {
       e.preventDefault();
@@ -238,9 +260,17 @@ export const PriceListContainer = () => {
     toast.warning("Are you sure you want to delete this item?", {
       action: {
         label: "Delete",
-        onClick: () => {
+        onClick: async () => {
           const newData = deleteItem(priceData, path);
-          savePriceData(newData);
+          const loadingToast = toast.loading("Deleting...");
+          
+          try {
+            await savePriceData(newData);
+            toast.success("Deleted successfully", { id: loadingToast });
+          } catch (error) {
+            console.error("Failed to delete:", error);
+            toast.error(getErrorMessage(error), { id: loadingToast });
+          }
         },
       },
       duration: 5000,
@@ -253,23 +283,21 @@ export const PriceListContainer = () => {
     setShowBulkModal(true);
   };
 
-  // Bulk Save Wrapper (OPTIMISTIC/BACKGROUND SAVE)
   const handleBulkSave = async (bulkText) => {
+    const loadingToast = toast.loading("Importing data...");
+    
     try {
       const newData = importFromText(bulkText);
       await savePriceData(newData);
+      toast.success("Data imported successfully", { id: loadingToast });
       setShowBulkModal(false);
     } catch (error) {
       console.error("Import error:", error);
-      toast.error("Import Error", {
-        description:
-          error.message || "Data format is invalid. Please check the text.",
-      });
+      toast.error(getErrorMessage(error), { id: loadingToast });
       // Modal stays open on error
     }
   };
 
-  // Handler to view item details
   const handleViewDetails = (itemName, itemData) => {
     setViewingItem({ data: itemData, name: itemName });
     setShowItemDetailModal(true);
@@ -308,7 +336,7 @@ export const PriceListContainer = () => {
         onAddSubcategory={handleAddSubcategory}
         onAddItem={handleAddItem}
         onEditCategory={handleEditCategory}
-        onViewCategoryDetails={handleViewCategoryDetails} // New prop
+        onViewCategoryDetails={handleViewCategoryDetails}
         onViewDetails={handleViewDetails}
       />
 
@@ -333,7 +361,6 @@ export const PriceListContainer = () => {
         onSave={handleBulkSave}
       />
 
-      {/* Edit Category Modal */}
       <EditCategoryModal
         open={showEditCategoryModal}
         onOpenChange={setShowEditCategoryModal}
@@ -342,7 +369,6 @@ export const PriceListContainer = () => {
         onSave={handleSaveCategory}
       />
 
-      {/* Category Detail Modal */}
       <CategoryDetailModal
         open={showCategoryDetailModal}
         onOpenChange={setShowCategoryDetailModal}
@@ -350,7 +376,6 @@ export const PriceListContainer = () => {
         categoryNotes={viewingCategory.notes}
       />
 
-      {/* Item Detail Modal */}
       <ItemDetailModal
         open={showItemDetailModal}
         onOpenChange={setShowItemDetailModal}

@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { toast } from "sonner";
 
 const DEFAULT_CATEGORIES = [
   { id: "customer", label: "Customer", isDefault: true },
@@ -27,17 +26,11 @@ export const usePeople = () => {
   const hasFetchedDb = useRef(false);
 
   // Helper to load from local storage
-  const loadFromLocal = (warningMessage = null) => {
+  const loadFromLocal = () => {
     const saved = localStorage.getItem("peopleData");
     if (saved) {
       try {
         setPeopleData(JSON.parse(saved));
-        if (warningMessage) {
-          toast.warning(warningMessage, {
-            description: "Data loaded from local cache.",
-            duration: 5000,
-          });
-        }
       } catch (e) {
         console.error("Local parse error", e);
         setPeopleData([]);
@@ -72,7 +65,7 @@ export const usePeople = () => {
 
       if (!user) {
         console.warn("No user found. Loading local data.");
-        loadFromLocal("You are currently working offline.");
+        loadFromLocal();
         setIsDataLoading(false);
         setIsHydrated(true);
         return;
@@ -110,7 +103,7 @@ export const usePeople = () => {
         }
       } catch (error) {
         console.error("DB Load Error:", error);
-        loadFromLocal("Unable to connect to database. Loaded local copy.");
+        loadFromLocal();
       } finally {
         setIsDataLoading(false);
         setIsHydrated(true);
@@ -120,14 +113,10 @@ export const usePeople = () => {
     loadData();
   }, [user, authLoading]);
 
-  // Save data to DB and local storage
+  // Save data to DB and local storage - NO TOAST LOGIC
   const savePeopleData = async (newData) => {
-    const toastId = toast.loading("Syncing changes...");
-
     if (!user) {
-      toast.dismiss(toastId);
-      toast.error("You must be logged in to save changes.");
-      throw new Error("User not logged in");
+      throw new Error("NOT_AUTHENTICATED");
     }
 
     try {
@@ -139,27 +128,26 @@ export const usePeople = () => {
         { onConflict: "user_id" }
       );
 
-      if (error) throw error;
+      if (error) {
+        // Check for duplicate phone constraint violation
+        if (error.code === "23505" || error.message?.includes("Duplicate phone")) {
+          throw new Error("DUPLICATE_PHONE");
+        }
+        throw error;
+      }
 
       localStorage.setItem("peopleData", JSON.stringify(newData));
       setPeopleData(newData);
-
-      toast.success("Saved successfully", { id: toastId });
     } catch (error) {
       console.error("Save Error:", error);
-      toast.error("Failed to save changes", {
-        id: toastId,
-        description: "Please check your internet connection.",
-      });
-      throw error; // Re-throw so calling code can handle it
+      throw error; // Re-throw for container to handle
     }
   };
 
-  // Save categories to DB and local storage
+  // Save categories to DB and local storage - NO TOAST LOGIC
   const saveCategories = async (newCategories) => {
     if (!user) {
-      toast.error("You must be logged in to save changes.");
-      throw new Error("User not logged in");
+      throw new Error("NOT_AUTHENTICATED");
     }
 
     try {
@@ -177,10 +165,7 @@ export const usePeople = () => {
       setCategories(newCategories);
     } catch (error) {
       console.error("Save Categories Error:", error);
-      toast.error("Failed to save categories", {
-        description: "Please check your internet connection.",
-      });
-      throw error; // Re-throw so calling code can handle it
+      throw error; // Re-throw for container to handle
     }
   };
 

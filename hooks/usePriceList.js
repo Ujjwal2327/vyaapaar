@@ -1,11 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import { supabase } from "@/lib/supabase"; // Your existing client
-import { useAuth } from "@/components/auth/AuthProvider"; // Your existing auth context
-import { toast } from "sonner";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { sortData } from "../lib/utils/priceListUtils";
 
 // Helper function to recursively capture the object key order into an __orderKeys array
-// This is crucial for persisting the user's order when saving to JSON/JSONB
 const deepAddOrderKeys = (data) => {
   if (!data || typeof data !== "object") return data;
 
@@ -13,20 +11,15 @@ const deepAddOrderKeys = (data) => {
 
   Object.entries(data).forEach(([key, node]) => {
     if (node && node.type === "category" && node.children) {
-      // Recursively process children first
       const sortedChildren = deepAddOrderKeys(node.children);
-
-      // Capture the current, desired order of the child keys
       const orderKeys = Object.keys(sortedChildren);
 
       newData[key] = {
         ...node,
         children: sortedChildren,
-        // Save the key order for persistence
         __orderKeys: orderKeys,
       };
     } else {
-      // Item or non-recursive node
       newData[key] = node;
     }
   });
@@ -34,70 +27,34 @@ const deepAddOrderKeys = (data) => {
   return newData;
 };
 
-const defaultData = {
-  Taps: {
-    type: "category",
-    children: {
-      "Novex / MK": {
-        type: "category",
-        children: {
-          "Angle valve": {
-            type: "item",
-            retailSell: 50,
-            bulkSell: 45,
-            cost: 40,
-            sellUnit: "piece",
-            costUnit: "piece",
-          },
-          "Bib cock": {
-            type: "item",
-            retailSell: 40,
-            bulkSell: 40,
-            cost: 32,
-            sellUnit: "piece",
-            costUnit: "piece",
-          },
-        },
-      },
-    },
-  },
-};
-
 export const usePriceList = () => {
-  const { user, loading: authLoading } = useAuth(); // UI States
+  const { user, loading: authLoading } = useAuth();
 
+  // UI States
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedCategories, setExpandedCategories] = useState({});
-  const [sellPriceMode, setSellPriceMode] = useState("retail"); // "retail" or "bulk"
-  const [priceView, setPriceView] = useState("sell"); // "sell", "cost", or "profit"
-  const [editMode, setEditMode] = useState(false); // Data States
+  const [sellPriceMode, setSellPriceMode] = useState("retail");
+  const [priceView, setPriceView] = useState("sell");
+  const [editMode, setEditMode] = useState(false);
 
+  // Data States
   const [priceData, setPriceData] = useState({});
   const [isHydrated, setIsHydrated] = useState(false);
-  const [isDataLoading, setIsDataLoading] = useState(true); // Fix: Use a useRef to ensure the initial data fetch runs exactly once
+  const [isDataLoading, setIsDataLoading] = useState(true);
 
-  const hasFetchedDb = useRef(false); // Helper to load from local storage
+  const hasFetchedDb = useRef(false);
 
-  const loadFromLocal = (warningMessage = null) => {
+  // Helper to load from local storage
+  const loadFromLocal = () => {
     const saved = localStorage.getItem("priceListData");
     if (saved) {
       try {
         setPriceData(JSON.parse(saved));
-        if (warningMessage) {
-          toast.warning(warningMessage, {
-            description: "Data loaded from local cache.",
-            duration: 5000,
-          });
-        }
       } catch (e) {
         console.error("Local parse error", e);
         setPriceData({});
-        // setPriceData(defaultData);
       }
-    } 
-    // else {
-    //   setPriceData(defaultData);
-    // }
+    }
   };
 
   // Load sellPriceMode from localStorage on mount
@@ -108,33 +65,29 @@ export const usePriceList = () => {
     }
   }, []);
 
-  // 1. LOAD DATA: Triggered when Auth finishes loading
+  // Load data when auth finishes loading
   useEffect(() => {
     const loadData = async () => {
-      // Check ref value for single execution.
       if (hasFetchedDb.current) {
         setIsDataLoading(false);
         setIsHydrated(true);
         return;
-      } // Wait for AuthProvider to finish checking session
+      }
 
       if (authLoading) return;
 
-      setIsDataLoading(true); // Set ref to true immediately before execution
-
+      setIsDataLoading(true);
       hasFetchedDb.current = true;
 
       if (!user) {
-        // Not logged in: Fallback to local
         console.warn("No user found. Loading local data.");
-        loadFromLocal("You are currently working offline.");
+        loadFromLocal();
         setIsDataLoading(false);
         setIsHydrated(true);
         return;
       }
 
       try {
-        // Fetch from Supabase
         const { data, error } = await supabase
           .from("price_lists")
           .select("data")
@@ -144,20 +97,17 @@ export const usePriceList = () => {
         if (error) throw error;
 
         if (data && data.data) {
-          // DB Success: Sync to State AND LocalStorage
           console.log("Data loaded from Supabase");
           const sortedData = sortData(data.data, "none");
           setPriceData(sortedData);
           localStorage.setItem("priceListData", JSON.stringify(sortedData));
         } else {
-          // New User (No DB data yet): Load local/default
           console.log("No DB entry found. Initializing...");
           loadFromLocal();
         }
       } catch (error) {
-        // DB Failure (Offline/Error): Fallback to Local
         console.error("DB Load Error:", error);
-        loadFromLocal("Unable to connect to database. Loaded local copy.");
+        loadFromLocal();
       } finally {
         setIsDataLoading(false);
         setIsHydrated(true);
@@ -176,32 +126,24 @@ export const usePriceList = () => {
       }
     };
 
-    // Check on mount
     checkShowCostProfit();
-
-    // Listen for storage changes (if user changes in another tab)
     window.addEventListener("storage", checkShowCostProfit);
     return () => window.removeEventListener("storage", checkShowCostProfit);
   }, [priceView]);
 
-  // 2. SAVE DATA: DB -> Local -> State (Modified to preserve order)
+  // Save data to DB and local storage - NO TOAST LOGIC
   const savePriceData = async (newData) => {
-    const toastId = toast.loading("Syncing changes...");
-
     if (!user) {
-      toast.dismiss(toastId);
-      toast.error("You must be logged in to save changes.");
-      throw new Error("User not logged in");
+      throw new Error("NOT_AUTHENTICATED");
     }
 
     try {
-      // CAPTURE ORDER: Recursively capture the current visual order before saving
-      const dataToSave = deepAddOrderKeys(newData); // Upsert to DB
+      const dataToSave = deepAddOrderKeys(newData);
 
       const { error } = await supabase.from("price_lists").upsert(
         {
           user_id: user.id,
-          data: dataToSave, // Save the data with the explicit order keys
+          data: dataToSave,
         },
         { onConflict: "user_id" },
       );
@@ -210,15 +152,9 @@ export const usePriceList = () => {
 
       localStorage.setItem("priceListData", JSON.stringify(dataToSave));
       setPriceData(dataToSave);
-
-      toast.success("Saved successfully", { id: toastId });
     } catch (error) {
       console.error("Save Error:", error);
-      toast.error("Failed to save changes", {
-        id: toastId,
-        description: "Please check your internet connection.",
-      });
-      throw error; // Re-throw so calling code can handle it
+      throw error; // Re-throw for container to handle
     }
   };
 
@@ -243,24 +179,20 @@ export const usePriceList = () => {
 
   const collapseAll = () => setExpandedCategories({});
 
-  // Toggle between retail and bulk mode
   const toggleSellPriceMode = () => {
     const newMode = sellPriceMode === "retail" ? "bulk" : "retail";
     setSellPriceMode(newMode);
     localStorage.setItem("sellPriceMode", newMode);
   };
 
-  // Cycle through price views: Sell -> Cost -> Profit -> Sell
   const cyclePriceView = () => {
     const showCostProfit = localStorage.getItem("showCostProfit") === "true";
 
     if (!showCostProfit) {
-      // If showCostProfit is disabled, keep it on "sell" only
       setPriceView("sell");
       return;
     }
 
-    // Simplified cycling: sell → cost → profit → sell
     if (priceView === "sell") {
       setPriceView("cost");
     } else if (priceView === "cost") {
@@ -270,7 +202,6 @@ export const usePriceList = () => {
     }
   };
 
-  // Get text for price view button based on current mode
   const getPriceViewText = () => {
     if (priceView === "sell") return "Sell Price";
     if (priceView === "cost") return "Cost Price";

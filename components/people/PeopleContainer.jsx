@@ -20,6 +20,34 @@ const DEFAULT_CATEGORIES = [
   { id: "other", label: "Other", isDefault: true },
 ];
 
+// Helper function to get user-friendly error messages
+const getErrorMessage = (error) => {
+  if (!error) return "An error occurred";
+  
+  // User errors (validation, duplicates, etc.)
+  if (error.message === "NOT_AUTHENTICATED") {
+    return "You must be logged in to save changes";
+  }
+  
+  if (error.message === "DUPLICATE_PHONE") {
+    return "One or more phone numbers are already assigned to another contact";
+  }
+  
+  if (error.message?.includes("Duplicate phone")) {
+    return "Phone number already exists for another contact";
+  }
+  
+  // Server/DB errors - generic message
+  if (error.message?.includes("fetch") || 
+      error.message?.includes("network") ||
+      error.code?.startsWith("PGRST")) {
+    return "Unable to connect to the server. Please check your internet connection";
+  }
+  
+  // Default error
+  return "Failed to save changes. Please try again";
+};
+
 export const PeopleContainer = () => {
   const {
     peopleData,
@@ -79,16 +107,16 @@ export const PeopleContainer = () => {
 
   const handleAdd = async (formData) => {
     const newData = [...peopleData, { id: Date.now().toString(), ...formData }];
+    const loadingToast = toast.loading("Adding contact...");
+    
     try {
       await savePeopleData(newData);
+      toast.success("Contact added successfully", { id: loadingToast });
       setShowAddModal(false);
     } catch (error) {
-      // Modal stays open on error so user doesn't lose their data
       console.error("Failed to add contact:", error);
-      toast.error("Failed to add contact", {
-        description:
-          error.message || "Please check your connection and try again",
-      });
+      toast.error(getErrorMessage(error), { id: loadingToast });
+      // Modal stays open on error
     }
   };
 
@@ -104,16 +132,17 @@ export const PeopleContainer = () => {
       person.id === editingPerson.id ? { ...person, ...formData } : person,
     );
 
+    const loadingToast = toast.loading("Updating contact...");
+    
     try {
       await savePeopleData(newData);
+      toast.success("Contact updated successfully", { id: loadingToast });
       setShowEditModal(false);
       setEditingPerson(null);
     } catch (error) {
-      // Modal stays open on error so user doesn't lose their changes
       console.error("Failed to edit contact:", error);
-      toast.error("Failed to edit contact", {
-        description: "Please check your connection and try again",
-      });
+      toast.error(getErrorMessage(error), { id: loadingToast });
+      // Modal stays open on error
     }
   };
 
@@ -123,7 +152,15 @@ export const PeopleContainer = () => {
         label: "Delete",
         onClick: async () => {
           const newData = peopleData.filter((person) => person.id !== personId);
-          await savePeopleData(newData);
+          const loadingToast = toast.loading("Deleting contact...");
+          
+          try {
+            await savePeopleData(newData);
+            toast.success("Contact deleted successfully", { id: loadingToast });
+          } catch (error) {
+            console.error("Failed to delete contact:", error);
+            toast.error(getErrorMessage(error), { id: loadingToast });
+          }
         },
       },
       duration: 5000,
@@ -140,18 +177,27 @@ export const PeopleContainer = () => {
     fromCategoryId,
     toCategoryId,
   ) => {
-    // Update categories
-    setAvailableCategories(newCategories);
-    await saveCategories(newCategories);
+    const loadingToast = toast.loading("Updating categories...");
+    
+    try {
+      // Update categories
+      setAvailableCategories(newCategories);
+      await saveCategories(newCategories);
 
-    // If merging, update people data
-    if (fromCategoryId && toCategoryId) {
-      const updatedPeople = peopleData.map((person) =>
-        person.category === fromCategoryId
-          ? { ...person, category: toCategoryId }
-          : person,
-      );
-      await savePeopleData(updatedPeople);
+      // If merging, update people data
+      if (fromCategoryId && toCategoryId) {
+        const updatedPeople = peopleData.map((person) =>
+          person.category === fromCategoryId
+            ? { ...person, category: toCategoryId }
+            : person,
+        );
+        await savePeopleData(updatedPeople);
+      }
+      
+      toast.success("Categories updated successfully", { id: loadingToast });
+    } catch (error) {
+      console.error("Failed to update categories:", error);
+      toast.error(getErrorMessage(error), { id: loadingToast });
     }
   };
 
@@ -168,36 +214,39 @@ export const PeopleContainer = () => {
   };
 
   const handleBulkSave = async (newPeopleData) => {
+    const loadingToast = toast.loading("Saving contacts...");
+    
     try {
       await savePeopleData(newPeopleData);
+      toast.success("Contacts updated successfully", { id: loadingToast });
       setShowBulkModal(false);
-      toast.success("Contacts updated successfully");
     } catch (error) {
       console.error("Bulk save error:", error);
-      toast.error("Failed to save contacts", {
-        description: error.message || "Please try again",
-      });
+      toast.error(getErrorMessage(error), { id: loadingToast });
       // Modal stays open on error
     }
   };
 
   const handleVCFImport = async (importedContacts) => {
+    const loadingToast = toast.loading("Importing contacts...");
+    
     try {
-      // Merge imported contacts with existing data
       const newData = [...peopleData, ...importedContacts];
       await savePeopleData(newData);
 
+      const categoryLabel = availableCategories.find(
+        (c) => c.id === importedContacts[0].category
+      )?.label || "category";
+      
       toast.success(
-        `Imported ${importedContacts.length} contact(s) successfully`,
-        {
-          description: `Added to ${availableCategories.find((c) => c.id === importedContacts[0].category)?.label || "category"}`,
-        },
+        `Imported ${importedContacts.length} contact(s) to ${categoryLabel}`,
+        { id: loadingToast }
       );
+      setShowImportVCFModal(false);
     } catch (error) {
       console.error("Import save error:", error);
-      toast.error("Failed to save imported contacts", {
-        description: error.message || "Please try again",
-      });
+      toast.error(getErrorMessage(error), { id: loadingToast });
+      // Modal stays open on error
     }
   };
 
@@ -207,7 +256,6 @@ export const PeopleContainer = () => {
       !searchTerm ||
       person.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       person.phone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      // Search in phones array (new multi-phone support)
       (person.phones &&
         person.phones.some((p) =>
           p?.toLowerCase().includes(searchTerm.toLowerCase()),
@@ -270,6 +318,7 @@ export const PeopleContainer = () => {
         onOpenChange={setShowAddModal}
         onAdd={handleAdd}
         availableCategories={availableCategories}
+        peopleData={peopleData}
       />
 
       <EditPersonModal
@@ -278,6 +327,7 @@ export const PeopleContainer = () => {
         editingPerson={editingPerson}
         onSave={handleEdit}
         availableCategories={availableCategories}
+        peopleData={peopleData}
       />
 
       <PersonDetailModal
