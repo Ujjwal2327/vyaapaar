@@ -15,13 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { 
-  Upload, 
-  Loader2, 
-  CheckCircle2, 
-  Users, 
-  Smartphone
-} from "lucide-react";
+import { Upload, Loader2, CheckCircle2, Users, Smartphone } from "lucide-react";
 import { importVCFFile } from "@/lib/utils/vcfUtils";
 import { sortCategories } from "@/lib/utils/categoryUtils";
 import { toast } from "sonner";
@@ -30,41 +24,52 @@ import { Badge } from "@/components/ui/badge";
 // Convert Contact Picker API results to app format
 const convertContactPickerToVyaapaar = (contacts, categoryId) => {
   return contacts
-    .filter(contact => contact.name && contact.name[0])
-    .map(contact => {
-      const name = contact.name[0] || 'Unknown';
-      
+    .filter((contact) => contact.name && contact.name[0])
+    .map((contact) => {
+      const name = contact.name[0] || "Unknown";
+
       // Clean phone numbers
       const phones = (contact.tel || [])
-        .map(tel => {
-          const cleaned = tel.replace(/\D/g, '');
+        .map((tel) => {
+          const cleaned = tel.replace(/\D/g, "");
           if (cleaned.length > 10) {
-            if (cleaned.startsWith('91') && cleaned.length === 12) return cleaned.substring(2);
-            if (cleaned.startsWith('1') && cleaned.length === 11) return cleaned.substring(1);
+            if (cleaned.startsWith("91") && cleaned.length === 12)
+              return cleaned.substring(2);
+            if (cleaned.startsWith("1") && cleaned.length === 11)
+              return cleaned.substring(1);
             return cleaned.slice(-10);
           }
           return cleaned.length === 10 ? cleaned : null;
         })
         .filter(Boolean);
-      
+
+      // Deduplicate phone numbers - if same number appears multiple times, keep only one
+      const uniquePhones = [...new Set(phones)];
+
       // Get address
       const address = (contact.address || [])
-        .map(addr => {
-          if (typeof addr === 'string') return addr;
-          const parts = [addr.streetAddress, addr.city, addr.region, addr.postalCode, addr.country].filter(Boolean);
-          return parts.join(', ');
+        .map((addr) => {
+          if (typeof addr === "string") return addr;
+          const parts = [
+            addr.streetAddress,
+            addr.city,
+            addr.region,
+            addr.postalCode,
+            addr.country,
+          ].filter(Boolean);
+          return parts.join(", ");
         })
         .filter(Boolean)
-        .join('; ');
+        .join("; ");
 
       return {
         id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
         name: name.trim(),
         category: categoryId,
-        phones: phones.length > 0 ? phones : [''],
-        address: address || '',
-        specialty: '',
-        notes: '',
+        phones: uniquePhones.length > 0 ? uniquePhones : [''],
+        address: address || "",
+        specialty: "",
+        notes: "",
         photo: null,
       };
     });
@@ -76,7 +81,9 @@ export const ImportVCFModal = ({
   onImport,
   availableCategories,
 }) => {
-  const [selectedCategory, setSelectedCategory] = useState(availableCategories[0]?.id || "customer");
+  const [selectedCategory, setSelectedCategory] = useState(
+    availableCategories[0]?.id || "customer",
+  );
   const [isProcessing, setIsProcessing] = useState(false);
   const [previewContacts, setPreviewContacts] = useState(null);
   const [contactPickerSupported, setContactPickerSupported] = useState(true);
@@ -85,12 +92,14 @@ export const ImportVCFModal = ({
 
   // Check Contact Picker API support
   useEffect(() => {
-    setContactPickerSupported('contacts' in navigator && 'ContactsManager' in window);
+    setContactPickerSupported(
+      "contacts" in navigator && "ContactsManager" in window,
+    );
   }, []);
 
   // Import from device contacts
   const handleDeviceImport = async () => {
-    if (!('contacts' in navigator)) {
+    if (!("contacts" in navigator)) {
       toast.error("Not supported on this browser", {
         description: "Use VCF file import instead",
       });
@@ -99,22 +108,25 @@ export const ImportVCFModal = ({
 
     setIsProcessing(true);
     try {
-      const props = ['name', 'tel', 'address'];
+      const props = ["name", "tel", "address"];
       const opts = { multiple: true };
-      
+
       const contacts = await navigator.contacts.select(props, opts);
-      
+
       if (contacts.length === 0) {
         toast.info("No contacts selected");
         setIsProcessing(false);
         return;
       }
 
-      const vyaapaarContacts = convertContactPickerToVyaapaar(contacts, selectedCategory);
+      const vyaapaarContacts = convertContactPickerToVyaapaar(
+        contacts,
+        selectedCategory,
+      );
       setPreviewContacts(vyaapaarContacts);
       toast.success(`Found ${vyaapaarContacts.length} contact(s)`);
     } catch (error) {
-      if (error.name === 'AbortError') {
+      if (error.name === "AbortError") {
         toast.info("Import cancelled");
       } else {
         toast.error("Failed to import contacts", {
@@ -187,7 +199,10 @@ export const ImportVCFModal = ({
           {/* Category Selection */}
           <div className="space-y-2">
             <Label>Import to Category</Label>
-            <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+            <Select
+              value={selectedCategory}
+              onValueChange={setSelectedCategory}
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -214,7 +229,9 @@ export const ImportVCFModal = ({
                 >
                   <div className="flex flex-col items-center gap-2">
                     <Smartphone className="w-6 h-6" />
-                    <span className="font-semibold">Select from Device Contacts</span>
+                    <span className="font-semibold">
+                      Select from Device Contacts
+                    </span>
                   </div>
                 </Button>
               )}
@@ -252,7 +269,9 @@ export const ImportVCFModal = ({
               {/* Info */}
               <div className="bg-muted/50 rounded-lg p-3 text-xs text-muted-foreground">
                 <p className="font-semibold mb-1">Supported formats:</p>
-                <p>• Select contacts directly from your device (mobile browsers)</p>
+                <p>
+                  • Select contacts directly from your device (mobile browsers)
+                </p>
                 <p>• Upload .vcf (vCard) files • Max 10MB</p>
               </div>
             </div>
@@ -265,7 +284,8 @@ export const ImportVCFModal = ({
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400" />
                   <Label className="text-base font-semibold">
-                    Preview ({previewContacts.length} contact{previewContacts.length !== 1 ? "s" : ""})
+                    Preview ({previewContacts.length} contact
+                    {previewContacts.length !== 1 ? "s" : ""})
                   </Label>
                 </div>
                 <Button
@@ -290,7 +310,7 @@ export const ImportVCFModal = ({
                       </div>
                       {contact.phones && contact.phones.length > 0 && (
                         <p className="text-sm text-muted-foreground">
-                          📞 {contact.phones.filter(p => p).join(", ")}
+                          📞 {contact.phones.filter((p) => p).join(", ")}
                         </p>
                       )}
                       {contact.address && (
@@ -320,9 +340,12 @@ export const ImportVCFModal = ({
             <Button
               onClick={handleImport}
               className="flex-1"
-              disabled={!previewContacts || previewContacts.length === 0 || isProcessing}
+              disabled={
+                !previewContacts || previewContacts.length === 0 || isProcessing
+              }
             >
-              Import {previewContacts?.length || 0} Contact{previewContacts?.length !== 1 ? "s" : ""}
+              Import {previewContacts?.length || 0} Contact
+              {previewContacts?.length !== 1 ? "s" : ""}
             </Button>
           )}
         </div>
