@@ -20,8 +20,7 @@ import { Plus, X, Upload, User, Star, GripVertical, AlertCircle } from "lucide-r
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toTitleCase } from "@/lib/utils/dataTransform";
 import { sortCategories } from "@/lib/utils/categoryUtils";
-import { checkDuplicatePhone, checkInternalDuplicates } from "@/lib/utils/phoneValidation";
-
+import { checkDuplicatePhone, checkInternalDuplicates, cleanAndDeduplicatePhones } from "@/lib/utils/phoneValidation";
 // Phone validation with real-time cleaning
 const cleanAndValidatePhone = (phone) => {
   if (!phone) return { cleaned: "", isValid: true, error: null };
@@ -273,32 +272,35 @@ export const EditPersonModal = ({
     }
   };
 
-  const handleSubmit = () => {
-    if (!isFormValid) return;
+const handleSubmit = () => {
+  if (!isFormValid) return;
 
-    // Filter out empty phone numbers and validate all phones one more time
-    const nonEmptyPhones = formData.phones.filter((phone) => phone.trim() !== "");
-    const allPhonesValid = nonEmptyPhones.every((phone) => {
-      const validation = cleanAndValidatePhone(phone);
-      return validation.isValid;
-    });
+  // Clean and deduplicate phone numbers FIRST (removes spaces and duplicates)
+  const cleanedAndDedupedPhones = cleanAndDeduplicatePhones(formData.phones);
+  
+  // Validate all phones one more time
+  const allPhonesValid = cleanedAndDedupedPhones.every((phone) => {
+    if (!phone.trim()) return true; // Empty is ok
+    const validation = cleanAndValidatePhone(phone);
+    return validation.isValid;
+  });
 
-    if (!allPhonesValid) {
-      return; // Don't submit if any phone is invalid
-    }
+  if (!allPhonesValid) {
+    return; // Don't submit if any phone is invalid
+  }
 
-    const cleanedData = {
-      ...formData,
-      name: toTitleCase(formData.name.trim()),
-      address: formData.address.trim(),
-      specialty: formData.specialty.trim(),
-      photo: formData.photo.trim() !== "" ? formData.photo.trim() : null,
-      notes: formData.notes.trim(),
-      phones: nonEmptyPhones,
-    };
-
-    onSave(cleanedData);
+  const cleanedData = {
+    ...formData,
+    name: toTitleCase(formData.name.trim()),
+    address: formData.address.trim(),
+    specialty: formData.specialty.trim(),
+    photo: formData.photo.trim() !== "" ? formData.photo.trim() : null,
+    notes: formData.notes.trim(),
+    phones: cleanedAndDedupedPhones, // Use cleaned and deduplicated phones
   };
+
+  onSave(cleanedData);
+};
 
   // Form validation
   const isFormValid = (() => {
