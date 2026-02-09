@@ -9,12 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ChevronDown, ChevronUp, Copy, WrapText } from "lucide-react";
+import { Copy, WrapText } from "lucide-react";
 import { sortCategories } from "@/lib/utils/categoryUtils";
 import Accordion from "@/components/ui/accordion";
 import { toTitleCase } from "@/lib/utils/dataTransform";
 import { Badge } from "@/components/ui/badge";
-import { batchCheckDuplicatePhones } from "@/lib/utils/phoneValidation";
 
 // Phone validation function - validates and cleans phone numbers
 const validatePhone = (phone) => {
@@ -131,7 +130,7 @@ const formatCategoryText = (text) => {
 
 // Parse text to people array for a specific category
 // MODIFIED: Now preserves existing person data (specialty, notes, photo, id)
-// AND checks for duplicate phone numbers
+// ALLOWS duplicate phone numbers across different contacts
 const textToPeople = (text, categoryId, existingPeopleData) => {
   if (!text || !text.trim()) return [];
 
@@ -146,9 +145,6 @@ const textToPeople = (text, categoryId, existingPeopleData) => {
       existingPeopleMap.set(person.name.toLowerCase(), person);
     }
   });
-
-  // Track phone numbers within this batch for internal duplicate checking
-  const phonesInBatch = new Map(); // phone -> person name
 
   lines.forEach((line, index) => {
     const lineNumber = index + 1;
@@ -198,21 +194,9 @@ const textToPeople = (text, categoryId, existingPeopleData) => {
       return;
     }
 
-    // Deduplicate phone numbers for this contact (remove duplicate numbers)
+    // Deduplicate phone numbers ONLY for this specific contact (same person can't have duplicate numbers)
+    // But different people CAN have the same phone number - this is now allowed
     const uniquePhones = [...new Set(validatedPhones)];
-
-    // Check for duplicate phones within this batch
-    for (const phone of uniquePhones) {
-      if (phonesInBatch.has(phone)) {
-        const existingName = phonesInBatch.get(phone);
-        if (existingName.toLowerCase() !== name.toLowerCase()) {
-          errors.push(
-            `Line ${lineNumber}: Phone number ${phone} is already assigned to "${existingName}" in this batch`,
-          );
-          return;
-        }
-      }
-    }
 
     // Everything from part 2 onwards is address
     const addressPart = parts.slice(2).join(", ").trim();
@@ -227,23 +211,13 @@ const textToPeople = (text, categoryId, existingPeopleData) => {
         Date.now().toString() + Math.random().toString(36).substr(2, 9),
       name,
       category: categoryId,
-      phones: uniquePhones.length > 0 ? uniquePhones : [""], // Use deduplicated phones
+      phones: uniquePhones.length > 0 ? uniquePhones : [""], // Use deduplicated phones (within same contact only)
       address: addressPart || "",
       // PRESERVE THESE FIELDS from existing person
       specialty: existingPerson?.specialty || "",
       notes: existingPerson?.notes || "",
       photo: existingPerson?.photo || null,
     };
-
-    // Add phones to batch tracking (use deduplicated phones)
-    uniquePhones.forEach((phone) => {
-      phonesInBatch.set(phone, name);
-    });
-
-    // Add phones to batch tracking
-    validatedPhones.forEach((phone) => {
-      phonesInBatch.set(phone, name);
-    });
 
     people.push(person);
   });
@@ -356,8 +330,7 @@ export const BulkEditPeopleModal = ({
       const allPeople = [];
       const newErrors = {};
 
-      // First pass: Parse each category's text
-      const parsedByCategory = {};
+      // Parse each category's text
       sortedCategories.forEach((cat) => {
         try {
           // Pass existingPeopleData to preserve specialty/notes/photo
@@ -366,7 +339,7 @@ export const BulkEditPeopleModal = ({
             cat.id,
             peopleData,
           );
-          parsedByCategory[cat.id] = people;
+          allPeople.push(...people);
         } catch (error) {
           newErrors[cat.id] = error.message;
         }
@@ -382,48 +355,9 @@ export const BulkEditPeopleModal = ({
         return;
       }
 
-      // Second pass: Check for duplicate phone numbers across ALL categories
-      const allParsedPeople = Object.values(parsedByCategory).flat();
-
-      // Check against existing people (excluding those being replaced)
-      const existingPeopleNotInBatch = peopleData.filter((existing) => {
-        // Exclude if person is being updated (same category and name exists in parsed)
-        const parsedInCategory = parsedByCategory[existing.category] || [];
-        return !parsedInCategory.some(
-          (parsed) => parsed.name.toLowerCase() === existing.name.toLowerCase(),
-        );
-      });
-
-      const duplicateCheck = batchCheckDuplicatePhones(
-        allParsedPeople,
-        existingPeopleNotInBatch,
-      );
-
-      if (duplicateCheck.hasDuplicates) {
-        // Group errors by category
-        duplicateCheck.duplicates.forEach((dup) => {
-          const errorMsg = `"${dup.personName}" has phone number ${dup.phone} which is already assigned to "${dup.existingContact.name}"`;
-
-          if (!newErrors[dup.category]) {
-            newErrors[dup.category] = errorMsg;
-          } else {
-            newErrors[dup.category] += "\n" + errorMsg;
-          }
-        });
-
-        setErrors(newErrors);
-        // Auto-expand categories with errors
-        Object.keys(newErrors).forEach((catId) => {
-          setExpandedCategories((prev) => ({ ...prev, [catId]: true }));
-        });
-        return;
-      }
-
-      // All validations passed, merge all people
-      allParsedPeople.forEach((person) => {
-        allPeople.push(person);
-      });
-
+      // NO DUPLICATE PHONE VALIDATION ACROSS CONTACTS
+      // Multiple contacts can have the same phone number
+      
       onSave(allPeople);
       onOpenChange(false);
     } catch (error) {
@@ -479,11 +413,13 @@ export const BulkEditPeopleModal = ({
               <code>name | phone1 / phone2 / phone3 | address</code>
             </p>
             <p className="text-xs text-muted-foreground">
-              (Phone numbers must be exactly 10 digits and unique across ALL
-              contacts - spaces will be removed automatically)
+              (Phone numbers must be exactly 10 digits - spaces will be removed automatically)
             </p>
             <p className="text-xs text-muted-foreground">
               (You can use commas instead of pipes)
+            </p>
+            <p className="text-xs text-muted-foreground">
+              (Multiple contacts can have the same phone number)
             </p>
             <p className="text-xs text-primary font-semibold">
               ℹ️ Only name, phones, and address are editable here. Specialty,
@@ -494,9 +430,10 @@ export const BulkEditPeopleModal = ({
                 Show Example
               </summary>
               <pre className="bg-background p-2 rounded mt-2 text-xs overflow-x-auto">
-                {`Ram Kumar | 9876543210 / 9123456789 | Main Street Colony
-Shyam Singh | 9988776655 | Downtown area
-ABC Hardware | 9191919191 | Near City Mall`}
+                {`M Pradeep Jewar | 7453057069 / 7900831551 | Mohalla Madalpuriya
+Ujjwal | 7900831551
+Keshav | 7900831551
+Ram Kumar | 9876543210 / 9123456789 | Main Street Colony`}
               </pre>
             </details>
           </div>
@@ -567,7 +504,8 @@ ABC Hardware | 9191919191 | Near City Mall`}
                         placeholder={`Add ${cat.label.toLowerCase()} contacts here...
 Example:
 Name | 9876543210 | Address
-Another Person | 9988776655 / 9123456789 | Another Address`}
+Another Person | 9988776655 / 9123456789 | Another Address
+Third Person | 9988776655 | Different Address (same phone is OK)`}
                       />
 
                       {hasError && (

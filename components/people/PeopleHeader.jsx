@@ -8,6 +8,7 @@ import {
   FileDown,
   Download,
   Upload,
+  UserSearch,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,6 +36,7 @@ export const PeopleHeader = ({
   onBulkEdit,
   onExportPDF,
   onImportVCF,
+  onFindDuplicates,
   sortType,
   onSortChange,
   totalCount,
@@ -110,79 +112,88 @@ export const PeopleHeader = ({
               <Download className="w-4 h-4 md:mr-2" />
               <span className="hidden md:inline">Export PDF</span>
             </Button>
+            <div className="border" />
 
-            <Button onClick={onImportVCF} variant="outline" size="sm">
+            <Button onClick={onFindDuplicates} variant="secondary" size="sm">
+              <UserSearch className="w-4 h-4 md:mr-2" />
+              <span className="hidden md:inline">Find Duplicates</span>
+            </Button>
+
+            <Button onClick={onImportVCF} variant="secondary" size="sm">
               <Upload className="w-4 h-4 md:mr-2" />
-              <span className="hidden md:inline">Import VCF</span>
+              <span className="hidden md:inline">Import Contacts</span>
             </Button>
           </div>
 
-<div className="flex justify-center gap-x-4">
-          <div className="flex items-center gap-2 ">
-            <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
-            <Select
-              value={categoryFilter || "all"}
-              onValueChange={(value) => {
-                setCategoryFilter(value === "all" ? "" : value);
-                if (value !== "all" && sortType === "category")
-                  onSortChange("name-asc");
-              }}
-            >
-              <SelectTrigger className="flex-1 text-xs">
-                <SelectValue>
-                  <>
-                    <div className="flex items-center justify-between w-full gap-3">
-                      <span>{getCurrentCategoryLabel()}</span>
-                      <Badge variant="secondary" className="text-xs hidden sm:inline">
-                        {getCurrentCategoryCount()}
-                      </Badge>
-                    </div>
-                  </>
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {CATEGORIES.map((cat) => (
-                  <SelectItem
-                    key={cat.value}
-                    value={cat.value}
-                    className="text-xs"
-                  >
-                    <div className="flex items-center justify-between w-full gap-3">
-                      <span>{cat.label}</span>
-                      <Badge variant="secondary" className="text-xs">
-                        {cat.count}
-                      </Badge>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <div className="flex justify-center gap-x-4">
+            <div className="flex items-center gap-2 ">
+              <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
+              <Select
+                value={categoryFilter || "all"}
+                onValueChange={(value) => {
+                  setCategoryFilter(value === "all" ? "" : value);
+                  if (value !== "all" && sortType === "category")
+                    onSortChange("name-asc");
+                }}
+              >
+                <SelectTrigger className="flex-1 text-xs">
+                  <SelectValue>
+                    <>
+                      <div className="flex items-center justify-between w-full gap-3">
+                        <span>{getCurrentCategoryLabel()}</span>
+                        <Badge
+                          variant="secondary"
+                          className="text-xs hidden sm:inline"
+                        >
+                          {getCurrentCategoryCount()}
+                        </Badge>
+                      </div>
+                    </>
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {CATEGORIES.map((cat) => (
+                    <SelectItem
+                      key={cat.value}
+                      value={cat.value}
+                      className="text-xs"
+                    >
+                      <div className="flex items-center justify-between w-full gap-3">
+                        <span>{cat.label}</span>
+                        <Badge variant="secondary" className="text-xs">
+                          {cat.count}
+                        </Badge>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
               <ArrowUpDown className="w-4 h-4 text-muted-foreground shrink-0" />
-            <Select value={sortType} onValueChange={onSortChange}>
-              <SelectTrigger className="flex-1 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="name-asc" className="text-xs">
-                  A to Z
-                </SelectItem>
-                <SelectItem value="name-desc" className="text-xs">
-                  Z to A
-                </SelectItem>
-                {categoryFilter === "" ? (
-                  <SelectItem value="category" className="text-xs">
-                    By Category
+              <Select value={sortType} onValueChange={onSortChange}>
+                <SelectTrigger className="flex-1 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="name-asc" className="text-xs">
+                    A to Z
                   </SelectItem>
-                ) : (
-                  ""
-                )}
-              </SelectContent>
-            </Select>
+                  <SelectItem value="name-desc" className="text-xs">
+                    Z to A
+                  </SelectItem>
+                  {categoryFilter === "" ? (
+                    <SelectItem value="category" className="text-xs">
+                      By Category
+                    </SelectItem>
+                  ) : (
+                    ""
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-        </div>
         </div>
 
         <div className="relative mb-4">

@@ -10,13 +10,11 @@ import { PersonDetailModal } from "./modals/PersonDetailModal";
 import { BulkEditPeopleModal } from "./modals/BulkEditPeopleModal";
 import { ExportPDFModal } from "./modals/ExportPDFModal";
 import { ImportVCFModal } from "./modals/ImportVCFModal";
-import { DuplicateContactsModal } from "./modals/DuplicateContactsModal";
+import { FindDuplicatesModal } from "./modals/FindDuplicatesModal";
 import { toast } from "sonner";
 import Loader from "../Loader";
 import {
   batchFindDuplicates,
-  findPotentialDuplicates,
-  mergeContacts,
   areContactsIdentical,
 } from "@/lib/utils/duplicateContactUtils";
 
@@ -31,17 +29,9 @@ const DEFAULT_CATEGORIES = [
 const getErrorMessage = (error) => {
   if (!error) return "An error occurred";
   
-  // User errors (validation, duplicates, etc.)
+  // User errors (validation, etc.)
   if (error.message === "NOT_AUTHENTICATED") {
     return "You must be logged in to save changes";
-  }
-  
-  if (error.message === "DUPLICATE_PHONE") {
-    return "One or more phone numbers are already assigned to another contact";
-  }
-  
-  if (error.message?.includes("Duplicate phone")) {
-    return "Phone number already exists for another contact";
   }
   
   // Server/DB errors - generic message
@@ -77,7 +67,7 @@ export const PeopleContainer = () => {
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [showExportPDFModal, setShowExportPDFModal] = useState(false);
   const [showImportVCFModal, setShowImportVCFModal] = useState(false);
-  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [showFindDuplicatesModal, setShowFindDuplicatesModal] = useState(false);
   
   const [editingPerson, setEditingPerson] = useState(null);
   const [viewingPerson, setViewingPerson] = useState(null);
@@ -85,11 +75,6 @@ export const PeopleContainer = () => {
   const [availableCategories, setAvailableCategories] = useState(
     categories || DEFAULT_CATEGORIES,
   );
-
-  // Duplicate detection state
-  const [pendingContacts, setPendingContacts] = useState([]);
-  const [duplicateData, setDuplicateData] = useState([]);
-  const [pendingAction, setPendingAction] = useState(null);
 
   // Sync categories from hook
   useEffect(() => {
@@ -116,64 +101,60 @@ export const PeopleContainer = () => {
     return <Loader content="Loading contacts..." />;
 
   /**
-   * Check for duplicates and handle accordingly
-   * - Auto-skip exact duplicates
-   * - Show modal for potential duplicates
-   * - Add directly if no duplicates
+   * Check for exact duplicates and auto-skip them
+   * Only add contacts that are not exact duplicates
    */
   const checkAndHandleDuplicates = async (newContacts, action) => {
     // Ensure array
     const contactsArray = Array.isArray(newContacts) ? newContacts : [newContacts];
     
-    // Find duplicates (threshold: 0.5 = 50% match)
-    const duplicates = batchFindDuplicates(contactsArray, peopleData, 0.5);
+    // For bulk edit, exclude contacts being edited from duplicate check
+    let existingContactsToCheck = peopleData;
     
-    // Categorize duplicates
+    if (action === 'bulkEdit') {
+      const newContactIds = new Set(
+        contactsArray
+          .filter(c => c.id)
+          .map(c => c.id)
+      );
+      existingContactsToCheck = peopleData.filter(p => !newContactIds.has(p.id));
+    }
+    
+    // Separate exact duplicates from unique contacts
     const exactDuplicates = [];
-    const potentialDuplicates = [];
-    const noDuplicates = [];
+    const uniqueContacts = [];
     
-    contactsArray.forEach((contact, index) => {
-      const dup = duplicates.find(d => d.index === index);
+    contactsArray.forEach(contact => {
+      // Check if this contact is an EXACT duplicate of any existing contact
+      const isExactDuplicate = existingContactsToCheck.some(existing => 
+        areContactsIdentical(contact, existing)
+      );
       
-      if (!dup) {
-        // No duplicates found
-        noDuplicates.push(contact);
-      } else if (dup.isExactDuplicate) {
-        // Exact duplicate - skip automatically
-        exactDuplicates.push({ contact, duplicate: dup });
+      if (isExactDuplicate) {
+        exactDuplicates.push(contact);
       } else {
-        // Potential duplicate - needs user decision
-        potentialDuplicates.push({
-          newContact: contact,
-          duplicates: dup.duplicates
-        });
+        uniqueContacts.push(contact);
       }
     });
     
     // Auto-skip exact duplicates
     if (exactDuplicates.length > 0) {
-      const names = exactDuplicates.map(d => d.contact.name).join(', ');
+      const names = exactDuplicates.map(d => d.name).join(', ');
       toast.info(`Skipped ${exactDuplicates.length} exact duplicate(s)`, {
         description: names.length > 50 ? `${names.substring(0, 50)}...` : names
       });
     }
     
-    // Show modal for potential duplicates
-    if (potentialDuplicates.length > 0) {
-      setPendingContacts(noDuplicates);
-      setDuplicateData(potentialDuplicates);
-      setPendingAction(action);
-      setShowDuplicateModal(true);
-      return;
-    }
-    
-    // No duplicates - add directly
-    if (noDuplicates.length > 0) {
-      await finalizeAddContacts(noDuplicates);
+    // Process unique contacts
+    if (uniqueContacts.length > 0) {
+      if (action === 'bulkEdit') {
+        await finalizeBulkEdit(uniqueContacts);
+      } else {
+        await finalizeAddContacts(uniqueContacts);
+      }
     } else if (exactDuplicates.length === 0) {
-      // All were duplicates but handled - show message
-      toast.info("No new contacts to add");
+      // No contacts at all
+      toast.info("No contacts to add");
     }
   };
 
@@ -198,97 +179,56 @@ export const PeopleContainer = () => {
     } catch (error) {
       console.error("Failed to add contacts:", error);
       toast.error(getErrorMessage(error), { id: loadingToast });
-      throw error; // Re-throw to prevent modal from closing
+      throw error;
     }
   };
 
   /**
-   * Handle duplicate resolution from modal
+   * Finalize bulk edit (no duplicates)
    */
-  const handleDuplicateResolution = async (resolutions) => {
-    const contactsToAdd = [...pendingContacts]; // Non-duplicate contacts
-    const contactsToUpdate = [];
-    
-    resolutions.forEach(resolution => {
-      const { newContact, action, targetContact } = resolution;
-      
-      switch (action) {
-        case 'merge':
-          // Merge new contact into existing
-          const merged = mergeContacts(targetContact, newContact, {
-            preferNew: true,
-            mergePhones: true,
-            mergeNotes: true
-          });
-          contactsToUpdate.push(merged);
-          break;
-          
-        case 'replace':
-          // Replace existing with new (keep ID)
-          contactsToUpdate.push({
-            ...newContact,
-            id: targetContact.id // Keep existing ID
-          });
-          break;
-          
-        case 'skip':
-          // Do nothing - keep existing, don't add new
-          break;
-          
-        default:
-          console.warn('Unknown resolution action:', action);
-      }
-    });
-    
-    // Build final data array
-    let finalData = [...peopleData];
-    
-    // Apply updates
-    contactsToUpdate.forEach(updated => {
-      const index = finalData.findIndex(p => p.id === updated.id);
-      if (index !== -1) {
-        finalData[index] = updated;
-      }
-    });
-    
-    // Add new contacts
-    contactsToAdd.forEach(contact => {
-      finalData.push({
-        ...contact,
-        id: contact.id || (Date.now().toString() + Math.random().toString(36).substr(2, 9))
-      });
-    });
-    
-    // Save to database
+  const finalizeBulkEdit = async (contacts) => {
     const loadingToast = toast.loading("Saving contacts...");
     
     try {
-      await savePeopleData(finalData);
-      
-      const addedCount = contactsToAdd.length;
-      const mergedCount = resolutions.filter(r => r.action === 'merge').length;
-      const replacedCount = resolutions.filter(r => r.action === 'replace').length;
-      const skippedCount = resolutions.filter(r => r.action === 'skip').length;
-      
-      let message = [];
-      if (addedCount > 0) message.push(`${addedCount} added`);
-      if (mergedCount > 0) message.push(`${mergedCount} merged`);
-      if (replacedCount > 0) message.push(`${replacedCount} replaced`);
-      if (skippedCount > 0) message.push(`${skippedCount} skipped`);
-      
-      toast.success("Contacts saved successfully", {
-        description: message.join(', '),
-        id: loadingToast
-      });
-      
-      setShowDuplicateModal(false);
-      setPendingContacts([]);
-      setDuplicateData([]);
-      setPendingAction(null);
+      await savePeopleData(contacts);
+      toast.success(`${contacts.length} contact(s) saved successfully`, { id: loadingToast });
+      setShowBulkModal(false);
     } catch (error) {
       console.error("Failed to save contacts:", error);
       toast.error(getErrorMessage(error), { id: loadingToast });
-      // Modal stays open on error
+      throw error;
+    }
+  };
+
+  /**
+   * Handle merging duplicates from Find Duplicates feature
+   */
+  const handleFindDuplicatesMerge = async (mergedContacts, contactsToDeleteIds) => {
+    const loadingToast = toast.loading("Merging duplicates...");
+    
+    try {
+      // Remove deleted contacts and update merged ones
+      let finalData = peopleData.filter(p => !contactsToDeleteIds.includes(p.id));
+      
+      // Update merged contacts
+      mergedContacts.forEach(merged => {
+        const index = finalData.findIndex(p => p.id === merged.id);
+        if (index !== -1) {
+          finalData[index] = merged;
+        }
+      });
+      
+      await savePeopleData(finalData);
+      
+      toast.success("Duplicates merged successfully", {
+        description: `Merged ${mergedContacts.length} group(s), removed ${contactsToDeleteIds.length} duplicate(s)`,
+        id: loadingToast
+      });
+      
+      setShowFindDuplicatesModal(false);
+    } catch (error) {
+      console.error("Failed to merge duplicates:", error);
+      toast.error(getErrorMessage(error), { id: loadingToast });
     }
   };
 
@@ -324,7 +264,6 @@ export const PeopleContainer = () => {
     } catch (error) {
       console.error("Failed to edit contact:", error);
       toast.error(getErrorMessage(error), { id: loadingToast });
-      // Modal stays open on error
     }
   };
 
@@ -395,8 +334,11 @@ export const PeopleContainer = () => {
     setShowImportVCFModal(true);
   };
 
+  const handleFindDuplicates = () => {
+    setShowFindDuplicatesModal(true);
+  };
+
   const handleBulkSave = async (newPeopleData) => {
-    setShowBulkModal(false);
     // Check for duplicates before saving
     await checkAndHandleDuplicates(newPeopleData, 'bulkEdit');
   };
@@ -452,6 +394,7 @@ export const PeopleContainer = () => {
         onBulkEdit={handleBulkEdit}
         onExportPDF={handleExportPDF}
         onImportVCF={handleImportVCF}
+        onFindDuplicates={handleFindDuplicates}
         sortType={sortType}
         onSortChange={handleSortChange}
         totalCount={peopleData.length}
@@ -475,7 +418,6 @@ export const PeopleContainer = () => {
         onOpenChange={setShowAddModal}
         onAdd={handleAdd}
         availableCategories={availableCategories}
-        peopleData={peopleData}
       />
 
       <EditPersonModal
@@ -484,7 +426,6 @@ export const PeopleContainer = () => {
         editingPerson={editingPerson}
         onSave={handleEdit}
         availableCategories={availableCategories}
-        peopleData={peopleData}
       />
 
       <PersonDetailModal
@@ -516,11 +457,11 @@ export const PeopleContainer = () => {
         availableCategories={availableCategories}
       />
 
-      <DuplicateContactsModal
-        open={showDuplicateModal}
-        onOpenChange={setShowDuplicateModal}
-        duplicates={duplicateData}
-        onResolve={handleDuplicateResolution}
+      <FindDuplicatesModal
+        open={showFindDuplicatesModal}
+        onOpenChange={setShowFindDuplicatesModal}
+        peopleData={peopleData}
+        onMerge={handleFindDuplicatesMerge}
       />
     </>
   );
