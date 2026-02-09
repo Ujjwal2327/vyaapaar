@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import {
   Search,
   Plus,
@@ -44,17 +45,30 @@ export const PeopleHeader = ({
   peopleData,
   onCategoriesUpdate,
   availableCategories,
+  categoriesWithContacts,
 }) => {
-  // Sort categories alphabetically with "Other" at the end
-  const sortedCategories = sortCategories(availableCategories);
+  // Sort categories with contacts alphabetically with "Other" at the end
+  const sortedCategoriesWithContacts = sortCategories(categoriesWithContacts);
 
   // Get counts for each category
-  const categoryCounts = getCategoryCounts(peopleData, availableCategories);
+  const categoryCounts = getCategoryCounts(peopleData, categoriesWithContacts);
+
+  // Only show "All Contacts" if there's more than one category with contacts
+  const showAllOption = sortedCategoriesWithContacts.length > 1;
+
+  // Automatically change sort type if categories reduce to 1 while sorted by category
+  useEffect(() => {
+    if (sortedCategoriesWithContacts.length === 1 && sortType === "category") {
+      onSortChange("name-asc");
+    }
+  }, [sortedCategoriesWithContacts.length, sortType, onSortChange]);
 
   // Build categories list with counts for dropdown
   const CATEGORIES = [
-    { value: "all", label: "All Contacts", count: totalCount },
-    ...sortedCategories.map((cat) => ({
+    ...(showAllOption
+      ? [{ value: "all", label: "All Contacts", count: totalCount }]
+      : []),
+    ...sortedCategoriesWithContacts.map((cat) => ({
       value: cat.id,
       label: cat.label,
       count: categoryCounts[cat.id] || 0,
@@ -63,7 +77,12 @@ export const PeopleHeader = ({
 
   // Get current category label
   const getCurrentCategoryLabel = () => {
-    if (!categoryFilter) return `All Contacts`;
+    // If only 1 category with contacts, show that category's name
+    if (!showAllOption && sortedCategoriesWithContacts.length === 1) {
+      return sortedCategoriesWithContacts[0].label;
+    }
+    
+    if (!categoryFilter && showAllOption) return `All Contacts`;
 
     const category = CATEGORIES.find((cat) => cat.value === categoryFilter);
     return category ? category.label : "Select Category";
@@ -71,7 +90,12 @@ export const PeopleHeader = ({
 
   // Get current category count
   const getCurrentCategoryCount = () => {
-    if (!categoryFilter) return totalCount;
+    // If only 1 category with contacts, show that category's count
+    if (!showAllOption && sortedCategoriesWithContacts.length === 1) {
+      return categoryCounts[sortedCategoriesWithContacts[0].id] || 0;
+    }
+    
+    if (!categoryFilter && showAllOption) return totalCount;
 
     const category = CATEGORIES.find((cat) => cat.value === categoryFilter);
     return category ? category.count : "";
@@ -135,6 +159,7 @@ export const PeopleHeader = ({
                   if (value !== "all" && sortType === "category")
                     onSortChange("name-asc");
                 }}
+                disabled={!showAllOption}
               >
                 <SelectTrigger className="flex-1 text-xs">
                   <SelectValue>
@@ -183,12 +208,10 @@ export const PeopleHeader = ({
                   <SelectItem value="name-desc" className="text-xs">
                     Z to A
                   </SelectItem>
-                  {categoryFilter === "" ? (
+                  {categoryFilter === "" && showAllOption && (
                     <SelectItem value="category" className="text-xs">
-                      By Category
+                      Category
                     </SelectItem>
-                  ) : (
-                    ""
                   )}
                 </SelectContent>
               </Select>

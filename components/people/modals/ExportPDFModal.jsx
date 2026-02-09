@@ -76,12 +76,64 @@ export const ExportPDFModal = ({
     );
   };
 
-  const selectAllCategories = () => {
-    setSelectedCategories(availableCategories.map((cat) => cat.id));
+  // Toggle all fields (excluding required ones)
+  const toggleAllFields = () => {
+    const optionalFields = [
+      "photo",
+      "category",
+      "phones",
+      "address",
+      "specialty",
+      "notes",
+    ];
+    const allOptionalSelected = optionalFields.every(
+      (field) => includeFields[field],
+    );
+
+    if (allOptionalSelected) {
+      // Deselect all optional fields
+      setIncludeFields({
+        photo: false,
+        name: true, // Always keep name
+        category: false,
+        phones: false,
+        address: false,
+        specialty: false,
+        notes: false,
+      });
+    } else {
+      // Select all fields
+      setIncludeFields({
+        photo: true,
+        name: true,
+        category: true,
+        phones: true,
+        address: true,
+        specialty: true,
+        notes: true,
+      });
+    }
   };
 
-  const deselectAllCategories = () => {
-    setSelectedCategories([]);
+  // Check if all optional fields are selected
+  const areAllFieldsSelected = () => {
+    const optionalFields = [
+      "photo",
+      "category",
+      "phones",
+      "address",
+      "specialty",
+      "notes",
+    ];
+    return optionalFields.every((field) => includeFields[field]);
+  };
+
+  const toggleAllCategories = () => {
+    if (selectedCategories.length === availableCategories.length) {
+      setSelectedCategories([]);
+    } else {
+      setSelectedCategories(availableCategories.map((cat) => cat.id));
+    }
   };
 
   const handleExport = async () => {
@@ -179,70 +231,88 @@ export const ExportPDFModal = ({
               </div>
             </div>
 
-            {/* Orientation Selection */}
-            <div className="space-y-3">
-              <Label className="text-base font-semibold">Orientation</Label>
-              <Select value={orientation} onValueChange={setOrientation}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="portrait">
-                    Portrait <RectangleVertical />
-                  </SelectItem>
-                  <SelectItem value="landscape">
-                    Landscape <RectangleHorizontal />
-                  </SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="flex justify-around items-center gap-x-8">
+              {/* Orientation Selection */}
+              <div className="space-y-3 flex-1">
+                <Label className="text-base font-semibold">Orientation</Label>
+                <Select value={orientation} onValueChange={setOrientation}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="portrait">
+                      Portrait <RectangleVertical />
+                    </SelectItem>
+                    <SelectItem value="landscape">
+                      Landscape <RectangleHorizontal />
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                {/* Columns Selection - Grid Layout */}
+                {layout === "grid" && (
+                  <div className="space-y-3 flex-1 ">
+                    <Label className="text-base font-semibold">
+                      Grid Columns
+                    </Label>
+                    <Select
+                      value={gridColumns.toString()}
+                      onValueChange={(val) => setGridColumns(parseInt(val))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="2">2 Columns</SelectItem>
+                        <SelectItem value="3">3 Columns</SelectItem>
+                        <SelectItem value="4">4 Columns</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {/* Columns Selection - Bento Layout */}
+                {layout === "bento" && (
+                  <div className="space-y-3 flex-1">
+                    <Label className="text-base font-semibold">
+                      Bento Columns
+                    </Label>
+                    <Select
+                      value={bentoColumns.toString()}
+                      onValueChange={(val) => setBentoColumns(parseInt(val))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="2">2 Columns</SelectItem>
+                        <SelectItem value="3">3 Columns</SelectItem>
+                        <SelectItem value="4">4 Columns</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
             </div>
-
-            {/* Columns Selection - Grid Layout */}
-            {layout === "grid" && (
-              <div className="space-y-3">
-                <Label className="text-base font-semibold">Grid Columns</Label>
-                <Select
-                  value={gridColumns.toString()}
-                  onValueChange={(val) => setGridColumns(parseInt(val))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="2">2 Columns</SelectItem>
-                    <SelectItem value="3">3 Columns</SelectItem>
-                    <SelectItem value="4">4 Columns</SelectItem>
-                  </SelectContent>
-                </Select>
-                
-              </div>
-            )}
-
-            {/* Columns Selection - Bento Layout */}
-            {layout === "bento" && (
-              <div className="space-y-3">
-                <Label className="text-base font-semibold">Bento Columns</Label>
-                <Select
-                  value={bentoColumns.toString()}
-                  onValueChange={(val) => setBentoColumns(parseInt(val))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="2">2 Columns</SelectItem>
-                    <SelectItem value="3">3 Columns</SelectItem>
-                    <SelectItem value="4">4 Columns</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
 
             {/* Fields to Include */}
             <div className="space-y-3">
-              <Label className="text-base font-semibold">
-                Fields to Include
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-base font-semibold">
+                  Fields to Include
+                </Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={toggleAllFields}
+                  className="h-7 text-xs"
+                >
+                  {areAllFieldsSelected() ? "Deselect All" : "Select All"}
+                </Button>
+              </div>
               <div className="space-y-2 bg-muted/30 rounded-lg p-4">
                 {[
                   { id: "photo", label: "Photo", disabled: false },
@@ -282,26 +352,17 @@ export const ExportPDFModal = ({
                 <Label className="text-base font-semibold">
                   Categories to Include
                 </Label>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={selectAllCategories}
-                    className="h-7 text-xs"
-                  >
-                    Select All
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={deselectAllCategories}
-                    className="h-7 text-xs"
-                  >
-                    Clear
-                  </Button>
-                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={toggleAllCategories}
+                  className="h-7 text-xs"
+                >
+                  {selectedCategories.length === availableCategories.length
+                    ? "Deselect All"
+                    : "Select All"}
+                </Button>
               </div>
               <div className="space-y-2 bg-muted/30 rounded-lg p-4 max-h-48 overflow-y-auto">
                 {sortedCategories.map((category) => {

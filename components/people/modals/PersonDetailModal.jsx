@@ -7,7 +7,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Phone, MapPin, Briefcase, User, Mail, Star } from "lucide-react";
+import { Phone, MapPin, Briefcase, User, Mail, Star, NotebookPen } from "lucide-react";
 
 const CATEGORY_COLORS = {
   plumber: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
@@ -33,14 +33,10 @@ export const PersonDetailModal = ({
   open,
   onOpenChange,
   person,
-  availableCategories,
+  category,
 }) => {
   if (!person) return null;
 
-  // Find category label from available categories
-  const category = availableCategories?.find(
-    (cat) => cat.id === person.category,
-  );
   const categoryLabel =
     category?.label || CATEGORY_LABELS[person.category] || person.category;
   const categoryColor =
@@ -74,7 +70,9 @@ export const PersonDetailModal = ({
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 flex flex-col items-start">
-              <DialogTitle className="text-2xl mb-1 truncate">{person.name}</DialogTitle>
+              <DialogTitle className="text-2xl mb-1 truncate">
+                {person.name}
+              </DialogTitle>
               <Badge className={`${categoryColor} border-0`}>
                 {categoryLabel}
               </Badge>
@@ -153,11 +151,14 @@ export const PersonDetailModal = ({
           {person.notes && person.notes.trim() && (
             <>
               <Separator />
-              <div className="pt-2">
-                <h4 className="font-semibold mb-2">Notes</h4>
-                <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                  {person.notes}
-                </p>
+              <div className="flex items-start gap-3">
+                <NotebookPen className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+                <div className="flex-1">
+                  <h4 className="font-semibold mb-2">Notes</h4>
+                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                    {person.notes}
+                  </p>
+                </div>
               </div>
             </>
           )}

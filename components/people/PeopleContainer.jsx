@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { usePeople } from "@/hooks/usePeople";
 import { PeopleHeader } from "./PeopleHeader";
 import { PeopleContent } from "./PeopleContent";
@@ -75,6 +75,13 @@ export const PeopleContainer = () => {
   const [availableCategories, setAvailableCategories] = useState(
     categories || DEFAULT_CATEGORIES,
   );
+
+  // Filter categories to only include those with contacts
+  const categoriesWithContacts = useMemo(() => {
+    return availableCategories.filter((cat) =>
+      peopleData.some((person) => person.category === cat.id)
+    );
+  }, [availableCategories, peopleData]);
 
   // Sync categories from hook
   useEffect(() => {
@@ -381,6 +388,11 @@ export const PeopleContainer = () => {
     }
   });
 
+  // Find category for viewing person
+  const viewingPersonCategory = viewingPerson
+    ? availableCategories?.find((cat) => cat.id === viewingPerson.category)
+    : null;
+
   return (
     <>
       <PeopleHeader
@@ -402,6 +414,7 @@ export const PeopleContainer = () => {
         peopleData={peopleData}
         onCategoriesUpdate={handleCategoriesUpdate}
         availableCategories={availableCategories}
+        categoriesWithContacts={categoriesWithContacts}
       />
 
       <PeopleContent
@@ -432,7 +445,7 @@ export const PeopleContainer = () => {
         open={showDetailModal}
         onOpenChange={setShowDetailModal}
         person={viewingPerson}
-        availableCategories={availableCategories}
+        category={viewingPersonCategory}
       />
 
       <BulkEditPeopleModal
@@ -447,7 +460,7 @@ export const PeopleContainer = () => {
         open={showExportPDFModal}
         onOpenChange={setShowExportPDFModal}
         peopleData={peopleData}
-        availableCategories={availableCategories}
+        availableCategories={categoriesWithContacts}
       />
 
       <ImportVCFModal
