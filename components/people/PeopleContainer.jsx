@@ -45,7 +45,9 @@ export const PeopleContainer = () => {
   const [editingPerson, setEditingPerson] = useState(null);
   const [viewingPerson, setViewingPerson] = useState(null);
   const [sortType, setSortType] = useState("name-asc");
-  const [availableCategories, setAvailableCategories] = useState(categories || DEFAULT_CATEGORIES);
+  const [availableCategories, setAvailableCategories] = useState(
+    categories || DEFAULT_CATEGORIES,
+  );
 
   // Sync categories from hook
   useEffect(() => {
@@ -68,7 +70,8 @@ export const PeopleContainer = () => {
   };
 
   // Prevent hydration mismatch and show loading during DB fetch
-  if (!isHydrated || isDataLoading) return <Loader content="Loading contacts..." />;
+  if (!isHydrated || isDataLoading)
+    return <Loader content="Loading contacts..." />;
 
   const handleAddPerson = () => {
     setShowAddModal(true);
@@ -82,9 +85,10 @@ export const PeopleContainer = () => {
     } catch (error) {
       // Modal stays open on error so user doesn't lose their data
       console.error("Failed to add contact:", error);
-    toast.error("Failed to add contact", {
-      description: "Please check your connection and try again",
-    });
+      toast.error("Failed to add contact", {
+        description:
+          error.message || "Please check your connection and try again",
+      });
     }
   };
 
@@ -97,7 +101,7 @@ export const PeopleContainer = () => {
     if (!editingPerson) return;
 
     const newData = peopleData.map((person) =>
-      person.id === editingPerson.id ? { ...person, ...formData } : person
+      person.id === editingPerson.id ? { ...person, ...formData } : person,
     );
 
     try {
@@ -107,9 +111,9 @@ export const PeopleContainer = () => {
     } catch (error) {
       // Modal stays open on error so user doesn't lose their changes
       console.error("Failed to edit contact:", error);
-    toast.error("Failed to edit contact", {
-      description: "Please check your connection and try again",
-    });
+      toast.error("Failed to edit contact", {
+        description: "Please check your connection and try again",
+      });
     }
   };
 
@@ -131,7 +135,11 @@ export const PeopleContainer = () => {
     setShowDetailModal(true);
   };
 
-  const handleCategoriesUpdate = async (newCategories, fromCategoryId, toCategoryId) => {
+  const handleCategoriesUpdate = async (
+    newCategories,
+    fromCategoryId,
+    toCategoryId,
+  ) => {
     // Update categories
     setAvailableCategories(newCategories);
     await saveCategories(newCategories);
@@ -141,7 +149,7 @@ export const PeopleContainer = () => {
       const updatedPeople = peopleData.map((person) =>
         person.category === fromCategoryId
           ? { ...person, category: toCategoryId }
-          : person
+          : person,
       );
       await savePeopleData(updatedPeople);
     }
@@ -178,10 +186,13 @@ export const PeopleContainer = () => {
       // Merge imported contacts with existing data
       const newData = [...peopleData, ...importedContacts];
       await savePeopleData(newData);
-      
-      toast.success(`Imported ${importedContacts.length} contact(s) successfully`, {
-        description: `Added to ${availableCategories.find(c => c.id === importedContacts[0].category)?.label || 'category'}`,
-      });
+
+      toast.success(
+        `Imported ${importedContacts.length} contact(s) successfully`,
+        {
+          description: `Added to ${availableCategories.find((c) => c.id === importedContacts[0].category)?.label || "category"}`,
+        },
+      );
     } catch (error) {
       console.error("Import save error:", error);
       toast.error("Failed to save imported contacts", {
@@ -197,11 +208,15 @@ export const PeopleContainer = () => {
       person.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       person.phone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       // Search in phones array (new multi-phone support)
-      (person.phones && person.phones.some(p => p?.toLowerCase().includes(searchTerm.toLowerCase()))) ||
+      (person.phones &&
+        person.phones.some((p) =>
+          p?.toLowerCase().includes(searchTerm.toLowerCase()),
+        )) ||
       person.specialty?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       person.address?.toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchesCategory = !categoryFilter || person.category === categoryFilter;
+    const matchesCategory =
+      !categoryFilter || person.category === categoryFilter;
 
     return matchesSearch && matchesCategory;
   });

@@ -20,6 +20,7 @@ import { Plus, X, Upload, User, Star, GripVertical, AlertCircle } from "lucide-r
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toTitleCase } from "@/lib/utils/dataTransform";
 import { sortCategories } from "@/lib/utils/categoryUtils";
+import { checkDuplicatePhone, checkInternalDuplicates } from "@/lib/utils/phoneValidation";
 
 // Phone validation with real-time cleaning
 const cleanAndValidatePhone = (phone) => {
@@ -58,6 +59,7 @@ export const EditPersonModal = ({
   editingPerson,
   onSave,
   availableCategories,
+  peopleData = [], // NEW: Pass all existing contacts for duplicate checking
 }) => {
   const CATEGORIES = sortCategories(availableCategories || [
     { id: "customer", label: "Customer" },
@@ -69,6 +71,7 @@ export const EditPersonModal = ({
   const [initialFormData, setInitialFormData] = useState(null);
   const [photoPreview, setPhotoPreview] = useState("");
   const [phoneErrors, setPhoneErrors] = useState([]);
+  const [phoneDuplicateErrors, setPhoneDuplicateErrors] = useState([]); // NEW
 
   useEffect(() => {
     if (editingPerson) {
@@ -94,11 +97,13 @@ export const EditPersonModal = ({
       
       // Initialize phone errors array
       setPhoneErrors(new Array(phones.length > 0 ? phones.length : 1).fill(null));
+      setPhoneDuplicateErrors(new Array(phones.length > 0 ? phones.length : 1).fill(null));
     } else if (!editingPerson && formData !== null) {
       setFormData(null);
       setInitialFormData(null);
       setPhotoPreview("");
       setPhoneErrors([]);
+      setPhoneDuplicateErrors([]);
     }
   }, [editingPerson]);
 
@@ -109,14 +114,42 @@ export const EditPersonModal = ({
     newPhones[index] = validation.cleaned;
     setFormData({ ...formData, phones: newPhones });
     
+    // Update validation errors
     const newErrors = [...phoneErrors];
     newErrors[index] = validation.error;
     setPhoneErrors(newErrors);
+
+    // Check for duplicates (only if valid 10-digit number)
+    const newDuplicateErrors = [...phoneDuplicateErrors];
+    if (validation.isValid && validation.cleaned.length === 10) {
+      // Check against existing contacts (excluding current person)
+      const duplicateCheck = checkDuplicatePhone(
+        validation.cleaned,
+        peopleData,
+        editingPerson?.id // Exclude current person from check
+      );
+      
+      if (duplicateCheck.isDuplicate) {
+        newDuplicateErrors[index] = `This number is already assigned to ${duplicateCheck.existingContact?.name}`;
+      } else {
+        // Check for internal duplicates (within this form)
+        const internalCheck = checkInternalDuplicates(newPhones);
+        if (internalCheck.hasDuplicates && internalCheck.duplicateNumbers.includes(validation.cleaned)) {
+          newDuplicateErrors[index] = "This number is already used in another field above";
+        } else {
+          newDuplicateErrors[index] = null;
+        }
+      }
+    } else {
+      newDuplicateErrors[index] = null;
+    }
+    setPhoneDuplicateErrors(newDuplicateErrors);
   };
 
   const addPhoneField = () => {
     setFormData({ ...formData, phones: [...formData.phones, ""] });
     setPhoneErrors([...phoneErrors, null]);
+    setPhoneDuplicateErrors([...phoneDuplicateErrors, null]);
   };
 
   const removePhoneField = (index) => {
@@ -126,6 +159,18 @@ export const EditPersonModal = ({
       
       const newErrors = phoneErrors.filter((_, i) => i !== index);
       setPhoneErrors(newErrors);
+
+      const newDuplicateErrors = phoneDuplicateErrors.filter((_, i) => i !== index);
+      setPhoneDuplicateErrors(newDuplicateErrors);
+
+      // Re-check internal duplicates for remaining phones
+      setTimeout(() => {
+        newPhones.forEach((phone, idx) => {
+          if (phone && phone.trim()) {
+            handlePhoneChange(idx, phone);
+          }
+        });
+      }, 0);
     }
   };
 
@@ -144,6 +189,13 @@ export const EditPersonModal = ({
       newErrors[index - 1],
     ];
     setPhoneErrors(newErrors);
+
+    const newDuplicateErrors = [...phoneDuplicateErrors];
+    [newDuplicateErrors[index - 1], newDuplicateErrors[index]] = [
+      newDuplicateErrors[index],
+      newDuplicateErrors[index - 1],
+    ];
+    setPhoneDuplicateErrors(newDuplicateErrors);
   };
 
   const movePhoneDown = (index) => {
@@ -161,6 +213,13 @@ export const EditPersonModal = ({
       newErrors[index],
     ];
     setPhoneErrors(newErrors);
+
+    const newDuplicateErrors = [...phoneDuplicateErrors];
+    [newDuplicateErrors[index], newDuplicateErrors[index + 1]] = [
+      newDuplicateErrors[index + 1],
+      newDuplicateErrors[index],
+    ];
+    setPhoneDuplicateErrors(newDuplicateErrors);
   };
 
   const makePrimary = (index) => {
@@ -174,6 +233,11 @@ export const EditPersonModal = ({
     const primaryError = newErrors.splice(index, 1)[0];
     newErrors.unshift(primaryError);
     setPhoneErrors(newErrors);
+
+    const newDuplicateErrors = [...phoneDuplicateErrors];
+    const primaryDuplicateError = newDuplicateErrors.splice(index, 1)[0];
+    newDuplicateErrors.unshift(primaryDuplicateError);
+    setPhoneDuplicateErrors(newDuplicateErrors);
   };
 
   const handlePhotoUpload = (e) => {
@@ -245,7 +309,8 @@ export const EditPersonModal = ({
 
     // Check for phone errors
     const hasAnyPhoneError = phoneErrors.some((error) => error !== null);
-    if (hasAnyPhoneError) return false;
+    const hasAnyDuplicateError = phoneDuplicateErrors.some((error) => error !== null);
+    if (hasAnyPhoneError || hasAnyDuplicateError) return false;
 
     // Check if any changes were made
     const phonesChanged =
@@ -386,7 +451,7 @@ export const EditPersonModal = ({
             </div>
             {formData.phones.length > 1 && (
               <p className="text-xs text-muted-foreground">
-                First number is primary. Click â­ to make a number primary.
+                First number is primary. Click ⭐ to make a number primary.
               </p>
             )}
             <div className="space-y-2">
@@ -398,7 +463,7 @@ export const EditPersonModal = ({
                       placeholder={`Phone ${index + 1}${index === 0 ? " (Primary)" : ""}`}
                       value={phone}
                       onChange={(e) => handlePhoneChange(index, e.target.value)}
-                      className={`${index === 0 ? "border-primary" : ""} ${phoneErrors[index] ? "border-destructive" : ""}`}
+                      className={`${index === 0 ? "border-primary" : ""} ${phoneErrors[index] || phoneDuplicateErrors[index] ? "border-destructive" : ""}`}
                     />
                     {formData.phones.length > 1 && (
                       <>
@@ -431,17 +496,25 @@ export const EditPersonModal = ({
                       </>
                     )}
                   </div>
+                  {/* Show validation errors first */}
                   {phoneErrors[index] && (
                     <div className="flex items-start gap-1 text-xs text-destructive">
                       <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
                       <span>{phoneErrors[index]}</span>
                     </div>
                   )}
+                  {/* Show duplicate errors if no validation errors */}
+                  {!phoneErrors[index] && phoneDuplicateErrors[index] && (
+                    <div className="flex items-start gap-1 text-xs text-destructive">
+                      <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
+                      <span>{phoneDuplicateErrors[index]}</span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
             <p className="text-xs text-muted-foreground">
-              Phone numbers must be exactly 10 digits. Spaces will be removed automatically.
+              Phone numbers must be exactly 10 digits and unique across all contacts. Spaces will be removed automatically.
             </p>
           </div>
 
@@ -483,7 +556,7 @@ export const EditPersonModal = ({
             <Textarea
               id="notes"
               placeholder="Any additional information..."
-              value={formData.notes}
+              value={formData.notes || ""}
               onChange={(e) =>
                 setFormData({ ...formData, notes: e.target.value })
               }

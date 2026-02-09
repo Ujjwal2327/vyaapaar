@@ -14,6 +14,7 @@ import { sortCategories } from "@/lib/utils/categoryUtils";
 import Accordion from "@/components/ui/accordion";
 import { toTitleCase } from "@/lib/utils/dataTransform";
 import { Badge } from "@/components/ui/badge";
+import { batchCheckDuplicatePhones } from "@/lib/utils/phoneValidation";
 
 // Phone validation function - validates and cleans phone numbers
 const validatePhone = (phone) => {
@@ -130,6 +131,7 @@ const formatCategoryText = (text) => {
 
 // Parse text to people array for a specific category
 // MODIFIED: Now preserves existing person data (specialty, notes, photo, id)
+// AND checks for duplicate phone numbers
 const textToPeople = (text, categoryId, existingPeopleData) => {
   if (!text || !text.trim()) return [];
 
@@ -144,6 +146,9 @@ const textToPeople = (text, categoryId, existingPeopleData) => {
       existingPeopleMap.set(person.name.toLowerCase(), person);
     }
   });
+
+  // Track phone numbers within this batch for internal duplicate checking
+  const phonesInBatch = new Map(); // phone -> person name
 
   lines.forEach((line, index) => {
     const lineNumber = index + 1;
@@ -193,6 +198,19 @@ const textToPeople = (text, categoryId, existingPeopleData) => {
       return;
     }
 
+    // Check for duplicate phones within this batch
+    for (const phone of validatedPhones) {
+      if (phonesInBatch.has(phone)) {
+        const existingName = phonesInBatch.get(phone);
+        if (existingName.toLowerCase() !== name.toLowerCase()) {
+          errors.push(
+            `Line ${lineNumber}: Phone number ${phone} is already assigned to "${existingName}" in this batch`,
+          );
+          return;
+        }
+      }
+    }
+
     // Everything from part 2 onwards is address
     const addressPart = parts.slice(2).join(", ").trim();
 
@@ -213,6 +231,11 @@ const textToPeople = (text, categoryId, existingPeopleData) => {
       notes: existingPerson?.notes || "",
       photo: existingPerson?.photo || null,
     };
+
+    // Add phones to batch tracking
+    validatedPhones.forEach((phone) => {
+      phonesInBatch.set(phone, name);
+    });
 
     people.push(person);
   });
@@ -325,7 +348,8 @@ export const BulkEditPeopleModal = ({
       const allPeople = [];
       const newErrors = {};
 
-      // Parse each category's text
+      // First pass: Parse each category's text
+      const parsedByCategory = {};
       sortedCategories.forEach((cat) => {
         try {
           // Pass existingPeopleData to preserve specialty/notes/photo
@@ -334,13 +358,13 @@ export const BulkEditPeopleModal = ({
             cat.id,
             peopleData,
           );
-          allPeople.push(...people);
+          parsedByCategory[cat.id] = people;
         } catch (error) {
           newErrors[cat.id] = error.message;
         }
       });
 
-      // If there are any errors, show them and don't save
+      // If there are parsing errors, show them and don't continue
       if (Object.keys(newErrors).length > 0) {
         setErrors(newErrors);
         // Auto-expand categories with errors
@@ -349,6 +373,48 @@ export const BulkEditPeopleModal = ({
         });
         return;
       }
+
+      // Second pass: Check for duplicate phone numbers across ALL categories
+      const allParsedPeople = Object.values(parsedByCategory).flat();
+      
+      // Check against existing people (excluding those being replaced)
+      const existingPeopleNotInBatch = peopleData.filter((existing) => {
+        // Exclude if person is being updated (same category and name exists in parsed)
+        const parsedInCategory = parsedByCategory[existing.category] || [];
+        return !parsedInCategory.some(
+          (parsed) => parsed.name.toLowerCase() === existing.name.toLowerCase()
+        );
+      });
+
+      const duplicateCheck = batchCheckDuplicatePhones(
+        allParsedPeople,
+        existingPeopleNotInBatch
+      );
+
+      if (duplicateCheck.hasDuplicates) {
+        // Group errors by category
+        duplicateCheck.duplicates.forEach((dup) => {
+          const errorMsg = `"${dup.personName}" has phone number ${dup.phone} which is already assigned to "${dup.existingContact.name}"`;
+          
+          if (!newErrors[dup.category]) {
+            newErrors[dup.category] = errorMsg;
+          } else {
+            newErrors[dup.category] += "\n" + errorMsg;
+          }
+        });
+
+        setErrors(newErrors);
+        // Auto-expand categories with errors
+        Object.keys(newErrors).forEach((catId) => {
+          setExpandedCategories((prev) => ({ ...prev, [catId]: true }));
+        });
+        return;
+      }
+
+      // All validations passed, merge all people
+      allParsedPeople.forEach((person) => {
+        allPeople.push(person);
+      });
 
       onSave(allPeople);
       onOpenChange(false);
@@ -405,7 +471,7 @@ export const BulkEditPeopleModal = ({
               <code>name | phone1 / phone2 / phone3 | address</code>
             </p>
             <p className="text-xs text-muted-foreground">
-              (Phone numbers must be exactly 10 digits - spaces will be removed
+              (Phone numbers must be exactly 10 digits and unique across ALL contacts - spaces will be removed
               automatically)
             </p>
             <p className="text-xs text-muted-foreground">
@@ -420,7 +486,7 @@ export const BulkEditPeopleModal = ({
                 Show Example
               </summary>
               <pre className="bg-background p-2 rounded mt-2 text-xs overflow-x-auto">
-                {`Ram Kumar | 9876543210 / 9123456789 | Main Street Colony
+{`Ram Kumar | 9876543210 / 9123456789 | Main Street Colony
 Shyam Singh | 9988776655 | Downtown area
 ABC Hardware | 9191919191 | Near City Mall`}
               </pre>

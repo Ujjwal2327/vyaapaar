@@ -20,6 +20,7 @@ import { Plus, X, Upload, Camera, User, Star, AlertCircle } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toTitleCase } from "@/lib/utils/dataTransform";
 import { sortCategories } from "@/lib/utils/categoryUtils";
+import { checkDuplicatePhone, checkInternalDuplicates } from "@/lib/utils/phoneValidation";
 
 // Phone validation with real-time cleaning
 const cleanAndValidatePhone = (phone) => {
@@ -57,6 +58,7 @@ export const AddPersonModal = ({
   onOpenChange,
   onAdd,
   availableCategories,
+  peopleData = [], // NEW: Pass all existing contacts for duplicate checking
 }) => {
   // Sort categories alphabetically with "Other" at the end
   const CATEGORIES = sortCategories(availableCategories || [
@@ -76,7 +78,8 @@ export const AddPersonModal = ({
   });
 
   const [photoPreview, setPhotoPreview] = useState("");
-  const [phoneErrors, setPhoneErrors] = useState([null]); // Array of error messages per phone
+  const [phoneErrors, setPhoneErrors] = useState([null]); // Array of validation error messages per phone
+  const [phoneDuplicateErrors, setPhoneDuplicateErrors] = useState([null]); // Array of duplicate error messages per phone
 
   useEffect(() => {
     if (!open) {
@@ -91,6 +94,7 @@ export const AddPersonModal = ({
       });
       setPhotoPreview("");
       setPhoneErrors([null]);
+      setPhoneDuplicateErrors([null]);
     }
   }, [open]);
 
@@ -101,14 +105,42 @@ export const AddPersonModal = ({
     newPhones[index] = validation.cleaned;
     setFormData({ ...formData, phones: newPhones });
     
+    // Update validation errors
     const newErrors = [...phoneErrors];
     newErrors[index] = validation.error;
     setPhoneErrors(newErrors);
+
+    // Check for duplicates across all contacts (only if valid 10-digit number)
+    const newDuplicateErrors = [...phoneDuplicateErrors];
+    if (validation.isValid && validation.cleaned.length === 10) {
+      // Check against existing contacts
+      const duplicateCheck = checkDuplicatePhone(
+        validation.cleaned,
+        peopleData,
+        null // No exclusion for new contact
+      );
+      
+      if (duplicateCheck.isDuplicate) {
+        newDuplicateErrors[index] = `This number is already assigned to ${duplicateCheck.existingContact?.name}`;
+      } else {
+        // Check for internal duplicates (within this form)
+        const internalCheck = checkInternalDuplicates(newPhones);
+        if (internalCheck.hasDuplicates && internalCheck.duplicateNumbers.includes(validation.cleaned)) {
+          newDuplicateErrors[index] = "This number is already used in another field above";
+        } else {
+          newDuplicateErrors[index] = null;
+        }
+      }
+    } else {
+      newDuplicateErrors[index] = null;
+    }
+    setPhoneDuplicateErrors(newDuplicateErrors);
   };
 
   const addPhoneField = () => {
     setFormData({ ...formData, phones: [...formData.phones, ""] });
     setPhoneErrors([...phoneErrors, null]);
+    setPhoneDuplicateErrors([...phoneDuplicateErrors, null]);
   };
 
   const removePhoneField = (index) => {
@@ -118,6 +150,18 @@ export const AddPersonModal = ({
       
       const newErrors = phoneErrors.filter((_, i) => i !== index);
       setPhoneErrors(newErrors);
+      
+      const newDuplicateErrors = phoneDuplicateErrors.filter((_, i) => i !== index);
+      setPhoneDuplicateErrors(newDuplicateErrors);
+
+      // Re-check internal duplicates for remaining phones
+      setTimeout(() => {
+        newPhones.forEach((phone, idx) => {
+          if (phone && phone.trim()) {
+            handlePhoneChange(idx, phone);
+          }
+        });
+      }, 0);
     }
   };
 
@@ -132,6 +176,11 @@ export const AddPersonModal = ({
     const primaryError = newErrors.splice(index, 1)[0];
     newErrors.unshift(primaryError);
     setPhoneErrors(newErrors);
+
+    const newDuplicateErrors = [...phoneDuplicateErrors];
+    const primaryDuplicateError = newDuplicateErrors.splice(index, 1)[0];
+    newDuplicateErrors.unshift(primaryDuplicateError);
+    setPhoneDuplicateErrors(newDuplicateErrors);
   };
 
   const handlePhotoUpload = (e) => {
@@ -196,12 +245,15 @@ export const AddPersonModal = ({
 
   // Form validation
   const hasAnyPhoneError = phoneErrors.some((error) => error !== null);
+  const hasAnyDuplicateError = phoneDuplicateErrors.some((error) => error !== null);
   const hasValidPhones = formData.phones.some((phone) => {
     const validation = cleanAndValidatePhone(phone);
     return validation.cleaned && validation.isValid;
   });
   
-  const isFormValid = formData.name.trim() !== "" && !hasAnyPhoneError;
+  const isFormValid = formData.name.trim() !== "" && 
+                      !hasAnyPhoneError && 
+                      !hasAnyDuplicateError;
 
   const getInitials = (name) => {
     return name
@@ -335,7 +387,7 @@ export const AddPersonModal = ({
                       placeholder={`Phone ${index + 1}${index === 0 ? " (Primary)" : ""}`}
                       value={phone}
                       onChange={(e) => handlePhoneChange(index, e.target.value)}
-                      className={`${index === 0 ? "border-primary" : ""} ${phoneErrors[index] ? "border-destructive" : ""}`}
+                      className={`${index === 0 ? "border-primary" : ""} ${phoneErrors[index] || phoneDuplicateErrors[index] ? "border-destructive" : ""}`}
                     />
                     {formData.phones.length > 1 && (
                       <>
@@ -368,17 +420,25 @@ export const AddPersonModal = ({
                       </>
                     )}
                   </div>
+                  {/* Show validation errors first */}
                   {phoneErrors[index] && (
                     <div className="flex items-start gap-1 text-xs text-destructive">
                       <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
                       <span>{phoneErrors[index]}</span>
                     </div>
                   )}
+                  {/* Show duplicate errors if no validation errors */}
+                  {!phoneErrors[index] && phoneDuplicateErrors[index] && (
+                    <div className="flex items-start gap-1 text-xs text-destructive">
+                      <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
+                      <span>{phoneDuplicateErrors[index]}</span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
             <p className="text-xs text-muted-foreground">
-              Phone numbers must be exactly 10 digits. Spaces will be removed automatically.
+              Phone numbers must be exactly 10 digits and unique across all contacts. Spaces will be removed automatically.
             </p>
           </div>
 
