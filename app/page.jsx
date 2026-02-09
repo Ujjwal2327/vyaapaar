@@ -434,7 +434,7 @@ export default function LandingPageAlternative() {
                 title: "VCF Import",
                 description:
                   "Import contacts from .vcf files with automatic validation and category assignment.",
-                gradient: "from-emerald-500 to-green-500",
+                gradient: "from-green-500 to-amber-500",
               },
               {
                 icon: Image,
@@ -448,7 +448,7 @@ export default function LandingPageAlternative() {
                 title: "Detailed Notes",
                 description:
                   "Add comprehensive notes to products, categories, and contacts for better documentation.",
-                gradient: "from-amber-500 to-yellow-500",
+                gradient: "from-amber-500 to-emerald-500",
               },
               {
                 icon: Settings,
