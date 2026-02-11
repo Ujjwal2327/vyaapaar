@@ -1,7 +1,7 @@
-import { Edit2, Trash2, Phone, MapPin, Briefcase, User } from "lucide-react";
+import { Edit2, Trash2, Phone, MapPin, Briefcase } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { LazyAvatar } from "@/components/ui/lazyAvatar";
 
 const CATEGORY_COLORS = {
   plumber: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
@@ -71,13 +71,13 @@ export const PersonCard = ({
       onClick={() => isClickable && onViewDetails(person)}
     >
       <div className="flex items-start gap-3">
-        {/* Avatar */}
-        <Avatar className="w-12 h-12 shrink-0">
-          <AvatarImage src={person.photo || null} alt={person.name} />
-          <AvatarFallback className="bg-primary/10">
-            {getInitials(person.name)}
-          </AvatarFallback>
-        </Avatar>
+        {/* Avatar with Lazy Loading */}
+        <LazyAvatar 
+          src={person.photo || null} 
+          alt={person.name}
+          fallback={getInitials(person.name)}
+          className="w-12 h-12 shrink-0 bg-primary/10"
+        />
 
         {/* Content */}
         <div className="flex-1 min-w-0">

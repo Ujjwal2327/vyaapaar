@@ -21,6 +21,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toTitleCase } from "@/lib/utils/dataTransform";
 import { sortCategories } from "@/lib/utils/categoryUtils";
 import { checkInternalDuplicates, cleanAndDeduplicatePhones } from "@/lib/utils/phoneValidation";
+import { validateAndCompressImage, getBase64Size } from "@/lib/utils/imageCompression";
 
 // Phone validation with real-time cleaning
 const cleanAndValidatePhone = (phone) => {
@@ -80,6 +81,7 @@ export const AddPersonModal = ({
 
   const [photoPreview, setPhotoPreview] = useState("");
   const [phoneErrors, setPhoneErrors] = useState([null]); // Array of validation error messages per phone
+  const [isCompressing, setIsCompressing] = useState(false); // Track compression state
 
   useEffect(() => {
     if (!open) {
@@ -94,6 +96,7 @@ export const AddPersonModal = ({
       });
       setPhotoPreview("");
       setPhoneErrors([null]);
+      setIsCompressing(false);
     }
   }, [open, CATEGORIES]);
 
@@ -153,29 +156,35 @@ export const AddPersonModal = ({
     });
   };
 
-  const handlePhotoUpload = (e) => {
+  const handlePhotoUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Check file size (max 5MB)
+    // Check file size (max 5MB before compression)
     if (file.size > 5 * 1024 * 1024) {
       alert("Photo size should be less than 5MB");
       return;
     }
 
-    // Check file type
-    if (!file.type.startsWith("image/")) {
-      alert("Please upload an image file");
-      return;
+    try {
+      setIsCompressing(true);
+      
+      // Compress the image
+      const { base64: compressedBase64, originalSize, compressedSize } = 
+        await validateAndCompressImage(file);
+      
+      setFormData({ ...formData, photo: compressedBase64 });
+      setPhotoPreview(compressedBase64);
+      
+      // Show compression info in console
+      console.log(`Image compressed: ${originalSize}KB → ${compressedSize}KB`);
+      
+    } catch (error) {
+      console.error('Image compression error:', error);
+      alert(error.message || "Failed to compress image. Please try another image.");
+    } finally {
+      setIsCompressing(false);
     }
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64String = reader.result;
-      setFormData({ ...formData, photo: base64String });
-      setPhotoPreview(base64String);
-    };
-    reader.readAsDataURL(file);
   };
 
   const removePhoto = () => {
@@ -218,7 +227,7 @@ export const AddPersonModal = ({
 
   // Form validation
   const hasAnyPhoneError = phoneErrors.some((error) => error !== null);
-  const isFormValid = formData.name.trim() !== "" && !hasAnyPhoneError;
+  const isFormValid = formData.name.trim() !== "" && !hasAnyPhoneError && !isCompressing;
 
   const getInitials = (name) => {
     return name
@@ -260,15 +269,17 @@ export const AddPersonModal = ({
                 accept="image/*"
                 onChange={handlePhotoUpload}
                 className="hidden"
+                disabled={isCompressing}
               />
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => fileInputRef.current?.click()}
+                disabled={isCompressing}
               >
                 <Upload className="w-4 h-4 mr-2" />
-                Upload Photo
+                {isCompressing ? "Compressing..." : "Upload Photo"}
               </Button>
               {(photoPreview || formData.photo) && (
                 <Button
@@ -276,6 +287,7 @@ export const AddPersonModal = ({
                   variant="ghost"
                   size="sm"
                   onClick={removePhoto}
+                  disabled={isCompressing}
                 >
                   <X className="w-4 h-4 mr-2" />
                   Remove
@@ -283,8 +295,13 @@ export const AddPersonModal = ({
               )}
             </div>
             <p className="text-xs text-muted-foreground text-center">
-              Upload a photo from your device (max 5MB)
+              Upload a photo from your device (max 5MB, will be compressed)
             </p>
+            {formData.photo && (
+              <p className="text-xs text-muted-foreground">
+                Size: {getBase64Size(formData.photo)}KB
+              </p>
+            )}
           </div>
 
           {/* Name */}
@@ -340,7 +357,7 @@ export const AddPersonModal = ({
             </div>
             {formData.phones.length > 1 && (
               <p className="text-xs text-muted-foreground">
-                First number is primary. Click ⭐ to make a number primary.
+                First number is primary. Click ★ to make a number primary.
               </p>
             )}
             <div className="space-y-2">

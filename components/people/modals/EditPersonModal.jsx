@@ -21,6 +21,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toTitleCase } from "@/lib/utils/dataTransform";
 import { sortCategories } from "@/lib/utils/categoryUtils";
 import { checkInternalDuplicates, cleanAndDeduplicatePhones } from "@/lib/utils/phoneValidation";
+import { validateAndCompressImage, getBase64Size } from "@/lib/utils/imageCompression";
 
 // Phone validation with real-time cleaning
 const cleanAndValidatePhone = (phone) => {
@@ -73,6 +74,7 @@ export const EditPersonModal = ({
   const [initialFormData, setInitialFormData] = useState(null);
   const [photoPreview, setPhotoPreview] = useState("");
   const [phoneErrors, setPhoneErrors] = useState([]);
+  const [isCompressing, setIsCompressing] = useState(false);
 
   useEffect(() => {
     if (editingPerson) {
@@ -98,11 +100,13 @@ export const EditPersonModal = ({
       
       // Initialize phone errors array
       setPhoneErrors(new Array(phones.length > 0 ? phones.length : 1).fill(null));
+      setIsCompressing(false);
     } else if (!editingPerson && formData !== null) {
       setFormData(null);
       setInitialFormData(null);
       setPhotoPreview("");
       setPhoneErrors([]);
+      setIsCompressing(false);
     }
   }, [editingPerson]);
 
@@ -168,29 +172,35 @@ export const EditPersonModal = ({
     });
   };
 
-  const handlePhotoUpload = (e) => {
+  const handlePhotoUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Check file size (max 5MB)
+    // Check file size (max 5MB before compression)
     if (file.size > 5 * 1024 * 1024) {
       alert("Photo size should be less than 5MB");
       return;
     }
 
-    // Check file type
-    if (!file.type.startsWith("image/")) {
-      alert("Please upload an image file");
-      return;
+    try {
+      setIsCompressing(true);
+      
+      // Compress the image
+      const { base64: compressedBase64, originalSize, compressedSize } = 
+        await validateAndCompressImage(file);
+      
+      setFormData({ ...formData, photo: compressedBase64 });
+      setPhotoPreview(compressedBase64);
+      
+      // Show compression info in console
+      console.log(`Image compressed: ${originalSize}KB → ${compressedSize}KB`);
+      
+    } catch (error) {
+      console.error('Image compression error:', error);
+      alert(error.message || "Failed to compress image. Please try another image.");
+    } finally {
+      setIsCompressing(false);
     }
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64String = reader.result;
-      setFormData({ ...formData, photo: base64String });
-      setPhotoPreview(base64String);
-    };
-    reader.readAsDataURL(file);
   };
 
   const removePhoto = () => {
@@ -233,7 +243,7 @@ export const EditPersonModal = ({
 
   // Form validation
   const isFormValid = (() => {
-    if (!formData || !initialFormData) return false;
+    if (!formData || !initialFormData || isCompressing) return false;
 
     // Name is required
     if (!formData.name.trim()) return false;
@@ -242,19 +252,15 @@ export const EditPersonModal = ({
     const hasAnyPhoneError = phoneErrors.some((error) => error !== null);
     if (hasAnyPhoneError) return false;
 
-    // Check if any changes were made
-    const phonesChanged =
-      JSON.stringify(formData.phones.filter((p) => p.trim())) !==
-      JSON.stringify(initialFormData.phones.filter((p) => p.trim()));
-
+    // Check if anything changed
     const hasChanges =
-      toTitleCase(formData.name.trim()) !== initialFormData.name ||
-      formData.category.trim() !== initialFormData.category ||
-      phonesChanged ||
-      formData.address.trim() !== initialFormData.address ||
-      formData.specialty.trim() !== initialFormData.specialty ||
-      formData.photo.trim() !== initialFormData.photo ||
-      formData.notes.trim() !== initialFormData.notes;
+      formData.name !== initialFormData.name ||
+      formData.category !== initialFormData.category ||
+      JSON.stringify(formData.phones) !== JSON.stringify(initialFormData.phones) ||
+      formData.address !== initialFormData.address ||
+      formData.specialty !== initialFormData.specialty ||
+      formData.photo !== initialFormData.photo ||
+      formData.notes !== initialFormData.notes;
 
     return hasChanges;
   })();
@@ -301,15 +307,17 @@ export const EditPersonModal = ({
                 accept="image/*"
                 onChange={handlePhotoUpload}
                 className="hidden"
+                disabled={isCompressing}
               />
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => fileInputRef.current?.click()}
+                disabled={isCompressing}
               >
                 <Upload className="w-4 h-4 mr-2" />
-                {formData.photo ? "Change Photo" : "Upload Photo"}
+                {isCompressing ? "Compressing..." : formData.photo ? "Change Photo" : "Upload Photo"}
               </Button>
               {(photoPreview || formData.photo) && (
                 <Button
@@ -317,6 +325,7 @@ export const EditPersonModal = ({
                   variant="ghost"
                   size="sm"
                   onClick={removePhoto}
+                  disabled={isCompressing}
                 >
                   <X className="w-4 h-4 mr-2" />
                   Remove
@@ -324,8 +333,13 @@ export const EditPersonModal = ({
               )}
             </div>
             <p className="text-xs text-muted-foreground text-center">
-              Upload a photo from your device (max 5MB)
+              Upload a photo from your device (max 5MB, will be compressed)
             </p>
+            {formData.photo && (
+              <p className="text-xs text-muted-foreground">
+                Size: {getBase64Size(formData.photo)}KB
+              </p>
+            )}
           </div>
 
           {/* Name */}
@@ -381,7 +395,7 @@ export const EditPersonModal = ({
             </div>
             {formData.phones.length > 1 && (
               <p className="text-xs text-muted-foreground">
-                First number is primary. Click ⭐ to make a number primary.
+                First number is primary. Click ★ to make a number primary.
               </p>
             )}
             <div className="space-y-2">
