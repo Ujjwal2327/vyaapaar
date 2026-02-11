@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { photoCache } from "@/lib/utils/photoCache";
 
 const DEFAULT_CATEGORIES = [
   { id: "customer", label: "Customer", isDefault: true },
@@ -25,12 +26,59 @@ export const usePeople = () => {
 
   const hasFetchedDb = useRef(false);
 
+  /**
+   * Separate photos from contact data for storage
+   * @param {Array} contacts - Contacts with photos
+   * @returns {Object} { contactsWithoutPhotos, photos }
+   */
+  const separatePhotos = (contacts) => {
+    const contactsWithoutPhotos = [];
+    const photos = {};
+
+    contacts.forEach((contact) => {
+      const { photo, ...contactData } = contact;
+      
+      // Store contact without photo
+      contactsWithoutPhotos.push({
+        ...contactData,
+        hasPhoto: !!photo, // Flag to indicate if photo exists
+      });
+
+      // Store photo separately if it exists
+      if (photo) {
+        photos[contact.id] = photo;
+      }
+    });
+
+    return { contactsWithoutPhotos, photos };
+  };
+
+  /**
+   * Merge photos back with contact data (used when saving)
+   * @param {Array} contacts - Contacts without photos
+   * @returns {Array} Contacts with photos
+   */
+  const mergePhotos = (contacts) => {
+    return contacts.map((contact) => {
+      const photo = photoCache.get(contact.id);
+      const { hasPhoto, ...contactData } = contact;
+      
+      return {
+        ...contactData,
+        photo: photo || null,
+      };
+    });
+  };
+
   // Helper to load from local storage
   const loadFromLocal = () => {
     const saved = localStorage.getItem("peopleData");
     if (saved) {
       try {
-        setPeopleData(JSON.parse(saved));
+        const parsedData = JSON.parse(saved);
+        // Data is already stored without photos
+        setPeopleData(parsedData);
+        console.log(`Loaded ${parsedData.length} contacts from localStorage (without photos)`);
       } catch (e) {
         console.error("Local parse error", e);
         setPeopleData([]);
@@ -85,8 +133,17 @@ export const usePeople = () => {
           
           // Load people data
           if (data.data) {
-            setPeopleData(data.data);
-            localStorage.setItem("peopleData", JSON.stringify(data.data));
+            // Separate photos from contact data
+            const { contactsWithoutPhotos, photos } = separatePhotos(data.data);
+            
+            // Store contacts without photos (fast)
+            setPeopleData(contactsWithoutPhotos);
+            localStorage.setItem("peopleData", JSON.stringify(contactsWithoutPhotos));
+            
+            // Store photos separately in cache
+            photoCache.batchSet(photos);
+            
+            console.log(`Loaded ${contactsWithoutPhotos.length} contacts, ${Object.keys(photos).length} photos cached`);
           }
           
           // Load categories
@@ -120,10 +177,13 @@ export const usePeople = () => {
     }
 
     try {
+      // Merge photos back with contact data for DB storage
+      const dataWithPhotos = mergePhotos(newData);
+      
       const { error } = await supabase.from("people").upsert(
         {
           user_id: user.id,
-          data: newData,
+          data: dataWithPhotos,
         },
         { onConflict: "user_id" }
       );
@@ -136,8 +196,17 @@ export const usePeople = () => {
         throw error;
       }
 
-      localStorage.setItem("peopleData", JSON.stringify(newData));
-      setPeopleData(newData);
+      // Store contacts without photos in localStorage (fast)
+      const { contactsWithoutPhotos, photos } = separatePhotos(dataWithPhotos);
+      localStorage.setItem("peopleData", JSON.stringify(contactsWithoutPhotos));
+      
+      // Update photo cache
+      photoCache.batchSet(photos);
+      
+      // Update state with data without photos
+      setPeopleData(contactsWithoutPhotos);
+      
+      console.log(`Saved ${contactsWithoutPhotos.length} contacts, ${Object.keys(photos).length} photos`);
     } catch (error) {
       console.error("Save Error:", error);
       throw error; // Re-throw for container to handle

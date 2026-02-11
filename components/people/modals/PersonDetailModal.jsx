@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -7,7 +8,8 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Phone, MapPin, Briefcase, User, Mail, Star, NotebookPen } from "lucide-react";
+import { Phone, MapPin, Briefcase, NotebookPen, Star, Loader2 } from "lucide-react";
+import { photoCache } from "@/lib/utils/photoCache";
 
 const CATEGORY_COLORS = {
   plumber: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
@@ -35,6 +37,31 @@ export const PersonDetailModal = ({
   person,
   category,
 }) => {
+  const [photo, setPhoto] = useState(null);
+  const [isLoadingPhoto, setIsLoadingPhoto] = useState(false);
+
+  // Load photo when modal opens
+  useEffect(() => {
+    if (open && person && person.hasPhoto) {
+      // Check if photo is already in cache
+      const cachedPhoto = photoCache.get(person.id);
+      
+      if (cachedPhoto) {
+        setPhoto(cachedPhoto);
+        setIsLoadingPhoto(false);
+      } else {
+        // Photo should be in cache but isn't - this shouldn't normally happen
+        // but we handle it gracefully
+        setPhoto(null);
+        setIsLoadingPhoto(false);
+        console.warn(`Photo not found in cache for contact ${person.id}`);
+      }
+    } else {
+      setPhoto(null);
+      setIsLoadingPhoto(false);
+    }
+  }, [open, person]);
+
   if (!person) return null;
 
   const categoryLabel =
@@ -63,8 +90,17 @@ export const PersonDetailModal = ({
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <div className="flex items-center gap-4 mb-2">
-            <Avatar className="w-20 h-20">
-              <AvatarImage src={person.photo || null} alt={person.name} />
+            <Avatar className="w-20 h-20 relative">
+              {person.hasPhoto && (
+                <>
+                  <AvatarImage src={photo || undefined} alt={person.name} />
+                  {isLoadingPhoto && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-background/50">
+                      <Loader2 className="w-6 h-6 animate-spin" />
+                    </div>
+                  )}
+                </>
+              )}
               <AvatarFallback className="bg-primary/10 text-2xl">
                 {getInitials(person.name)}
               </AvatarFallback>

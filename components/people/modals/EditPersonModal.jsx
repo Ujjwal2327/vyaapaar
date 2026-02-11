@@ -22,6 +22,7 @@ import { toTitleCase } from "@/lib/utils/dataTransform";
 import { sortCategories } from "@/lib/utils/categoryUtils";
 import { checkInternalDuplicates, cleanAndDeduplicatePhones } from "@/lib/utils/phoneValidation";
 import { validateAndCompressImage, getBase64Size } from "@/lib/utils/imageCompression";
+import { photoCache } from "@/lib/utils/photoCache";
 
 // Phone validation with real-time cleaning
 const cleanAndValidatePhone = (phone) => {
@@ -75,6 +76,7 @@ export const EditPersonModal = ({
   const [photoPreview, setPhotoPreview] = useState("");
   const [phoneErrors, setPhoneErrors] = useState([]);
   const [isCompressing, setIsCompressing] = useState(false);
+  const [photoChanged, setPhotoChanged] = useState(false);
 
   useEffect(() => {
     if (editingPerson) {
@@ -85,28 +87,35 @@ export const EditPersonModal = ({
           ? [editingPerson.phone]
           : [""];
 
+      // Load photo from cache
+      const cachedPhoto = editingPerson.hasPhoto 
+        ? photoCache.get(editingPerson.id) 
+        : null;
+
       const currentFormData = {
         name: editingPerson.name || "",
         category: editingPerson.category || "customer",
         phones: phones.length > 0 ? phones : [""],
         address: editingPerson.address || "",
         specialty: editingPerson.specialty || "",
-        photo: editingPerson.photo || "",
+        photo: cachedPhoto || "",
         notes: editingPerson.notes || "",
       };
       setFormData(currentFormData);
       setInitialFormData(currentFormData);
-      setPhotoPreview(editingPerson.photo || "");
+      setPhotoPreview(cachedPhoto || "");
       
       // Initialize phone errors array
       setPhoneErrors(new Array(phones.length > 0 ? phones.length : 1).fill(null));
       setIsCompressing(false);
+      setPhotoChanged(false);
     } else if (!editingPerson && formData !== null) {
       setFormData(null);
       setInitialFormData(null);
       setPhotoPreview("");
       setPhoneErrors([]);
       setIsCompressing(false);
+      setPhotoChanged(false);
     }
   }, [editingPerson]);
 
@@ -191,6 +200,7 @@ export const EditPersonModal = ({
       
       setFormData({ ...formData, photo: compressedBase64 });
       setPhotoPreview(compressedBase64);
+      setPhotoChanged(true);
       
       // Show compression info in console
       console.log(`Image compressed: ${originalSize}KB → ${compressedSize}KB`);
@@ -206,6 +216,7 @@ export const EditPersonModal = ({
   const removePhoto = () => {
     setFormData({ ...formData, photo: "" });
     setPhotoPreview("");
+    setPhotoChanged(true);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -233,12 +244,29 @@ export const EditPersonModal = ({
       name: toTitleCase(formData.name.trim()),
       address: formData.address.trim(),
       specialty: formData.specialty.trim(),
-      photo: formData.photo.trim() !== "" ? formData.photo.trim() : null,
       notes: formData.notes.trim(),
-      phones: cleanedAndDedupedPhones, // Use cleaned and deduplicated phones
+      phones: cleanedAndDedupedPhones,
     };
 
-    onSave(cleanedData);
+    // Remove photo from the data being saved - it will be in cache
+    const { photo, ...dataWithoutPhoto } = cleanedData;
+    
+    // Update photo cache if photo changed
+    if (photoChanged) {
+      if (photo && photo.trim()) {
+        photoCache.set(editingPerson.id, photo.trim());
+      } else {
+        photoCache.remove(editingPerson.id);
+      }
+    }
+
+    // Add hasPhoto flag
+    const finalData = {
+      ...dataWithoutPhoto,
+      hasPhoto: !!(photo && photo.trim()),
+    };
+
+    onSave(finalData);
   };
 
   // Form validation
@@ -259,7 +287,7 @@ export const EditPersonModal = ({
       JSON.stringify(formData.phones) !== JSON.stringify(initialFormData.phones) ||
       formData.address !== initialFormData.address ||
       formData.specialty !== initialFormData.specialty ||
-      formData.photo !== initialFormData.photo ||
+      photoChanged ||
       formData.notes !== initialFormData.notes;
 
     return hasChanges;

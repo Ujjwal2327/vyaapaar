@@ -1,7 +1,8 @@
 import { Edit2, Trash2, Phone, MapPin, Briefcase } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { LazyAvatar } from "@/components/ui/lazyAvatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { photoCache } from "@/lib/utils/photoCache";
 
 const CATEGORY_COLORS = {
   plumber: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
@@ -61,6 +62,11 @@ export const PersonCard = ({
   // Get primary phone (first non-empty phone)
   const primaryPhone = phones.find((p) => p && p.trim()) || null;
 
+  // Get photo from cache if person has photo flag
+  // We don't load it here - just check if it exists
+  // Photos will be loaded on-demand in modals
+  const hasPhoto = person.hasPhoto;
+
   return (
     <div
       className={`bg-card rounded-lg border p-4 ${
@@ -71,19 +77,26 @@ export const PersonCard = ({
       onClick={() => isClickable && onViewDetails(person)}
     >
       <div className="flex items-start gap-3">
-        {/* Avatar with Lazy Loading */}
-        <LazyAvatar 
-          src={person.photo || null} 
-          alt={person.name}
-          fallback={getInitials(person.name)}
-          className="w-12 h-12 shrink-0 bg-primary/10"
-        />
+        {/* Avatar - Don't load photo in list view, just show initials */}
+        <Avatar className="w-12 h-12 shrink-0">
+          {/* We intentionally don't show photos in list view for performance */}
+          {/* Photos are only loaded in detail/edit modals */}
+          <AvatarFallback className="bg-primary/10">
+            {getInitials(person.name)}
+          </AvatarFallback>
+        </Avatar>
 
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
-              <h3 className="font-semibold text-lg truncate">{person.name}</h3>
+              <h3 className="font-semibold text-lg truncate">
+                {person.name}
+                {/* Visual indicator if contact has a photo */}
+                {hasPhoto && (
+                  <span className="ml-2 text-xs text-muted-foreground">📷</span>
+                )}
+              </h3>
               <div className="flex flex-col sm:flex-row gap-x-10 gap-y-3 sm:items-center">
                 <Badge className={`${categoryColor} border-0 text-xs`}>
                   {categoryLabel}
