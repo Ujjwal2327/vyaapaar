@@ -20,6 +20,7 @@ import {
   Plus,
   ChevronsDownUp,
 } from "lucide-react";
+import { sortData } from "@/lib/utils/priceListUtils";
 
 // Helper function to create Google Maps link
 const getGoogleMapsLink = (address) => {
@@ -70,7 +71,8 @@ export default function PublicBusinessPage() {
       if (priceError && priceError.code !== "PGRST116") throw priceError;
 
       setBusinessData(userData);
-      setPriceData(priceListData?.data || {});
+      const sortedData = sortData(priceListData?.data || {}, "alphabatical");
+      setPriceData(sortedData);
     } catch (error) {
       console.error("Error loading business data:", error);
       setBusinessData(null);
