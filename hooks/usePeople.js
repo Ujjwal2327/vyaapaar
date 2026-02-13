@@ -37,7 +37,7 @@ export const usePeople = () => {
 
     contacts.forEach((contact) => {
       const { photo, ...contactData } = contact;
-      
+
       // Store contact without photo
       contactsWithoutPhotos.push({
         ...contactData,
@@ -62,7 +62,7 @@ export const usePeople = () => {
     return contacts.map((contact) => {
       const photo = photoCache.get(contact.id);
       const { hasPhoto, ...contactData } = contact;
-      
+
       return {
         ...contactData,
         photo: photo || null,
@@ -78,7 +78,9 @@ export const usePeople = () => {
         const parsedData = JSON.parse(saved);
         // Data is already stored without photos
         setPeopleData(parsedData);
-        console.log(`Loaded ${parsedData.length} contacts from localStorage (without photos)`);
+        console.log(
+          `Loaded ${parsedData.length} contacts from localStorage (without photos)`,
+        );
       } catch (e) {
         console.error("Local parse error", e);
         setPeopleData([]);
@@ -130,29 +132,40 @@ export const usePeople = () => {
 
         if (data) {
           console.log("People data loaded from Supabase");
-          
+
           // Load people data
           if (data.data) {
             // Separate photos from contact data
             const { contactsWithoutPhotos, photos } = separatePhotos(data.data);
-            
+
             // Store contacts without photos (fast)
             setPeopleData(contactsWithoutPhotos);
-            localStorage.setItem("peopleData", JSON.stringify(contactsWithoutPhotos));
-            
+            localStorage.setItem(
+              "peopleData",
+              JSON.stringify(contactsWithoutPhotos),
+            );
+
             // Store photos separately in cache
             photoCache.batchSet(photos);
-            
-            console.log(`Loaded ${contactsWithoutPhotos.length} contacts, ${Object.keys(photos).length} photos cached`);
+
+            console.log(
+              `Loaded ${contactsWithoutPhotos.length} contacts, ${Object.keys(photos).length} photos cached`,
+            );
           }
-          
+
           // Load categories
           if (data.categories) {
             setCategories(data.categories);
-            localStorage.setItem("peopleCategories", JSON.stringify(data.categories));
+            localStorage.setItem(
+              "peopleCategories",
+              JSON.stringify(data.categories),
+            );
           } else {
             setCategories(DEFAULT_CATEGORIES);
-            localStorage.setItem("peopleCategories", JSON.stringify(DEFAULT_CATEGORIES));
+            localStorage.setItem(
+              "peopleCategories",
+              JSON.stringify(DEFAULT_CATEGORIES),
+            );
           }
         } else {
           console.log("No DB entry found. Initializing...");
@@ -179,18 +192,21 @@ export const usePeople = () => {
     try {
       // Merge photos back with contact data for DB storage
       const dataWithPhotos = mergePhotos(newData);
-      
+
       const { error } = await supabase.from("people").upsert(
         {
           user_id: user.id,
           data: dataWithPhotos,
         },
-        { onConflict: "user_id" }
+        { onConflict: "user_id" },
       );
 
       if (error) {
         // Check for duplicate phone constraint violation
-        if (error.code === "23505" || error.message?.includes("Duplicate phone")) {
+        if (
+          error.code === "23505" ||
+          error.message?.includes("Duplicate phone")
+        ) {
           throw new Error("DUPLICATE_PHONE");
         }
         throw error;
@@ -199,14 +215,16 @@ export const usePeople = () => {
       // Store contacts without photos in localStorage (fast)
       const { contactsWithoutPhotos, photos } = separatePhotos(dataWithPhotos);
       localStorage.setItem("peopleData", JSON.stringify(contactsWithoutPhotos));
-      
+
       // Update photo cache
       photoCache.batchSet(photos);
-      
+
       // Update state with data without photos
       setPeopleData(contactsWithoutPhotos);
-      
-      console.log(`Saved ${contactsWithoutPhotos.length} contacts, ${Object.keys(photos).length} photos`);
+
+      console.log(
+        `Saved ${contactsWithoutPhotos.length} contacts, ${Object.keys(photos).length} photos`,
+      );
     } catch (error) {
       console.error("Save Error:", error);
       throw error; // Re-throw for container to handle
@@ -225,7 +243,7 @@ export const usePeople = () => {
           user_id: user.id,
           categories: newCategories,
         },
-        { onConflict: "user_id" }
+        { onConflict: "user_id" },
       );
 
       if (error) throw error;
