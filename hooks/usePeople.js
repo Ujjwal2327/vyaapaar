@@ -13,12 +13,9 @@ const DEFAULT_CATEGORIES = [
 export const usePeople = () => {
   const { user, loading: authLoading } = useAuth();
 
-  // UI States
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [editMode, setEditMode] = useState(false);
-
-  // Data States
   const [peopleData, setPeopleData] = useState([]);
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
   const [isHydrated, setIsHydrated] = useState(false);
@@ -26,80 +23,68 @@ export const usePeople = () => {
 
   const hasFetchedDb = useRef(false);
 
-  /**
-   * Separate photos from contact data for storage
-   * @param {Array} contacts - Contacts with photos
-   * @returns {Object} { contactsWithoutPhotos, photos }
-   */
-  const separatePhotos = (contacts) => {
-    const contactsWithoutPhotos = [];
-    const photos = {};
+  // ── helpers ────────────────────────────────────────────────────────────────
 
-    contacts.forEach((contact) => {
-      const { photo, ...contactData } = contact;
+  /** Convert a DB row into the contact shape the UI expects */
+  const rowToContact = (row) => ({
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    phones: row.phones ?? [],
+    address: row.address ?? "",
+    specialty: row.specialty ?? "",
+    notes: row.notes ?? "",
+    hasPhoto: row.has_photo ?? false,
+  });
 
-      // Store contact without photo
-      contactsWithoutPhotos.push({
-        ...contactData,
-        hasPhoto: !!photo, // Flag to indicate if photo exists
-      });
+  /** Convert a UI contact into a DB row payload */
+  const contactToRow = (contact) => {
+    const photo = photoCache.get(contact.id) || null;
 
-      // Store photo separately if it exists
-      if (photo) {
-        photos[contact.id] = photo;
-      }
-    });
+    // If id is not a valid UUID, generate a new one
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const id = uuidRegex.test(contact.id) ? contact.id : crypto.randomUUID();
 
-    return { contactsWithoutPhotos, photos };
+    return {
+      id,
+      user_id: user.id,
+      name: contact.name,
+      category: contact.category,
+      phones: contact.phones ?? [],
+      address: contact.address ?? "",
+      specialty: contact.specialty ?? "",
+      notes: contact.notes ?? "",
+      photo: photo,
+      has_photo: !!photo,
+    };
   };
 
-  /**
-   * Merge photos back with contact data (used when saving)
-   * @param {Array} contacts - Contacts without photos
-   * @returns {Array} Contacts with photos
-   */
-  const mergePhotos = (contacts) => {
-    return contacts.map((contact) => {
-      const photo = photoCache.get(contact.id);
-      const { hasPhoto, ...contactData } = contact;
+  // ── localStorage helpers ───────────────────────────────────────────────────
 
-      return {
-        ...contactData,
-        photo: photo || null,
-      };
-    });
-  };
-
-  // Helper to load from local storage
   const loadFromLocal = () => {
-    const saved = localStorage.getItem("peopleData");
-    if (saved) {
-      try {
-        const parsedData = JSON.parse(saved);
-        // Data is already stored without photos
-        setPeopleData(parsedData);
-        console.log(
-          `Loaded ${parsedData.length} contacts from localStorage (without photos)`,
-        );
-      } catch (e) {
-        console.error("Local parse error", e);
-        setPeopleData([]);
-      }
+    try {
+      const raw = localStorage.getItem("peopleData");
+      if (raw) setPeopleData(JSON.parse(raw));
+    } catch {
+      setPeopleData([]);
     }
 
-    // Load categories from localStorage
-    const savedCategories = localStorage.getItem("peopleCategories");
-    if (savedCategories) {
-      try {
-        setCategories(JSON.parse(savedCategories));
-      } catch (e) {
-        console.error("Categories parse error", e);
-        setCategories(DEFAULT_CATEGORIES);
-      }
+    try {
+      const raw = localStorage.getItem("peopleCategories");
+      setCategories(raw ? JSON.parse(raw) : DEFAULT_CATEGORIES);
+    } catch {
+      setCategories(DEFAULT_CATEGORIES);
     }
   };
 
-  // Load data when auth finishes loading
+  const saveToLocal = (contacts, cats) => {
+    localStorage.setItem("peopleData", JSON.stringify(contacts));
+    if (cats) localStorage.setItem("peopleCategories", JSON.stringify(cats));
+  };
+
+  // ── initial load ───────────────────────────────────────────────────────────
+
   useEffect(() => {
     const loadData = async () => {
       if (hasFetchedDb.current) {
@@ -107,70 +92,57 @@ export const usePeople = () => {
         setIsHydrated(true);
         return;
       }
-
       if (authLoading) return;
 
       setIsDataLoading(true);
       hasFetchedDb.current = true;
 
       if (!user) {
-        console.warn("No user found. Loading local data.");
         loadFromLocal();
         setIsDataLoading(false);
         setIsHydrated(true);
         return;
       }
 
+      // Clear stale localStorage from old JSON-blob schema
+      if (localStorage.getItem("contactsMigrated") !== "v2") {
+        localStorage.removeItem("peopleData");
+        localStorage.removeItem("peoplePhotos");
+        localStorage.setItem("contactsMigrated", "v2");
+      }
+
       try {
-        const { data, error } = await supabase
+        // Load contacts from new table
+        const { data: rows, error: contactsError } = await supabase
+          .from("contacts")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("name");
+
+        if (contactsError) throw contactsError;
+
+        const contacts = (rows ?? []).map(rowToContact);
+
+        // Cache any photos that came back from DB
+        rows?.forEach((r) => {
+          if (r.photo) photoCache.set(r.id, r.photo);
+        });
+
+        setPeopleData(contacts);
+        saveToLocal(contacts);
+
+        // Categories still live in public.people
+        const { data: peopleRow, error: catError } = await supabase
           .from("people")
-          .select("data, categories")
+          .select("categories")
           .eq("user_id", user.id)
           .maybeSingle();
 
-        if (error) throw error;
+        if (catError) throw catError;
 
-        if (data) {
-          console.log("People data loaded from Supabase");
-
-          // Load people data
-          if (data.data) {
-            // Separate photos from contact data
-            const { contactsWithoutPhotos, photos } = separatePhotos(data.data);
-
-            // Store contacts without photos (fast)
-            setPeopleData(contactsWithoutPhotos);
-            localStorage.setItem(
-              "peopleData",
-              JSON.stringify(contactsWithoutPhotos),
-            );
-
-            // Store photos separately in cache
-            photoCache.batchSet(photos);
-
-            console.log(
-              `Loaded ${contactsWithoutPhotos.length} contacts, ${Object.keys(photos).length} photos cached`,
-            );
-          }
-
-          // Load categories
-          if (data.categories) {
-            setCategories(data.categories);
-            localStorage.setItem(
-              "peopleCategories",
-              JSON.stringify(data.categories),
-            );
-          } else {
-            setCategories(DEFAULT_CATEGORIES);
-            localStorage.setItem(
-              "peopleCategories",
-              JSON.stringify(DEFAULT_CATEGORIES),
-            );
-          }
-        } else {
-          console.log("No DB entry found. Initializing...");
-          loadFromLocal();
-        }
+        const cats = peopleRow?.categories ?? DEFAULT_CATEGORIES;
+        setCategories(cats);
+        localStorage.setItem("peopleCategories", JSON.stringify(cats));
       } catch (error) {
         console.error("DB Load Error:", error);
         loadFromLocal();
@@ -183,77 +155,72 @@ export const usePeople = () => {
     loadData();
   }, [user, authLoading]);
 
-  // Save data to DB and local storage - NO TOAST LOGIC
-  const savePeopleData = async (newData) => {
-    if (!user) {
-      throw new Error("NOT_AUTHENTICATED");
-    }
+  // ── savePeopleData ─────────────────────────────────────────────────────────
+  // Receives the full intended contacts array.
+  // Diffs against current state → upserts new/changed rows, deletes removed ones.
+
+  const savePeopleData = async (newContacts) => {
+    if (!user) throw new Error("NOT_AUTHENTICATED");
+
+    const newIds = new Set(newContacts.map((c) => c.id));
+    const toDelete = peopleData
+      .filter((p) => !newIds.has(p.id))
+      .map((p) => p.id);
+    const rows = newContacts.map(contactToRow);
 
     try {
-      // Merge photos back with contact data for DB storage
-      const dataWithPhotos = mergePhotos(newData);
-
-      const { error } = await supabase.from("people").upsert(
-        {
-          user_id: user.id,
-          data: dataWithPhotos,
-        },
-        { onConflict: "user_id" },
-      );
-
-      if (error) {
-        // Check for duplicate phone constraint violation
-        if (
-          error.code === "23505" ||
-          error.message?.includes("Duplicate phone")
-        ) {
-          throw new Error("DUPLICATE_PHONE");
-        }
-        throw error;
+      if (rows.length > 0) {
+        const { error } = await supabase
+          .from("contacts")
+          .upsert(rows, { onConflict: "id" });
+        if (error) throw error;
       }
 
-      // Store contacts without photos in localStorage (fast)
-      const { contactsWithoutPhotos, photos } = separatePhotos(dataWithPhotos);
-      localStorage.setItem("peopleData", JSON.stringify(contactsWithoutPhotos));
+      if (toDelete.length > 0) {
+        const { error } = await supabase
+          .from("contacts")
+          .delete()
+          .in("id", toDelete)
+          .eq("user_id", user.id);
+        if (error) throw error;
+      }
 
-      // Update photo cache
-      photoCache.batchSet(photos);
+      // Update state — strip photo field, keep hasPhoto flag
+      const stateContacts = newContacts.map((c) => ({
+        id: c.id,
+        name: c.name,
+        category: c.category,
+        phones: c.phones ?? [],
+        address: c.address ?? "",
+        specialty: c.specialty ?? "",
+        notes: c.notes ?? "",
+        hasPhoto: !!photoCache.get(c.id),
+      }));
 
-      // Update state with data without photos
-      setPeopleData(contactsWithoutPhotos);
-
-      console.log(
-        `Saved ${contactsWithoutPhotos.length} contacts, ${Object.keys(photos).length} photos`,
-      );
+      setPeopleData(stateContacts);
+      saveToLocal(stateContacts);
     } catch (error) {
       console.error("Save Error:", error);
-      throw error; // Re-throw for container to handle
+      throw error;
     }
   };
 
-  // Save categories to DB and local storage - NO TOAST LOGIC
-  const saveCategories = async (newCategories) => {
-    if (!user) {
-      throw new Error("NOT_AUTHENTICATED");
-    }
+  // ── saveCategories — still writes to public.people ─────────────────────────
 
-    try {
-      const { error } = await supabase.from("people").upsert(
-        {
-          user_id: user.id,
-          categories: newCategories,
-        },
+  const saveCategories = async (newCategories) => {
+    if (!user) throw new Error("NOT_AUTHENTICATED");
+
+    const { error } = await supabase
+      .from("people")
+      .upsert(
+        { user_id: user.id, categories: newCategories },
         { onConflict: "user_id" },
       );
 
-      if (error) throw error;
+    if (error) throw error;
 
-      localStorage.setItem("peopleCategories", JSON.stringify(newCategories));
-      setCategories(newCategories);
-    } catch (error) {
-      console.error("Save Categories Error:", error);
-      throw error; // Re-throw for container to handle
-    }
+    localStorage.setItem("peopleCategories", JSON.stringify(newCategories));
+    setCategories(newCategories);
   };
 
   return {

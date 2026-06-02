@@ -28,19 +28,21 @@ const DEFAULT_CATEGORIES = [
 // Helper function to get user-friendly error messages
 const getErrorMessage = (error) => {
   if (!error) return "An error occurred";
-  
+
   // User errors (validation, etc.)
   if (error.message === "NOT_AUTHENTICATED") {
     return "You must be logged in to save changes";
   }
-  
+
   // Server/DB errors - generic message
-  if (error.message?.includes("fetch") || 
-      error.message?.includes("network") ||
-      error.code?.startsWith("PGRST")) {
+  if (
+    error.message?.includes("fetch") ||
+    error.message?.includes("network") ||
+    error.code?.startsWith("PGRST")
+  ) {
     return "Unable to connect to the server. Please check your internet connection";
   }
-  
+
   // Default error
   return "Failed to save changes. Please try again";
 };
@@ -68,7 +70,7 @@ export const PeopleContainer = () => {
   const [showExportPDFModal, setShowExportPDFModal] = useState(false);
   const [showImportVCFModal, setShowImportVCFModal] = useState(false);
   const [showFindDuplicatesModal, setShowFindDuplicatesModal] = useState(false);
-  
+
   const [editingPerson, setEditingPerson] = useState(null);
   const [viewingPerson, setViewingPerson] = useState(null);
   const [sortType, setSortType] = useState("name-asc");
@@ -79,7 +81,7 @@ export const PeopleContainer = () => {
   // Filter categories to only include those with contacts
   const categoriesWithContacts = useMemo(() => {
     return availableCategories.filter((cat) =>
-      peopleData.some((person) => person.category === cat.id)
+      peopleData.some((person) => person.category === cat.id),
     );
   }, [availableCategories, peopleData]);
 
@@ -113,48 +115,50 @@ export const PeopleContainer = () => {
    */
   const checkAndHandleDuplicates = async (newContacts, action) => {
     // Ensure array
-    const contactsArray = Array.isArray(newContacts) ? newContacts : [newContacts];
-    
+    const contactsArray = Array.isArray(newContacts)
+      ? newContacts
+      : [newContacts];
+
     // For bulk edit, exclude contacts being edited from duplicate check
     let existingContactsToCheck = peopleData;
-    
-    if (action === 'bulkEdit') {
+
+    if (action === "bulkEdit") {
       const newContactIds = new Set(
-        contactsArray
-          .filter(c => c.id)
-          .map(c => c.id)
+        contactsArray.filter((c) => c.id).map((c) => c.id),
       );
-      existingContactsToCheck = peopleData.filter(p => !newContactIds.has(p.id));
+      existingContactsToCheck = peopleData.filter(
+        (p) => !newContactIds.has(p.id),
+      );
     }
-    
+
     // Separate exact duplicates from unique contacts
     const exactDuplicates = [];
     const uniqueContacts = [];
-    
-    contactsArray.forEach(contact => {
+
+    contactsArray.forEach((contact) => {
       // Check if this contact is an EXACT duplicate of any existing contact
-      const isExactDuplicate = existingContactsToCheck.some(existing => 
-        areContactsIdentical(contact, existing)
+      const isExactDuplicate = existingContactsToCheck.some((existing) =>
+        areContactsIdentical(contact, existing),
       );
-      
+
       if (isExactDuplicate) {
         exactDuplicates.push(contact);
       } else {
         uniqueContacts.push(contact);
       }
     });
-    
+
     // Auto-skip exact duplicates
     if (exactDuplicates.length > 0) {
-      const names = exactDuplicates.map(d => d.name).join(', ');
+      const names = exactDuplicates.map((d) => d.name).join(", ");
       toast.info(`Skipped ${exactDuplicates.length} exact duplicate(s)`, {
-        description: names.length > 50 ? `${names.substring(0, 50)}...` : names
+        description: names.length > 50 ? `${names.substring(0, 50)}...` : names,
       });
     }
-    
+
     // Process unique contacts
     if (uniqueContacts.length > 0) {
-      if (action === 'bulkEdit') {
+      if (action === "bulkEdit") {
         await finalizeBulkEdit(uniqueContacts);
       } else {
         await finalizeAddContacts(uniqueContacts);
@@ -170,19 +174,21 @@ export const PeopleContainer = () => {
    */
   const finalizeAddContacts = async (contacts) => {
     const newData = [...peopleData];
-    
-    contacts.forEach(contact => {
+
+    contacts.forEach((contact) => {
       newData.push({
         ...contact,
-        id: contact.id || (Date.now().toString() + Math.random().toString(36).substr(2, 9))
+        id: contact.id || crypto.randomUUID(), // ← was Date.now().toString() + Math.random()...
       });
     });
-    
+
     const loadingToast = toast.loading("Adding contacts...");
-    
+
     try {
       await savePeopleData(newData);
-      toast.success(`${contacts.length} contact(s) added successfully`, { id: loadingToast });
+      toast.success(`${contacts.length} contact(s) added successfully`, {
+        id: loadingToast,
+      });
     } catch (error) {
       console.error("Failed to add contacts:", error);
       toast.error(getErrorMessage(error), { id: loadingToast });
@@ -195,10 +201,12 @@ export const PeopleContainer = () => {
    */
   const finalizeBulkEdit = async (contacts) => {
     const loadingToast = toast.loading("Saving contacts...");
-    
+
     try {
       await savePeopleData(contacts);
-      toast.success(`${contacts.length} contact(s) saved successfully`, { id: loadingToast });
+      toast.success(`${contacts.length} contact(s) saved successfully`, {
+        id: loadingToast,
+      });
       setShowBulkModal(false);
     } catch (error) {
       console.error("Failed to save contacts:", error);
@@ -210,28 +218,33 @@ export const PeopleContainer = () => {
   /**
    * Handle merging duplicates from Find Duplicates feature
    */
-  const handleFindDuplicatesMerge = async (mergedContacts, contactsToDeleteIds) => {
+  const handleFindDuplicatesMerge = async (
+    mergedContacts,
+    contactsToDeleteIds,
+  ) => {
     const loadingToast = toast.loading("Merging duplicates...");
-    
+
     try {
       // Remove deleted contacts and update merged ones
-      let finalData = peopleData.filter(p => !contactsToDeleteIds.includes(p.id));
-      
+      let finalData = peopleData.filter(
+        (p) => !contactsToDeleteIds.includes(p.id),
+      );
+
       // Update merged contacts
-      mergedContacts.forEach(merged => {
-        const index = finalData.findIndex(p => p.id === merged.id);
+      mergedContacts.forEach((merged) => {
+        const index = finalData.findIndex((p) => p.id === merged.id);
         if (index !== -1) {
           finalData[index] = merged;
         }
       });
-      
+
       await savePeopleData(finalData);
-      
+
       toast.success("Duplicates merged successfully", {
         description: `Merged ${mergedContacts.length} group(s), removed ${contactsToDeleteIds.length} duplicate(s)`,
-        id: loadingToast
+        id: loadingToast,
       });
-      
+
       setShowFindDuplicatesModal(false);
     } catch (error) {
       console.error("Failed to merge duplicates:", error);
@@ -246,7 +259,7 @@ export const PeopleContainer = () => {
   const handleAdd = async (formData) => {
     setShowAddModal(false);
     // Check for duplicates before adding
-    await checkAndHandleDuplicates([formData], 'add');
+    await checkAndHandleDuplicates([formData], "add");
   };
 
   const handleEditPerson = (person) => {
@@ -262,7 +275,7 @@ export const PeopleContainer = () => {
     );
 
     const loadingToast = toast.loading("Updating contact...");
-    
+
     try {
       await savePeopleData(newData);
       toast.success("Contact updated successfully", { id: loadingToast });
@@ -281,7 +294,7 @@ export const PeopleContainer = () => {
         onClick: async () => {
           const newData = peopleData.filter((person) => person.id !== personId);
           const loadingToast = toast.loading("Deleting contact...");
-          
+
           try {
             await savePeopleData(newData);
             toast.success("Contact deleted successfully", { id: loadingToast });
@@ -306,7 +319,7 @@ export const PeopleContainer = () => {
     toCategoryId,
   ) => {
     const loadingToast = toast.loading("Updating categories...");
-    
+
     try {
       // Update categories
       setAvailableCategories(newCategories);
@@ -321,7 +334,7 @@ export const PeopleContainer = () => {
         );
         await savePeopleData(updatedPeople);
       }
-      
+
       toast.success("Categories updated successfully", { id: loadingToast });
     } catch (error) {
       console.error("Failed to update categories:", error);
@@ -347,13 +360,13 @@ export const PeopleContainer = () => {
 
   const handleBulkSave = async (newPeopleData) => {
     // Check for duplicates before saving
-    await checkAndHandleDuplicates(newPeopleData, 'bulkEdit');
+    await checkAndHandleDuplicates(newPeopleData, "bulkEdit");
   };
 
   const handleVCFImport = async (importedContacts) => {
     setShowImportVCFModal(false);
     // Check for duplicates before importing
-    await checkAndHandleDuplicates(importedContacts, 'import');
+    await checkAndHandleDuplicates(importedContacts, "import");
   };
 
   // Filter and sort data
