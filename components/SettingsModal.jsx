@@ -424,6 +424,8 @@ const SettingsModal = ({
     });
   };
 
+  console.log(contactCategories);
+
   const filteredUnitCategories = getFilteredCategories();
 
   return (
@@ -480,10 +482,14 @@ const SettingsModal = ({
                   </div>
                 </div>
                 <div className="flex items-center gap-3 p-3 bg-linear-to-br from-secondary/10 to-secondary/5 rounded-lg border">
-                  <Users className="w-8 h-8 text-secondary-foreground" />
+                  <FolderTree className="w-8 h-8 text-secondary-foreground" />
                   <div>
                     <p className="text-2xl font-bold">
-                      {contactCategories.length}
+                      {
+                        contactCategories.filter(
+                          (category) => getCategoryCount(category.id) > 0,
+                        ).length
+                      }
                     </p>
                     <p className="text-sm text-muted-foreground">Categories</p>
                   </div>
@@ -767,17 +773,18 @@ const SettingsModal = ({
                                         onMerge={handleMergeCategory}
                                       />
                                     ) : (
-                                      <Button
-                                        onClick={() =>
-                                          handleDeleteCategory(category.id)
-                                        }
-                                        size="sm"
-                                        variant="ghost"
-                                        disabled={category.isDefault}
-                                        className="h-8 w-8 p-0"
-                                      >
-                                        <Trash2 className="w-4 h-4" />
-                                      </Button>
+                                      !category.isDefault && (
+                                        <Button
+                                          onClick={() =>
+                                            handleDeleteCategory(category.id)
+                                          }
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-8 w-8 p-0"
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                      )
                                     )}
                                   </div>
                                 </div>
