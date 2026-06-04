@@ -98,9 +98,9 @@ export default function LandingPageAlternative() {
               </h1>
 
               <p className="text-xl text-muted-foreground leading-relaxed">
-                The modern way to manage inventory, prices, and business contacts. 
-                Track products, customers, suppliers, and more—all in one place. 
-                No spreadsheets, no complexity.
+                The modern way to manage inventory, prices, and business
+                contacts. Track products, customers, suppliers, and more—all in
+                one place. No spreadsheets, no complexity.
               </p>
 
               <div className="flex flex-col sm:flex-row gap-4">
@@ -246,9 +246,12 @@ export default function LandingPageAlternative() {
             <Badge variant="secondary" className="mb-4">
               Complete Solution
             </Badge>
-            <h2 className="text-4xl font-bold mb-4">Two Powerful Modules in One</h2>
+            <h2 className="text-4xl font-bold mb-4">
+              Two Powerful Modules in One
+            </h2>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              Everything you need to manage your business in a single, integrated platform
+              Everything you need to manage your business in a single,
+              integrated platform
             </p>
           </div>
 
@@ -262,33 +265,46 @@ export default function LandingPageAlternative() {
                 </div>
                 <h3 className="text-2xl font-bold mb-4">Product Catalog</h3>
                 <p className="text-muted-foreground mb-6">
-                  Complete inventory management with nested categories, multiple pricing tiers, 
-                  and customizable units. Perfect for retail, wholesale, and manufacturing businesses.
+                  Complete inventory management with nested categories, multiple
+                  pricing tiers, and customizable units. Perfect for retail,
+                  wholesale, and manufacturing businesses.
                 </p>
                 <ul className="space-y-3">
                   <li className="flex items-start gap-3">
                     <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
-                    <span className="text-sm">Retail & Bulk pricing with profit tracking</span>
+                    <span className="text-sm">
+                      Retail & Bulk pricing with profit tracking
+                    </span>
                   </li>
                   <li className="flex items-start gap-3">
                     <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
-                    <span className="text-sm">Unlimited nested categories & subcategories</span>
+                    <span className="text-sm">
+                      Unlimited nested categories & subcategories
+                    </span>
                   </li>
                   <li className="flex items-start gap-3">
                     <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
-                    <span className="text-sm">50+ customizable units (kg, meter, piece, etc.)</span>
+                    <span className="text-sm">
+                      50+ customizable units (kg, meter, piece, etc.)
+                    </span>
                   </li>
                   <li className="flex items-start gap-3">
                     <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
-                    <span className="text-sm">Public shareable catalog for customers</span>
+                    <span className="text-sm">
+                      Public shareable catalog for customers
+                    </span>
                   </li>
                   <li className="flex items-start gap-3">
                     <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
-                    <span className="text-sm">Bulk import/export for easy data management</span>
+                    <span className="text-sm">
+                      Bulk import/export for easy data management
+                    </span>
                   </li>
                   <li className="flex items-start gap-3">
                     <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
-                    <span className="text-sm">Category & item notes for detailed documentation</span>
+                    <span className="text-sm">
+                      Category & item notes for detailed documentation
+                    </span>
                   </li>
                 </ul>
               </div>
@@ -303,37 +319,52 @@ export default function LandingPageAlternative() {
                 </div>
                 <h3 className="text-2xl font-bold mb-4">Contact Management</h3>
                 <p className="text-muted-foreground mb-6">
-                  Centralize all your business contacts with custom categories, multiple phone numbers, 
-                  and detailed notes. Perfect for customers, suppliers, and maintaining key relationships.
+                  Centralize all your business contacts with custom categories,
+                  multiple phone numbers, and detailed notes. Perfect for
+                  customers, suppliers, and maintaining key relationships.
                 </p>
                 <ul className="space-y-3">
                   <li className="flex items-start gap-3">
                     <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
-                    <span className="text-sm">Custom categories (Customer, Supplier, Helper, etc.)</span>
+                    <span className="text-sm">
+                      Custom categories (Customer, Supplier, Helper, etc.)
+                    </span>
                   </li>
                   <li className="flex items-start gap-3">
                     <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
-                    <span className="text-sm">Multiple phone numbers per contact with priority</span>
+                    <span className="text-sm">
+                      Multiple phone numbers per contact with priority
+                    </span>
                   </li>
                   <li className="flex items-start gap-3">
                     <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
-                    <span className="text-sm">Store addresses, specialties, and detailed notes</span>
+                    <span className="text-sm">
+                      Store addresses, specialties, and detailed notes
+                    </span>
                   </li>
                   <li className="flex items-start gap-3">
                     <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
-                    <span className="text-sm">Photo support for easy visual identification</span>
+                    <span className="text-sm">
+                      Photo support for easy visual identification
+                    </span>
                   </li>
                   <li className="flex items-start gap-3">
                     <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
-                    <span className="text-sm">Bulk edit for managing hundreds of contacts</span>
+                    <span className="text-sm">
+                      Bulk edit for managing hundreds of contacts
+                    </span>
                   </li>
                   <li className="flex items-start gap-3">
                     <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
-                    <span className="text-sm">Import contacts from VCF files</span>
+                    <span className="text-sm">
+                      Import contacts from VCF files
+                    </span>
                   </li>
                   <li className="flex items-start gap-3">
                     <Check className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
-                    <span className="text-sm">Export contacts to professional PDF formats</span>
+                    <span className="text-sm">
+                      Export contacts to professional PDF formats
+                    </span>
                   </li>
                 </ul>
               </div>
@@ -590,9 +621,9 @@ export default function LandingPageAlternative() {
             </Button>
             <Button
               size="lg"
-              variant="outline"
+              variant="primary"
               onClick={() => router.push("/business/Maheshwari Sanitary Store")}
-              className="text-lg gap-2 h-14 px-8 bg-white/10 hover:bg-white/20 text-white border-white/20"
+              className="text-lg gap-2 h-14 px-8"
             >
               <Store className="w-5 h-5" />
               View Live Demo
