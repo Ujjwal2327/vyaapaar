@@ -19,47 +19,17 @@ import {
   Plus,
   ChevronsDownUp,
 } from "lucide-react";
-import { sortData } from "@/lib/utils/priceListUtils";
+import {
+  sortData,
+  filterData,
+  buildSearchIndex,
+} from "@/lib/utils/priceListUtils";
 
 // Helper function to create Google Maps link
 const getGoogleMapsLink = (address) => {
   if (!address || !address.trim()) return null;
   const encodedAddress = encodeURIComponent(address.trim());
   return `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`;
-};
-
-// Filter function - defined outside component so it's never recreated
-const filterData = (data, searchLower) => {
-  if (!searchLower) return data;
-
-  const result = {};
-
-  const searchInObject = (obj, out) => {
-    Object.entries(obj).forEach(([key, value]) => {
-      if (value.type === "category") {
-        const childOut = {};
-        if (value.children) searchInObject(value.children, childOut);
-
-        const keyMatches = key.toLowerCase().includes(searchLower);
-        if (keyMatches || Object.keys(childOut).length > 0) {
-          out[key] = {
-            ...value,
-            children:
-              keyMatches && Object.keys(childOut).length === 0
-                ? value.children // show full category if category name matched
-                : childOut,
-          };
-        }
-      } else if (value.type === "item") {
-        if (key.toLowerCase().includes(searchLower)) {
-          out[key] = value;
-        }
-      }
-    });
-  };
-
-  searchInObject(data, result);
-  return result;
 };
 
 // Collect all category paths from a data tree
@@ -147,12 +117,14 @@ export default function PublicBusinessPage() {
     }));
   }, []);
 
+  // Build search index once when priceData loads — same optimization as private catalog
+  const searchIndex = useMemo(() => buildSearchIndex(priceData), [priceData]);
+
   // filteredData only recomputes when priceData or debouncedSearchTerm changes —
   // NOT when expandedCategories changes (which is what was causing the hang)
   const filteredData = useMemo(() => {
-    const searchLower = debouncedSearchTerm.trim().toLowerCase();
-    return filterData(priceData, searchLower);
-  }, [priceData, debouncedSearchTerm]);
+    return filterData(priceData, debouncedSearchTerm, searchIndex);
+  }, [priceData, debouncedSearchTerm, searchIndex]);
 
   const expandAll = useCallback(() => {
     // Use filteredData when searching, priceData when not
