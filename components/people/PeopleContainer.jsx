@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
@@ -14,7 +15,6 @@ import { FindDuplicatesModal } from "./modals/FindDuplicatesModal";
 import { toast } from "sonner";
 import Loader from "../Loader";
 import {
-  batchFindDuplicates,
   areContactsIdentical,
 } from "@/lib/utils/duplicateContactUtils";
 

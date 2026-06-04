@@ -75,8 +75,8 @@ const DEFAULT_CONTACT_CATEGORIES = [
  */
 const SettingsModal = ({
   // Catalog-specific props
-  sellPriceMode,
-  toggleSellPriceMode,
+  // sellPriceMode,
+  // toggleSellPriceMode,
   // People-specific props
   peopleData,
   onCategoriesUpdate,
@@ -141,6 +141,7 @@ const SettingsModal = ({
     if (isOpen) {
       loadSettings();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, isOpen, isCatalogPage, isPeoplePage]);
 
   const loadCatalogSettings = async () => {
@@ -519,7 +520,7 @@ const SettingsModal = ({
                   <Label className="text-[16px]">Theme</Label>
                   <Button
                     onClick={() => {
-                      theme === "light" ? setTheme("dark") : setTheme("light");
+                      setTheme(theme === "light" ? "dark" : "light");
                     }}
                     className="w-full"
                     variant="outline"

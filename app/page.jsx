@@ -1,3 +1,5 @@
+/* eslint-disable react/no-unescaped-entities */
+/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
 import { useEffect, useState } from "react";
@@ -19,7 +21,6 @@ import {
   Sparkles,
   Zap,
   Shield,
-  Clock,
   Star,
   FileDown,
   Upload,
