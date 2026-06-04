@@ -30,26 +30,30 @@ import Loader from "../Loader";
 // Helper function to get user-friendly error messages
 const getErrorMessage = (error) => {
   if (!error) return "An error occurred";
-  
+
   // User errors
   if (error.message === "NOT_AUTHENTICATED") {
     return "You must be logged in to save changes";
   }
-  
+
   // Import/validation errors (user errors)
-  if (error.message?.includes("format") || 
-      error.message?.includes("invalid") ||
-      error.message?.includes("Line")) {
+  if (
+    error.message?.includes("format") ||
+    error.message?.includes("invalid") ||
+    error.message?.includes("Line")
+  ) {
     return error.message; // Show specific validation error
   }
-  
+
   // Server/DB errors - generic message
-  if (error.message?.includes("fetch") || 
-      error.message?.includes("network") ||
-      error.code?.startsWith("PGRST")) {
+  if (
+    error.message?.includes("fetch") ||
+    error.message?.includes("network") ||
+    error.code?.startsWith("PGRST")
+  ) {
     return "Unable to connect to the server. Please check your internet connection";
   }
-  
+
   // Default error
   return "Failed to save changes. Please try again";
 };
@@ -60,6 +64,8 @@ export const PriceListContainer = () => {
     savePriceData,
     searchTerm,
     setSearchTerm,
+    debouncedSearchTerm,
+    searchIndex,
     expandedCategories,
     toggleCategory,
     expandAll,
@@ -107,7 +113,7 @@ export const PriceListContainer = () => {
     localStorage.setItem("sortType", newSortType);
   };
 
-  const filteredData = filterData(priceData, searchTerm);
+  const filteredData = filterData(priceData, debouncedSearchTerm, searchIndex);
   const sortedData = sortData(filteredData, sortType);
 
   const hasAnyExpanded = Object.values(expandedCategories).some(
@@ -119,10 +125,10 @@ export const PriceListContainer = () => {
 
   // Auto-expand when searching
   useEffect(() => {
-    if (searchTerm && searchTerm.trim()) {
+    if (debouncedSearchTerm && debouncedSearchTerm.trim()) {
       expandAll(filteredData);
     }
-  }, [searchTerm]);
+  }, [debouncedSearchTerm]);
 
   // Prevent hydration mismatch and show loading during DB fetch
   if (!isHydrated || isDataLoading)
@@ -149,16 +155,16 @@ export const PriceListContainer = () => {
   const handleAdd = async (formData) => {
     formData.name = toTitleCase(formData.name);
     const newData = addItem(priceData, modalContext.path, modalType, formData);
-    
+
     const loadingToast = toast.loading(
-      `Adding ${modalType === "category" ? "category" : "item"}...`
+      `Adding ${modalType === "category" ? "category" : "item"}...`,
     );
-    
+
     try {
       await savePriceData(newData);
       toast.success(
         `${modalType === "category" ? "Category" : "Item"} added successfully`,
-        { id: loadingToast }
+        { id: loadingToast },
       );
       setShowAddModal(false);
     } catch (error) {
@@ -196,7 +202,7 @@ export const PriceListContainer = () => {
     );
 
     const loadingToast = toast.loading("Updating item...");
-    
+
     try {
       await savePriceData(newData);
       toast.success("Item updated successfully", { id: loadingToast });
@@ -230,7 +236,7 @@ export const PriceListContainer = () => {
     );
 
     const loadingToast = toast.loading("Updating category...");
-    
+
     try {
       await savePriceData(newData);
       toast.success("Category updated successfully", { id: loadingToast });
@@ -263,7 +269,7 @@ export const PriceListContainer = () => {
         onClick: async () => {
           const newData = deleteItem(priceData, path);
           const loadingToast = toast.loading("Deleting...");
-          
+
           try {
             await savePriceData(newData);
             toast.success("Deleted successfully", { id: loadingToast });
@@ -285,7 +291,7 @@ export const PriceListContainer = () => {
 
   const handleBulkSave = async (bulkText) => {
     const loadingToast = toast.loading("Importing data...");
-    
+
     try {
       const newData = importFromText(bulkText);
       await savePriceData(newData);

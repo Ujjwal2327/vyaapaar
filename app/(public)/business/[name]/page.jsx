@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import Loader from "@/components/Loader";
 import Logo from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
   Search,
   MapPin,
@@ -29,6 +28,56 @@ const getGoogleMapsLink = (address) => {
   return `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`;
 };
 
+// Filter function - defined outside component so it's never recreated
+const filterData = (data, searchLower) => {
+  if (!searchLower) return data;
+
+  const result = {};
+
+  const searchInObject = (obj, out) => {
+    Object.entries(obj).forEach(([key, value]) => {
+      if (value.type === "category") {
+        const childOut = {};
+        if (value.children) searchInObject(value.children, childOut);
+
+        const keyMatches = key.toLowerCase().includes(searchLower);
+        if (keyMatches || Object.keys(childOut).length > 0) {
+          out[key] = {
+            ...value,
+            children:
+              keyMatches && Object.keys(childOut).length === 0
+                ? value.children // show full category if category name matched
+                : childOut,
+          };
+        }
+      } else if (value.type === "item") {
+        if (key.toLowerCase().includes(searchLower)) {
+          out[key] = value;
+        }
+      }
+    });
+  };
+
+  searchInObject(data, result);
+  return result;
+};
+
+// Collect all category paths from a data tree
+const collectAllPaths = (obj, parentPath = "") => {
+  const paths = {};
+  Object.entries(obj).forEach(([key, value]) => {
+    if (key.startsWith("__")) return;
+    const currentPath = parentPath ? `${parentPath}.${key}` : key;
+    if (value.type === "category") {
+      paths[currentPath] = true;
+      if (value.children) {
+        Object.assign(paths, collectAllPaths(value.children, currentPath));
+      }
+    }
+  });
+  return paths;
+};
+
 export default function PublicBusinessPage() {
   const params = useParams();
   const businessName = decodeURIComponent(params?.name || "");
@@ -36,17 +85,28 @@ export default function PublicBusinessPage() {
   const [loading, setLoading] = useState(true);
   const [businessData, setBusinessData] = useState(null);
   const [priceData, setPriceData] = useState({});
+
+  // Raw search term drives the input (stays responsive)
   const [searchTerm, setSearchTerm] = useState("");
+  // Debounced term drives the actual filtering (doesn't hang)
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [expandedCategories, setExpandedCategories] = useState({});
 
   useEffect(() => {
     loadBusinessData();
   }, [businessName]);
 
+  // Debounce: only update debouncedSearchTerm 200ms after typing stops
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
   const loadBusinessData = async () => {
     setLoading(true);
     try {
-      // Get user by business name
       const { data: userData, error: userError } = await supabase
         .from("users")
         .select("id, business_name, business_address, phone, email")
@@ -61,7 +121,6 @@ export default function PublicBusinessPage() {
         return;
       }
 
-      // Get price list data
       const { data: priceListData, error: priceError } = await supabase
         .from("price_lists")
         .select("data")
@@ -71,7 +130,7 @@ export default function PublicBusinessPage() {
       if (priceError && priceError.code !== "PGRST116") throw priceError;
 
       setBusinessData(userData);
-      const sortedData = sortData(priceListData?.data || {}, "alphabatical");
+      const sortedData = sortData(priceListData?.data || {}, "alphabetical");
       setPriceData(sortedData);
     } catch (error) {
       console.error("Error loading business data:", error);
@@ -81,79 +140,35 @@ export default function PublicBusinessPage() {
     }
   };
 
-  const toggleCategory = (path) => {
+  const toggleCategory = useCallback((path) => {
     setExpandedCategories((prev) => ({
       ...prev,
       [path]: !prev[path],
     }));
-  };
+  }, []);
 
-  const expandAll = () => {
-    const allPaths = {};
-    const collectPaths = (obj, parentPath = "") => {
-      Object.entries(obj).forEach(([key, value]) => {
-        const currentPath = parentPath ? `${parentPath}.${key}` : key;
-        if (value.type === "category") {
-          allPaths[currentPath] = true;
-          if (value.children) collectPaths(value.children, currentPath);
-        }
-      });
-    };
-    collectPaths(priceData);
-    setExpandedCategories(allPaths);
-  };
+  // filteredData only recomputes when priceData or debouncedSearchTerm changes —
+  // NOT when expandedCategories changes (which is what was causing the hang)
+  const filteredData = useMemo(() => {
+    const searchLower = debouncedSearchTerm.trim().toLowerCase();
+    return filterData(priceData, searchLower);
+  }, [priceData, debouncedSearchTerm]);
 
-  const collapseAll = () => {
+  const expandAll = useCallback(() => {
+    // Use filteredData when searching, priceData when not
+    setExpandedCategories(collectAllPaths(filteredData));
+  }, [filteredData]);
+
+  const collapseAll = useCallback(() => {
     setExpandedCategories({});
-  };
+  }, []);
 
-  // Filter data based on search
-  const filterData = (data, search) => {
-    if (!search || !search.trim()) return data;
-
-    const searchLower = search.toLowerCase();
-    const result = {};
-
-    const searchInObject = (obj, parentPath = "") => {
-      Object.entries(obj).forEach(([key, value]) => {
-        const currentPath = parentPath ? `${parentPath}.${key}` : key;
-
-        if (value.type === "category") {
-          const childMatches = value.children
-            ? searchInObject(value.children, currentPath)
-            : {};
-
-          const keyMatches = key.toLowerCase().includes(searchLower);
-
-          if (keyMatches || Object.keys(childMatches).length > 0) {
-            if (!result[key]) {
-              result[key] = { ...value, children: {} };
-            }
-            if (Object.keys(childMatches).length > 0) {
-              result[key].children = childMatches;
-            }
-          }
-        } else if (value.type === "item") {
-          if (key.toLowerCase().includes(searchLower)) {
-            result[key] = value;
-          }
-        }
-      });
-
-      return result;
-    };
-
-    return searchInObject(data);
-  };
-
-  const filteredData = filterData(priceData, searchTerm);
-
-  // Auto-expand when searching
+  // Auto-expand when search results change
   useEffect(() => {
-    if (searchTerm && searchTerm.trim()) {
-      expandAll();
+    if (debouncedSearchTerm.trim()) {
+      setExpandedCategories(collectAllPaths(filteredData));
     }
-  }, [searchTerm]);
+  }, [filteredData]); // filteredData already depends on debouncedSearchTerm
 
   if (loading) {
     return <Loader content="Loading business catalog..." />;
@@ -189,13 +204,12 @@ export default function PublicBusinessPage() {
             <div className="flex items-start gap-4 mb-4">
               <div className="w-16 h-16 rounded-2xl bg-linear-to-br from-primary to-primary/60 flex items-center justify-center shadow-lg shrink-0">
                 <Store className="w-8 h-8 text-primary-foreground" />
-              </div>{" "}
+              </div>
               <div className="flex-1">
                 <h1 className="text-2xl sm:text-3xl font-bold mb-2">
                   {businessData.business_name}
                 </h1>
 
-                {/* Address with Map Link */}
                 {businessData.business_address && (
                   <div className="flex items-start gap-2 text-sm text-muted-foreground mb-2">
                     <MapPin className="w-4 h-4 shrink-0 mt-0.5" />
@@ -215,7 +229,6 @@ export default function PublicBusinessPage() {
                   </div>
                 )}
 
-                {/* Contact Info */}
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                   {businessData.phone && (
                     <a
@@ -238,20 +251,13 @@ export default function PublicBusinessPage() {
                 </div>
               </div>
             </div>
-
-            {/* Badge */}
-            {/* <Badge variant="secondary" className="text-xs">
-              Public Catalog
-            </Badge> */}
           </div>
 
           <div className="flex justify-center items-center gap-2">
-            {/* Expand/Collapse All */}
             <Button
               onClick={hasAnyExpanded ? collapseAll : expandAll}
               variant="outline"
               size="sm"
-              className=""
             >
               <ChevronsDownUp className="w-4 h-4" />
               <span className="hidden sm:inline text-xs">
@@ -259,7 +265,6 @@ export default function PublicBusinessPage() {
               </span>
             </Button>
 
-            {/* Search Bar */}
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground w-5 h-5 pointer-events-none" />
               <Input
@@ -300,7 +305,6 @@ export default function PublicBusinessPage() {
         )}
       </main>
 
-      {/* Footer */}
       <footer className="border-t mt-12 py-6">
         <div className="max-w-4xl mx-auto px-4 text-center text-sm text-muted-foreground">
           <p className="flex justify-center items-center gap-x-2">
@@ -312,16 +316,18 @@ export default function PublicBusinessPage() {
   );
 }
 
-// Catalog Content Component
-function CatalogContent({
+// Memoized catalog content — only re-renders when data or expanded state changes
+const CatalogContent = ({
   data,
   expandedCategories,
   onToggleCategory,
   parentPath = "",
   level = 0,
-}) {
+}) => {
   const renderItems = (items, currentParentPath, currentLevel) => {
-    return Object.entries(items).map(([key, value], index) => {
+    const entries = Object.entries(items);
+    return entries.map(([key, value], index) => {
+      if (key.startsWith("__")) return null;
       const currentPath = currentParentPath
         ? `${currentParentPath}.${key}`
         : key;
@@ -357,7 +363,6 @@ function CatalogContent({
           </div>
         );
       } else if (value.type === "item") {
-        // Get retail sell price (backward compatible)
         const retailSell =
           value.retailSell !== undefined ? value.retailSell : value.sell || 0;
         const sellUnit = value.sellUnit || "piece";
@@ -366,7 +371,7 @@ function CatalogContent({
           <div
             key={currentPath}
             className={`rounded-lg px-1 py-2.5 flex justify-between items-center ${
-              index === Object.keys(items).length - 1 ? "" : "border-b"
+              index === entries.length - 1 ? "" : "border-b"
             }`}
           >
             <span className="flex-1">{key}</span>
@@ -391,4 +396,4 @@ function CatalogContent({
       )}
     </div>
   );
-}
+};

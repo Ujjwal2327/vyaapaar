@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { sortData } from "../lib/utils/priceListUtils";
+import { sortData, buildSearchIndex } from "../lib/utils/priceListUtils";
 
 // Helper function to recursively capture the object key order into an __orderKeys array
 const deepAddOrderKeys = (data) => {
@@ -32,6 +32,7 @@ export const usePriceList = () => {
 
   // UI States
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [expandedCategories, setExpandedCategories] = useState({});
   const [sellPriceMode, setSellPriceMode] = useState("retail");
   const [priceView, setPriceView] = useState("sell");
@@ -43,6 +44,19 @@ export const usePriceList = () => {
   const [isDataLoading, setIsDataLoading] = useState(true);
 
   const hasFetchedDb = useRef(false);
+
+  // Debounce searchTerm by 200ms so filterData doesn't run on every keystroke
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Build the search index once when priceData changes.
+  // flattenData + tokenize is expensive — doing it here (on save/load)
+  // instead of on every keystroke is the key performance fix.
+  const searchIndex = useMemo(() => buildSearchIndex(priceData), [priceData]);
 
   // Helper to load from local storage
   const loadFromLocal = () => {
@@ -214,6 +228,8 @@ export const usePriceList = () => {
     savePriceData,
     searchTerm,
     setSearchTerm,
+    debouncedSearchTerm,
+    searchIndex,
     expandedCategories,
     toggleCategory,
     expandAll,
