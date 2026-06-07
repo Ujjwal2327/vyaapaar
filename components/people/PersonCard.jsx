@@ -1,8 +1,8 @@
-import { Edit2, Trash2, Phone, MapPin, Briefcase } from "lucide-react";
+import { Edit2, Trash2, Phone, MapPin, Briefcase, Receipt } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { photoCache } from "@/lib/utils/photoCache";
+import Link from "next/link";
 
 const CATEGORY_COLORS = {
   plumber: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
@@ -62,9 +62,6 @@ export const PersonCard = ({
   // Get primary phone (first non-empty phone)
   const primaryPhone = phones.find((p) => p && p.trim()) || null;
 
-  // Get photo from cache if person has photo flag
-  // We don't load it here - just check if it exists
-  // Photos will be loaded on-demand in modals
   const hasPhoto = person.hasPhoto;
 
   return (
@@ -77,10 +74,8 @@ export const PersonCard = ({
       onClick={() => isClickable && onViewDetails(person)}
     >
       <div className="flex items-start gap-3">
-        {/* Avatar - Don't load photo in list view, just show initials */}
+        {/* Avatar */}
         <Avatar className="w-12 h-12 shrink-0">
-          {/* We intentionally don't show photos in list view for performance */}
-          {/* Photos are only loaded in detail/edit modals */}
           <AvatarFallback className="bg-primary/10">
             {getInitials(person.name)}
           </AvatarFallback>
@@ -92,7 +87,6 @@ export const PersonCard = ({
             <div className="flex-1 min-w-0">
               <h3 className="font-semibold text-lg truncate">
                 {person.name}
-                {/* Visual indicator if contact has a photo */}
                 {hasPhoto && (
                   <span className="ml-2 text-xs text-muted-foreground">📷</span>
                 )}
@@ -122,34 +116,45 @@ export const PersonCard = ({
               </div>
             </div>
 
-            {editMode && (
-              <div className="flex gap-2 shrink-0">
-                <Button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEdit(person);
-                  }}
-                  variant="ghost"
-                  size="icon"
-                >
-                  <Edit2 className="w-4 h-4" />
+            <div className="flex items-center gap-1 shrink-0">
+              {/* Transactions button — always visible */}
+              <Link
+                href={`/contacts/${person.id}/transactions`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Button variant="ghost" size="icon" title="View transactions">
+                  <Receipt className="w-4 h-4" />
                 </Button>
-                <Button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(person.id);
-                  }}
-                  variant="ghost"
-                  size="icon"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </div>
-            )}
+              </Link>
+
+              {editMode && (
+                <>
+                  <Button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEdit(person);
+                    }}
+                    variant="ghost"
+                    size="icon"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(person.id);
+                    }}
+                    variant="ghost"
+                    size="icon"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
 
           {/* Info Grid */}
-
           {person.address && (
             <div className="flex items-center gap-2 text-muted-foreground mt-2">
               <MapPin className="w-4 h-4 shrink-0" />
