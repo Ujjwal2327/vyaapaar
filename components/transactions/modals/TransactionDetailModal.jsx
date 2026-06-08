@@ -557,9 +557,11 @@ export const TransactionDetailModal = ({
   onOpenChange,
   transaction,
   contact,
+  allTransactions = [],
   onUpdate,
   onDelete,
   onAddPayment,
+  onNavigateToTransaction,
 }) => {
   const { priceData, sellPriceMode } = usePriceList();
 
@@ -711,8 +713,8 @@ export const TransactionDetailModal = ({
               <DialogTitle className="text-base leading-tight">
                 {isItem ? "Item" : "Financial"} Transaction
               </DialogTitle>
-              <p className="text-[10px] text-muted-foreground font-mono mt-0.5 truncate">
-                ID: {tx.id}
+              <p className="text-[10px] text-muted-foreground font-mono mt-0.5 break-all">
+                {tx.id}
               </p>
             </div>
           </div>
@@ -1012,29 +1014,79 @@ export const TransactionDetailModal = ({
                 <div className="space-y-2">
                   {tx.paidAmountHistory.map((p, i) => {
                     const isSettlement = p.method === "settlement";
+                    const isAdvanceApplied = p.method === "advance-applied";
+                    const isSettlementType = isSettlement || isAdvanceApplied;
+                    const amountVal = p.amount ?? 0;
                     return (
                       <div
                         key={i}
-                        className={`rounded-lg border px-3 py-2 flex items-start justify-between gap-2 ${isSettlement ? "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30" : ""}`}
+                        className={`rounded-lg border px-3 py-2 flex items-start justify-between gap-2 ${
+                          isSettlementType
+                            ? "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30"
+                            : ""
+                        }`}
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <p className="text-sm font-semibold text-green-600 dark:text-green-400">
-                              {fmtC(p.amount)}
+                            <p
+                              className={`text-sm font-semibold ${isAdvanceApplied ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"}`}
+                            >
+                              {isAdvanceApplied
+                                ? `−${fmtC(Math.abs(amountVal))}`
+                                : fmtC(amountVal)}
                             </p>
                             {isSettlement && (
                               <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
                                 Auto-settled
                               </span>
                             )}
+                            {isAdvanceApplied && (
+                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                                Advance applied
+                              </span>
+                            )}
                           </div>
-                          <p className="text-xs text-muted-foreground truncate">
-                            {isSettlement ? "Mutual settlement" : p.method}
-                            {p.note && !isSettlement ? ` · ${p.note}` : ""}
-                            {isSettlement && p.partnerIds?.length > 0
-                              ? ` · with ${p.partnerIds.length} transaction${p.partnerIds.length > 1 ? "s" : ""}`
-                              : ""}
+                          <p className="text-xs text-muted-foreground">
+                            {isSettlementType ? "Settled against" : p.method}
+                            {p.note && !isSettlementType ? ` · ${p.note}` : ""}
                           </p>
+                          {/* Partner transaction IDs — full UUID, clickable */}
+                          {isSettlementType && p.partnerIds?.length > 0 && (
+                            <div className="mt-1.5 space-y-1">
+                              {p.partnerIds.map((pid) => {
+                                const partnerTx = allTransactions.find(
+                                  (t) => t.id === pid,
+                                );
+                                return (
+                                  <button
+                                    key={pid}
+                                    type="button"
+                                    onClick={() =>
+                                      partnerTx &&
+                                      onNavigateToTransaction?.(partnerTx)
+                                    }
+                                    className={`block w-full text-left text-[10px] font-mono px-2 py-1 rounded border transition-colors ${
+                                      partnerTx
+                                        ? "border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 cursor-pointer"
+                                        : "border-muted bg-muted/30 text-muted-foreground cursor-default"
+                                    }`}
+                                    title={
+                                      partnerTx
+                                        ? "Open this transaction"
+                                        : "Transaction not found"
+                                    }
+                                  >
+                                    {pid}
+                                    {partnerTx && (
+                                      <span className="ml-1.5 text-blue-500 dark:text-blue-400">
+                                        ↗
+                                      </span>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                         <p className="text-xs text-muted-foreground shrink-0 text-right">
                           {fmtDate(p.date)}

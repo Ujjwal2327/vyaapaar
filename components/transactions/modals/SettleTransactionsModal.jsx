@@ -21,6 +21,7 @@ import {
   AlertCircle,
   Sparkles,
   ArrowRight,
+  Zap,
 } from "lucide-react";
 
 const fmt = (n) =>
@@ -37,8 +38,8 @@ export const SettleTransactionsModal = ({
   computeSettlementPreview,
   onSettle,
 }) => {
-  // Only show pending transactions that have a remaining balance
-  const eligibleTxs = useMemo(
+  // Pending transactions with a remaining balance (tier 1)
+  const pendingTxs = useMemo(
     () =>
       transactions.filter(
         (t) =>
@@ -48,14 +49,42 @@ export const SettleTransactionsModal = ({
     [transactions],
   );
 
+  // Overpaid complete transactions — they carry an advance balance (tier 2)
+  const overpaidTxs = useMemo(
+    () =>
+      transactions.filter(
+        (t) => (t.totalAmount ?? 0) - (t.paidAmount ?? 0) < 0,
+      ),
+    [transactions],
+  );
+
+  const eligibleTxs = useMemo(
+    () => [...pendingTxs, ...overpaidTxs],
+    [pendingTxs, overpaidTxs],
+  );
+
   // Default: select all eligible
   const [selectedIds, setSelectedIds] = useState(
     () => new Set(eligibleTxs.map((t) => t.id)),
   );
 
-  const hasOut = eligibleTxs.some((t) => t.type === "out");
-  const hasIn = eligibleTxs.some((t) => t.type === "in");
-  const canSettle = hasOut && hasIn;
+  // Can settle if we have at least one "receivable source" and one "payable source":
+  //   receivable sources: pending out OR overpaid in
+  //   payable sources:    pending in  OR overpaid out
+  const selectedTxs = useMemo(
+    () => eligibleTxs.filter((t) => selectedIds.has(t.id)),
+    [eligibleTxs, selectedIds],
+  );
+
+  const hasReceivable = selectedTxs.some((t) => {
+    const rem = (t.totalAmount ?? 0) - (t.paidAmount ?? 0);
+    return (t.type === "out" && rem > 0) || (t.type === "in" && rem < 0);
+  });
+  const hasPayable = selectedTxs.some((t) => {
+    const rem = (t.totalAmount ?? 0) - (t.paidAmount ?? 0);
+    return (t.type === "in" && rem > 0) || (t.type === "out" && rem < 0);
+  });
+  const canSettle = hasReceivable && hasPayable;
 
   const toggleId = (id) => {
     setSelectedIds((prev) => {
@@ -82,6 +111,63 @@ export const SettleTransactionsModal = ({
     onOpenChange(false);
   };
 
+  const noEligible = eligibleTxs.length === 0;
+  const hasOnlyOneSide =
+    eligibleTxs.length > 0 && !canSettle && selectedIds.size >= 2;
+
+  // Group label helpers
+  const getGroupInfo = (dir, isAdvance) => {
+    if (!isAdvance) {
+      return dir === "out"
+        ? {
+            label: "Sales (receivable)",
+            icon: TrendingUp,
+            color: "text-green-600 dark:text-green-400",
+          }
+        : {
+            label: "Purchases (payable)",
+            icon: TrendingDown,
+            color: "text-red-600 dark:text-red-400",
+          };
+    }
+    // Overpaid transactions — their role is inverted
+    return dir === "out"
+      ? {
+          label: "Overpaid sales (advance to return)",
+          icon: TrendingDown,
+          color: "text-amber-600 dark:text-amber-400",
+        }
+      : {
+          label: "Overpaid purchases (advance to receive back)",
+          icon: TrendingUp,
+          color: "text-blue-600 dark:text-blue-400",
+        };
+  };
+
+  // Build display groups: [pending out, pending in, overpaid out, overpaid in]
+  const groups = [
+    {
+      txs: pendingTxs.filter((t) => t.type === "out"),
+      dir: "out",
+      isAdvance: false,
+    },
+    {
+      txs: pendingTxs.filter((t) => t.type === "in"),
+      dir: "in",
+      isAdvance: false,
+    },
+    {
+      txs: overpaidTxs.filter((t) => t.type === "out"),
+      dir: "out",
+      isAdvance: true,
+    },
+    {
+      txs: overpaidTxs.filter((t) => t.type === "in"),
+      dir: "in",
+      isAdvance: true,
+    },
+  ].filter((g) => g.txs.length > 0);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg p-0 gap-0 overflow-hidden">
@@ -95,7 +181,7 @@ export const SettleTransactionsModal = ({
                 Auto-Settle Transactions
               </DialogTitle>
               <DialogDescription className="text-xs mt-0.5">
-                Offset sales against purchases without exchanging cash
+                Offset sales against purchases — including advance balances
               </DialogDescription>
             </div>
           </div>
@@ -103,31 +189,33 @@ export const SettleTransactionsModal = ({
 
         <ScrollArea className="max-h-[70vh]">
           <div className="px-4 py-3 space-y-4">
-            {!canSettle ? (
+            {noEligible ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 p-4 flex items-start gap-3">
                 <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <div className="text-sm text-amber-700 dark:text-amber-400">
-                  <p className="font-medium mb-0.5">Settlement not possible</p>
+                  <p className="font-medium mb-0.5">
+                    No transactions to settle
+                  </p>
                   <p className="text-xs">
-                    {!hasOut && !hasIn
-                      ? "No pending transactions to settle."
-                      : !hasOut
-                        ? "No pending sales (receivables) found. Need both sales and purchases to settle."
-                        : "No pending purchases (payables) found. Need both sales and purchases to settle."}
+                    Need at least one pending transaction and one
+                    opposite-direction pending or overpaid transaction.
                   </p>
                 </div>
               </div>
             ) : (
               <>
                 {/* How it works */}
-                <div className="rounded-lg bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground">
-                  <p className="font-medium text-foreground mb-1">
-                    How it works
+                <div className="rounded-lg bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground space-y-1">
+                  <p className="font-medium text-foreground">How it works</p>
+                  <p>
+                    <span className="font-medium text-foreground">Tier 1</span>{" "}
+                    — pending sales and purchases cancel each other out
+                    directly.
                   </p>
                   <p>
-                    Sales (money owed to you) and purchases (money you owe)
-                    cancel each other out. The difference, if any, remains as
-                    the new pending balance. Full history is recorded.
+                    <span className="font-medium text-foreground">Tier 2</span>{" "}
+                    — any leftover advance from an overpaid transaction is used
+                    to clear remaining pending dues.
                   </p>
                 </div>
 
@@ -157,28 +245,28 @@ export const SettleTransactionsModal = ({
                   </div>
                 </div>
 
-                {/* Transaction list — grouped by direction */}
-                {["out", "in"].map((dir) => {
-                  const group = eligibleTxs.filter((t) => t.type === dir);
-                  if (!group.length) return null;
+                {/* Transaction groups */}
+                {groups.map(({ txs, dir, isAdvance }) => {
+                  const info = getGroupInfo(dir, isAdvance);
+                  const Icon = info.icon;
                   return (
-                    <div key={dir} className="space-y-1.5">
+                    <div key={`${dir}-${isAdvance}`} className="space-y-1.5">
                       <div className="flex items-center gap-1.5">
-                        {dir === "out" ? (
-                          <TrendingUp className="w-3.5 h-3.5 text-green-600" />
-                        ) : (
-                          <TrendingDown className="w-3.5 h-3.5 text-red-600" />
-                        )}
+                        <Icon className={`w-3.5 h-3.5 ${info.color}`} />
                         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          {dir === "out"
-                            ? "Sales (receivable)"
-                            : "Purchases (payable)"}
+                          {info.label}
                         </p>
+                        {isAdvance && (
+                          <Badge className="text-[10px] px-1.5 py-0 h-4 bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300 border-0 ml-1">
+                            Advance
+                          </Badge>
+                        )}
                       </div>
                       <div className="border rounded-lg divide-y overflow-hidden">
-                        {group.map((tx) => {
+                        {txs.map((tx) => {
                           const remaining =
                             (tx.totalAmount ?? 0) - (tx.paidAmount ?? 0);
+                          const displayAmount = Math.abs(remaining);
                           const isSelected = selectedIds.has(tx.id);
                           const previewEntry = preview?.previews?.find(
                             (p) => p.tx.id === tx.id,
@@ -217,18 +305,21 @@ export const SettleTransactionsModal = ({
                                           : "Items")}
                                   </p>
                                   <p
-                                    className={`text-sm font-bold shrink-0 ${
-                                      dir === "out"
-                                        ? "text-green-600 dark:text-green-400"
-                                        : "text-red-600 dark:text-red-400"
-                                    }`}
+                                    className={`text-sm font-bold shrink-0 ${info.color}`}
                                   >
-                                    {fmt(remaining)}
+                                    {fmt(displayAmount)}
                                   </p>
                                 </div>
-                                <p className="text-[10px] text-muted-foreground font-mono">
-                                  ID: {tx.id.slice(0, 16)}…
-                                </p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <p className="text-[10px] text-muted-foreground font-mono">
+                                    ID: {tx.id.slice(0, 16)}…
+                                  </p>
+                                  {isAdvance && (
+                                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                                      advance
+                                    </span>
+                                  )}
+                                </div>
                                 {/* Preview of what will happen */}
                                 {previewEntry &&
                                   previewEntry.settled > 0 &&
@@ -260,6 +351,18 @@ export const SettleTransactionsModal = ({
                     </div>
                   );
                 })}
+
+                {/* Can't settle warning */}
+                {hasOnlyOneSide && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 p-3 flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>
+                      Need both a receivable source (pending sale or overpaid
+                      purchase) and a payable source (pending purchase or
+                      overpaid sale) selected.
+                    </span>
+                  </div>
+                )}
 
                 {/* Settlement preview summary */}
                 {preview && affectedCount > 0 && (
@@ -297,16 +400,38 @@ export const SettleTransactionsModal = ({
                           .length !== 1
                           ? "s"
                           : ""}{" "}
-                        will be fully settled. History will be recorded on each.
+                        will be fully settled. Full history recorded on each.
                       </p>
+                      {/* Show if advance txs are involved */}
+                      {preview.previews.some(
+                        (p) => p.isAdvanceTx && p.settled > 0,
+                      ) && (
+                        <div className="flex items-start gap-1.5 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-2 py-1.5">
+                          <Zap className="w-3 h-3 shrink-0 mt-0.5 text-amber-600" />
+                          <p className="text-xs text-amber-700 dark:text-amber-400">
+                            Advance balance from{" "}
+                            {
+                              preview.previews.filter(
+                                (p) => p.isAdvanceTx && p.settled > 0,
+                              ).length
+                            }{" "}
+                            overpaid transaction
+                            {preview.previews.filter(
+                              (p) => p.isAdvanceTx && p.settled > 0,
+                            ).length !== 1
+                              ? "s"
+                              : ""}{" "}
+                            will be applied and consumed.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </>
                 )}
 
                 {selectedIds.size < 2 && (
                   <p className="text-xs text-center text-muted-foreground">
-                    Select at least 2 transactions (including both a sale and a
-                    purchase)
+                    Select at least 2 transactions
                   </p>
                 )}
               </>
@@ -326,6 +451,7 @@ export const SettleTransactionsModal = ({
           <Button
             className="flex-1 gap-1.5"
             disabled={
+              noEligible ||
               !canSettle ||
               selectedIds.size < 2 ||
               !preview ||

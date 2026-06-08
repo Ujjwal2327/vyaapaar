@@ -193,43 +193,96 @@ export const useTransactions = (contactId) => {
   };
 
   // ── settleTransactions ────────────────────────────────────────────────────
-  // Given a list of transaction IDs, apply mutual offset settlement.
-  // "out" transactions have positive remaining (money owed TO us).
-  // "in"  transactions have positive remaining (money we OWE).
-  // Settlement reduces both sides by the minimum shared amount, recording
-  // a "settlement" entry in paidAmountHistory with a note linking partner IDs.
+  //
+  // Settlement priority (oldest first within each tier):
+  //   1. Pending vs pending — normal mutual offset
+  //   2. Overpaid advance vs pending — use the surplus to clear pending dues
+  //
+  // Overpaid semantics:
+  //   overpaid "out" (sale, remaining < 0): customer gave us extra → we owe
+  //     them → their advance can offset a pending "in" (purchase we owe).
+  //   overpaid "in" (purchase, remaining < 0): we overpaid supplier → supplier
+  //     owes us back → can offset a pending "out" (sale they owe us).
+  //
+  // When an overpaid tx's advance is consumed, we record a NEGATIVE payment
+  // entry ("advance-applied") and reduce paidAmount accordingly, so the
+  // advance balance drops to zero. No DB schema changes required.
+  //
   const settleTransactions = async (txIds) => {
     if (!user) throw new Error("NOT_AUTHENTICATED");
 
+    // Pull all selected transactions — both pending AND overpaid complete ones
     const selected = txIds
       .map((id) => transactions.find((t) => t.id === id))
       .filter(Boolean)
-      .filter((t) => t.status === "pending");
+      .filter((t) => {
+        const rem = (t.totalAmount ?? 0) - (t.paidAmount ?? 0);
+        return t.status === "pending" || rem < 0; // pending OR overpaid
+      });
 
     if (selected.length < 2)
-      throw new Error("Need at least 2 pending transactions");
+      throw new Error("Need at least 2 eligible transactions");
 
     const settledAt = new Date().toISOString();
     const settlementGroupId = crypto.randomUUID();
 
-    // Separate into receivables (out) and payables (in)
-    let outPool = selected
-      .filter((t) => t.type === "out")
-      .map((t) => ({
-        ...t,
-        remaining: (t.totalAmount ?? 0) - (t.paidAmount ?? 0),
-      }))
-      .filter((t) => t.remaining > 0);
+    // Sort each pool oldest-first within pending, then oldest-first within overpaid.
+    // Pending transactions go before overpaid advances (priority 1 before 2).
+    const byDate = (a, b) => new Date(a.createdAt) - new Date(b.createdAt);
 
-    let inPool = selected
-      .filter((t) => t.type === "in")
-      .map((t) => ({
-        ...t,
-        remaining: (t.totalAmount ?? 0) - (t.paidAmount ?? 0),
-      }))
-      .filter((t) => t.remaining > 0);
+    // outPool: sources of "money owed TO us"
+    //   - pending out (remaining > 0): sale, customer still owes us
+    //   - overpaid in  (remaining < 0): we overpaid supplier → supplier owes us back
+    const outPool = [
+      ...selected
+        .filter((t) => t.type === "out" && t.status === "pending")
+        .map((t) => ({
+          ...t,
+          remaining: (t.totalAmount ?? 0) - (t.paidAmount ?? 0),
+          isAdvance: false,
+        }))
+        .filter((t) => t.remaining > 0)
+        .sort(byDate),
+      ...selected
+        .filter(
+          (t) =>
+            t.type === "in" && (t.totalAmount ?? 0) - (t.paidAmount ?? 0) < 0,
+        )
+        .map((t) => ({
+          ...t,
+          remaining: Math.abs((t.totalAmount ?? 0) - (t.paidAmount ?? 0)),
+          isAdvance: true,
+        }))
+        .sort(byDate),
+    ];
 
-    // Map of txId → accumulated settlement amount + partner IDs
+    // inPool: sources of "money we owe"
+    //   - pending in  (remaining > 0): purchase, we still owe supplier
+    //   - overpaid out (remaining < 0): customer overpaid us → we owe customer
+    const inPool = [
+      ...selected
+        .filter((t) => t.type === "in" && t.status === "pending")
+        .map((t) => ({
+          ...t,
+          remaining: (t.totalAmount ?? 0) - (t.paidAmount ?? 0),
+          isAdvance: false,
+        }))
+        .filter((t) => t.remaining > 0)
+        .sort(byDate),
+      ...selected
+        .filter(
+          (t) =>
+            t.type === "out" && (t.totalAmount ?? 0) - (t.paidAmount ?? 0) < 0,
+        )
+        .map((t) => ({
+          ...t,
+          remaining: Math.abs((t.totalAmount ?? 0) - (t.paidAmount ?? 0)),
+          isAdvance: true,
+        }))
+        .sort(byDate),
+    ];
+
+    // Map of txId → { amount, partnerIds, isAdvance }
     const settlementMap = {};
     selected.forEach((t) => {
       settlementMap[t.id] = { amount: 0, partnerIds: [] };
@@ -261,28 +314,50 @@ export const useTransactions = (contactId) => {
       if (settlement.amount <= 0) continue;
 
       const existing = transactions.find((t) => t.id === tx.id);
-      const newPaid = (existing.paidAmount ?? 0) + settlement.amount;
-      const newStatus =
-        newPaid >= existing.totalAmount ? "complete" : "pending";
+      const currentRemaining =
+        (existing.totalAmount ?? 0) - (existing.paidAmount ?? 0);
+      const isAdvanceTx = currentRemaining < 0;
 
       const partnerNote =
         settlement.partnerIds.length > 0
           ? `Settled against: ${settlement.partnerIds.map((id) => id.slice(0, 8)).join(", ")}`
           : "Mutual settlement";
 
+      let newPaid;
+      let historyEntry;
+
+      if (isAdvanceTx) {
+        // Consuming an advance: reduce paidAmount to eliminate the surplus
+        // e.g. total=1500, paid=2000, advance=500 → apply 500 → paid becomes 1500
+        newPaid = (existing.paidAmount ?? 0) - settlement.amount;
+        historyEntry = {
+          amount: -settlement.amount, // negative = advance consumed
+          note: partnerNote,
+          method: "advance-applied",
+          date: settledAt,
+          settlementGroupId,
+          partnerIds: settlement.partnerIds,
+        };
+      } else {
+        // Normal pending settlement: increase paidAmount
+        newPaid = (existing.paidAmount ?? 0) + settlement.amount;
+        historyEntry = {
+          amount: settlement.amount,
+          note: partnerNote,
+          method: "settlement",
+          date: settledAt,
+          settlementGroupId,
+          partnerIds: settlement.partnerIds,
+        };
+      }
+
+      // Status: complete when fully settled (no advance remaining, no pending balance)
+      const newRemaining = (existing.totalAmount ?? 0) - newPaid;
+      const newStatus = Math.abs(newRemaining) < 0.001 ? "complete" : "pending";
+
       const updates = {
         paidAmount: newPaid,
-        paidAmountHistory: [
-          ...existing.paidAmountHistory,
-          {
-            amount: settlement.amount,
-            note: partnerNote,
-            method: "settlement",
-            date: settledAt,
-            settlementGroupId,
-            partnerIds: settlement.partnerIds,
-          },
-        ],
+        paidAmountHistory: [...existing.paidAmountHistory, historyEntry],
         status: newStatus,
       };
 
@@ -295,28 +370,63 @@ export const useTransactions = (contactId) => {
 
   // ── computeSettlementPreview ──────────────────────────────────────────────
   // Returns a preview of what would happen if the selected txIds are settled.
-  // Used by the UI to show the user what will change before confirming.
+  // Mirrors the logic in settleTransactions exactly.
   const computeSettlementPreview = (txIds) => {
     const selected = txIds
       .map((id) => transactions.find((t) => t.id === id))
       .filter(Boolean)
-      .filter((t) => t.status === "pending");
+      .filter((t) => {
+        const rem = (t.totalAmount ?? 0) - (t.paidAmount ?? 0);
+        return t.status === "pending" || rem < 0;
+      });
 
-    let outPool = selected
-      .filter((t) => t.type === "out")
-      .map((t) => ({
-        ...t,
-        remaining: (t.totalAmount ?? 0) - (t.paidAmount ?? 0),
-      }))
-      .filter((t) => t.remaining > 0);
+    const byDate = (a, b) => new Date(a.createdAt) - new Date(b.createdAt);
 
-    let inPool = selected
-      .filter((t) => t.type === "in")
-      .map((t) => ({
-        ...t,
-        remaining: (t.totalAmount ?? 0) - (t.paidAmount ?? 0),
-      }))
-      .filter((t) => t.remaining > 0);
+    const outPool = [
+      ...selected
+        .filter((t) => t.type === "out" && t.status === "pending")
+        .map((t) => ({
+          ...t,
+          remaining: (t.totalAmount ?? 0) - (t.paidAmount ?? 0),
+          isAdvance: false,
+        }))
+        .filter((t) => t.remaining > 0)
+        .sort(byDate),
+      ...selected
+        .filter(
+          (t) =>
+            t.type === "in" && (t.totalAmount ?? 0) - (t.paidAmount ?? 0) < 0,
+        )
+        .map((t) => ({
+          ...t,
+          remaining: Math.abs((t.totalAmount ?? 0) - (t.paidAmount ?? 0)),
+          isAdvance: true,
+        }))
+        .sort(byDate),
+    ];
+
+    const inPool = [
+      ...selected
+        .filter((t) => t.type === "in" && t.status === "pending")
+        .map((t) => ({
+          ...t,
+          remaining: (t.totalAmount ?? 0) - (t.paidAmount ?? 0),
+          isAdvance: false,
+        }))
+        .filter((t) => t.remaining > 0)
+        .sort(byDate),
+      ...selected
+        .filter(
+          (t) =>
+            t.type === "out" && (t.totalAmount ?? 0) - (t.paidAmount ?? 0) < 0,
+        )
+        .map((t) => ({
+          ...t,
+          remaining: Math.abs((t.totalAmount ?? 0) - (t.paidAmount ?? 0)),
+          isAdvance: true,
+        }))
+        .sort(byDate),
+    ];
 
     const settlementMap = {};
     selected.forEach((t) => {
@@ -340,7 +450,7 @@ export const useTransactions = (contactId) => {
     }
 
     const totalSettled =
-      Object.values(settlementMap).reduce((s, v) => s + v.amount, 0) / 2; // divide by 2 since both sides are counted
+      Object.values(settlementMap).reduce((s, v) => s + v.amount, 0) / 2;
 
     const affectedCount = Object.values(settlementMap).filter(
       (v) => v.amount > 0,
@@ -348,47 +458,87 @@ export const useTransactions = (contactId) => {
 
     const previews = selected.map((tx) => {
       const settled = settlementMap[tx.id]?.amount ?? 0;
-      const oldRemaining = (tx.totalAmount ?? 0) - (tx.paidAmount ?? 0);
+      const currentRemaining = (tx.totalAmount ?? 0) - (tx.paidAmount ?? 0);
+      const isAdvanceTx = currentRemaining < 0;
+      const oldRemaining = isAdvanceTx
+        ? Math.abs(currentRemaining)
+        : currentRemaining;
       const newRemaining = Math.max(0, oldRemaining - settled);
       const willComplete = newRemaining <= 0.001 && settled > 0;
-      return { tx, settled, oldRemaining, newRemaining, willComplete };
+      return {
+        tx,
+        settled,
+        oldRemaining,
+        newRemaining,
+        willComplete,
+        isAdvanceTx,
+      };
     });
 
     return { previews, totalSettled, affectedCount };
   };
 
   // ── Summary ───────────────────────────────────────────────────────────────
-  // Include ALL transactions (pending + complete with advance) in net balance.
-  // "toReceive" = money still owed TO us (type=out, remaining > 0, pending)
-  // "toGive"    = money we still owe (type=in, remaining > 0, pending)
-  // Advances (overpaid, remaining < 0) flip the direction in net balance.
+  //
+  // "toReceive" = net money owed TO us across all transactions
+  // "toGive"    = net money we owe across all transactions
+  //
+  // Rules per transaction:
+  //   pending out (remaining > 0)  → toReceive += remaining
+  //   pending in  (remaining > 0)  → toGive    += remaining
+  //   overpaid out (remaining < 0) → customer gave us extra, we owe them back
+  //                                  → toGive += |remaining|
+  //   overpaid in  (remaining < 0) → we overpaid supplier, they owe us back
+  //                                  → toReceive += |remaining|
+  //
+  // This means both toReceive and toGive are always ≥ 0, and net = toReceive − toGive.
+  //
   const summary = transactions.reduce(
     (acc, tx) => {
       const remaining = (tx.totalAmount ?? 0) - (tx.paidAmount ?? 0);
+      const isOverpaid = remaining < 0;
+      const isPending = tx.status === "pending";
 
-      // Count pending transactions for display
-      if (tx.status === "pending") {
+      // Count pending transactions for display subtitles.
+      // Only count when remaining > 0 — overpaid-pending txs (remaining < 0)
+      // are already counted via overpaidOut/overpaidIn, not here.
+      if (isPending && remaining > 0) {
         acc.totalPending += 1;
         if (tx.type === "out") acc.pendingOut += 1;
         else acc.pendingIn += 1;
       }
 
-      // Net balance contributions — include advances from complete transactions too
-      if (tx.status === "pending" || remaining < 0) {
-        if (tx.type === "out") {
-          // remaining > 0: they still owe us → increases toReceive
-          // remaining < 0: we overpaid / advance → reduces toReceive (or adds to toGive)
-          acc.toReceive += remaining;
-        } else {
-          // remaining > 0: we still owe them → increases toGive
-          // remaining < 0: they overpaid us / advance → reduces toGive
-          acc.toGive += remaining;
-        }
+      // Receivable contributions
+      if (isPending && tx.type === "out" && remaining > 0) {
+        // Sale, customer still owes us
+        acc.toReceive += remaining;
+      } else if (isOverpaid && tx.type === "in") {
+        // We overpaid supplier → supplier owes us back → receivable
+        acc.toReceive += Math.abs(remaining);
+        acc.overpaidIn += 1;
+      }
+
+      // Payable contributions
+      if (isPending && tx.type === "in" && remaining > 0) {
+        // Purchase, we still owe supplier
+        acc.toGive += remaining;
+      } else if (isOverpaid && tx.type === "out") {
+        // Customer overpaid us → we owe them back → payable
+        acc.toGive += Math.abs(remaining);
+        acc.overpaidOut += 1;
       }
 
       return acc;
     },
-    { toReceive: 0, toGive: 0, pendingOut: 0, pendingIn: 0, totalPending: 0 },
+    {
+      toReceive: 0,
+      toGive: 0,
+      pendingOut: 0,
+      pendingIn: 0,
+      totalPending: 0,
+      overpaidOut: 0, // sales where customer overpaid us (we owe them)
+      overpaidIn: 0, // purchases where we overpaid supplier (they owe us)
+    },
   );
 
   return {

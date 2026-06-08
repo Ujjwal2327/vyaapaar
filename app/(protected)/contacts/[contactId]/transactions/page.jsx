@@ -175,9 +175,17 @@ export default function TransactionsPage() {
     (t) =>
       t.status === "pending" && (t.totalAmount ?? 0) - (t.paidAmount ?? 0) > 0,
   );
+  const overpaidTxs = transactions.filter(
+    (t) => (t.totalAmount ?? 0) - (t.paidAmount ?? 0) < 0,
+  );
+  // Show Settle button when there's at least one receivable source AND one payable source:
+  //   receivable: pending sale OR overpaid purchase (supplier owes us back)
+  //   payable:    pending purchase OR overpaid sale (we owe customer back)
   const canAutoSettle =
-    pendingTxs.some((t) => t.type === "out") &&
-    pendingTxs.some((t) => t.type === "in");
+    (pendingTxs.some((t) => t.type === "out") ||
+      overpaidTxs.some((t) => t.type === "in")) &&
+    (pendingTxs.some((t) => t.type === "in") ||
+      overpaidTxs.some((t) => t.type === "out"));
 
   return (
     <main className="min-h-screen">
@@ -298,6 +306,8 @@ export default function TransactionsPage() {
         }}
         transaction={selectedTx}
         contact={contact}
+        allTransactions={transactions}
+        onNavigateToTransaction={(tx) => setSelectedTx(tx)}
         onUpdate={handleUpdateTransaction}
         onDelete={handleDeleteTransaction}
         onAddPayment={() => setShowPaymentModal(true)}
