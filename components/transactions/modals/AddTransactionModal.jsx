@@ -32,7 +32,6 @@ import {
   Search,
   AlertTriangle,
   X,
-  Edit2,
 } from "lucide-react";
 import { usePriceList } from "@/hooks/usePriceList";
 
@@ -413,184 +412,112 @@ const PriceItemSearch = ({
   );
 };
 
-// ─── ItemRow — stable identity (module-level) ────────────────────────────────
-const ItemRow = ({
-  item,
-  index,
-  onUpdate,
-  onRemove,
-  isEditing,
-  onEdit,
-  onDoneEdit,
-}) => {
+// ─── ItemRow — always-visible compact inputs (module-level) ──────────────────
+const ItemRow = ({ item, index, onUpdate, onRemove }) => {
   const qty = parseFloat(item.quantity) || 0;
   const price = parseFloat(item.price) || 0;
   const total = qty * price;
+  const cat =
+    item.name && item.name.includes(" › ")
+      ? item.name.split(" › ").slice(0, -1).join(" › ")
+      : "";
 
-  // display: last segment for brevity, full path as tooltip
-  const displayName = item.name ? item.name.split(" › ").pop() : "";
-  const hasPath = item.name && item.name.includes(" › ");
+  const inputCls =
+    "bg-muted border-0 rounded px-1.5 py-0.5 text-xs font-mono outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary min-w-0 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
 
-  if (isEditing) {
-    return (
-      <div className="rounded-lg border p-3 space-y-2 bg-muted/30">
-        <div className="flex gap-2 items-center">
-          <Input
-            placeholder="Item name or full path"
-            value={item.name}
-            onChange={(e) => onUpdate(index, "name", e.target.value)}
-            className="flex-1 h-8 text-sm"
+  return (
+    <div className="flex items-start gap-3 py-2.5 border-b last:border-b-0">
+      <div className="flex-1 min-w-0">
+        <input
+          type="text"
+          value={item.name}
+          onChange={(e) => onUpdate(index, "name", e.target.value)}
+          placeholder="Item name"
+          className="w-full bg-muted border-0 rounded px-2 py-1 text-sm font-medium outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary transition-colors"
+        />
+        {/* always rendered so DOM structure stays stable — prevents sibling inputs losing focus */}
+        <p className="text-[11px] text-muted-foreground truncate px-1 min-h-[1rem]">
+          {cat}
+        </p>
+        <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+          <input
+            type="number"
+            value={item.quantity}
+            onChange={(e) => onUpdate(index, "quantity", e.target.value)}
+            placeholder="qty"
+            className={`${inputCls} w-14`}
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            onClick={() => onRemove(index)}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </Button>
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          <div>
-            <Label className="text-xs text-muted-foreground mb-0.5 block">
-              Qty
-            </Label>
-            <Input
-              type="number"
-              min="0"
-              step="any"
-              placeholder="1"
-              value={item.quantity}
-              onChange={(e) => onUpdate(index, "quantity", e.target.value)}
-              onBlur={(e) =>
-                onUpdate(index, "quantity", sanitizeNum(e.target.value))
-              }
-              className="h-8 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-            />
-          </div>
-          <div>
-            <Label className="text-xs text-muted-foreground mb-0.5 block">
-              Price (₹)
-            </Label>
-            <Input
-              type="number"
-              min="0"
-              step="any"
-              placeholder="0"
-              value={item.price}
-              onChange={(e) => onUpdate(index, "price", e.target.value)}
-              onBlur={(e) =>
-                onUpdate(index, "price", sanitizeNum(e.target.value))
-              }
-              className="h-8 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-            />
-          </div>
-          <div>
-            <Label className="text-xs text-muted-foreground mb-0.5 block">
-              Unit
-            </Label>
-            <Input
-              placeholder="kg, ft…"
-              value={item.unit || ""}
-              onChange={(e) => onUpdate(index, "unit", e.target.value)}
-              className="h-8 text-sm"
-            />
-          </div>
-        </div>
-        {item.name && (
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">
-              {fmtNum(item.quantity)}
-              {item.unit ? ` ${item.unit}` : ""} × {fmt(price)} ={" "}
-              <span className="font-semibold text-foreground">
+          <input
+            type="text"
+            value={item.unit || ""}
+            onChange={(e) => onUpdate(index, "unit", e.target.value)}
+            placeholder="unit"
+            className={`${inputCls} w-14`}
+          />
+          <span className="text-[11px] text-muted-foreground">×</span>
+          <input
+            type="number"
+            value={item.price}
+            onChange={(e) => onUpdate(index, "price", e.target.value)}
+            placeholder="₹0"
+            className={`${inputCls} w-16`}
+          />
+          {total > 0 && (
+            <>
+              <span className="text-[11px] text-muted-foreground">=</span>
+              <span className="text-[11px] font-semibold tabular-nums">
                 {fmt(total)}
               </span>
-            </span>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-6 text-xs"
-              onClick={onDoneEdit}
-            >
-              Done
-            </Button>
-          </div>
-        )}
+            </>
+          )}
+        </div>
       </div>
-    );
-  }
-
-  // compact read row
-  return (
-    <div className="flex items-start justify-between gap-2 py-1.5 border-b last:border-b-0">
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate" title={item.name}>
-          {displayName || <em className="text-muted-foreground">unnamed</em>}
-        </p>
-        {hasPath && (
-          <p className="text-xs text-muted-foreground truncate">
-            {item.name.split(" › ").slice(0, -1).join(" › ")}
-          </p>
-        )}
-        <p className="text-xs text-muted-foreground">
-          {fmtNum(item.quantity)}
-          {item.unit ? ` ${item.unit}` : ""}
-          {" · "}
-          {fmt(price)}
-          {item.unit ? `/${item.unit}` : ""}
-          {" · "}
-          <span className="font-medium text-foreground">{fmt(total)}</span>
-        </p>
-      </div>
-      <div className="flex gap-1 shrink-0">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7"
-          onClick={() => onEdit(index)}
-        >
-          <Edit2 className="w-3.5 h-3.5" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7"
-          onClick={() => onRemove(index)}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </Button>
-      </div>
+      <button
+        type="button"
+        onClick={() => onRemove(index)}
+        className="shrink-0 mt-1 w-6 h-6 flex items-center justify-center rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors"
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
     </div>
   );
 };
 
-// ─── ItemDisplayRow — read-only, used in Review + elsewhere ──────────────────
-const ItemDisplayRow = ({ item }) => {
+// ─── ItemDisplayRow — read-only, used in Review ───────────────────────────────
+const ItemDisplayRow = ({ item, isLast }) => {
   const qty = parseFloat(item.quantity) || 0;
   const price = parseFloat(item.price) || 0;
+  const total = qty * price;
   const displayName = item.name ? item.name.split(" › ").pop() : "";
   const hasPath = item.name && item.name.includes(" › ");
   return (
-    <div className="py-1.5 border-b last:border-b-0">
-      <p className="text-sm font-medium">{displayName}</p>
-      {hasPath && (
-        <p className="text-xs text-muted-foreground">
-          {item.name.split(" › ").slice(0, -1).join(" › ")}
+    <div
+      className={`flex items-start gap-3 py-2.5 ${!isLast ? "border-b" : ""}`}
+    >
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium leading-snug truncate">
+          {displayName}
         </p>
-      )}
-      <p className="text-xs text-muted-foreground">
-        {fmtNum(item.quantity)}
-        {item.unit ? ` ${item.unit}` : ""}
-        {" · "}
-        {fmt(price)}
-        {item.unit ? `/${item.unit}` : ""}
-        {" · "}
-        <span className="font-medium text-foreground">{fmt(qty * price)}</span>
-      </p>
+        {hasPath && (
+          <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+            {item.name.split(" › ").slice(0, -1).join(" › ")}
+          </p>
+        )}
+        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+          <span className="inline-flex items-center text-[11px] bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
+            {fmtNum(item.quantity)}
+            {item.unit ? ` ${item.unit}` : ""}
+          </span>
+          <span className="text-[11px] text-muted-foreground">×</span>
+          <span className="inline-flex items-center text-[11px] bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
+            {fmt(price)}
+            {item.unit ? `/${item.unit}` : ""}
+          </span>
+        </div>
+      </div>
+      <div className="shrink-0 text-right pt-0.5">
+        <p className="text-sm font-semibold tabular-nums">{fmt(total)}</p>
+      </div>
     </div>
   );
 };
@@ -603,7 +530,6 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
   const [kind, setKind] = useState(null);
   const [type, setType] = useState(null);
   const [itemsList, setItemsList] = useState([]);
-  const [editingItemIdx, setEditingItemIdx] = useState(null);
   const [additionalAmounts, setAdditionalAmounts] = useState([]);
   const [note, setNote] = useState("");
   const [initialPayment, setInitialPayment] = useState({
@@ -654,7 +580,6 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
     setKind(null);
     setType(null);
     setItemsList([]);
-    setEditingItemIdx(null);
     setAdditionalAmounts([]);
     setNote("");
     setInitialPayment({ amount: "", note: "", method: "cash" });
@@ -722,14 +647,9 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
   }, []);
   const removeItem = useCallback((i) => {
     setItemsList((prev) => prev.filter((_, j) => j !== i));
-    setEditingItemIdx(null);
   }, []);
   const addBlankItem = useCallback(() => {
-    setItemsList((prev) => {
-      const next = [...prev, emptyItem()];
-      setEditingItemIdx(next.length - 1);
-      return next;
-    });
+    setItemsList((prev) => [...prev, emptyItem()]);
   }, []);
   const addItemFromSearch = useCallback((item) => {
     setItemsList((prev) => [
@@ -874,26 +794,31 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                 Search the catalog below or add a blank item
               </p>
             ) : (
-              <div className="border rounded-lg px-3 py-1 max-h-56 overflow-y-auto">
+              <div className="border rounded-lg px-3 max-h-56 overflow-y-auto divide-y">
                 {itemsList.map((item, i) => (
                   <ItemRow
                     key={i}
                     item={item}
                     index={i}
-                    isEditing={editingItemIdx === i}
                     onUpdate={updateItem}
                     onRemove={removeItem}
-                    onEdit={(idx) => setEditingItemIdx(idx)}
-                    onDoneEdit={() => setEditingItemIdx(null)}
                   />
                 ))}
               </div>
             )}
 
             {itemsList.length > 0 && (
-              <p className="text-xs text-right font-semibold">
-                Items total: {fmt(itemsTotal)}
-              </p>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">
+                  {itemsList.filter((it) => it.name.trim()).length} item
+                  {itemsList.filter((it) => it.name.trim()).length !== 1
+                    ? "s"
+                    : ""}
+                </span>
+                <span className="font-semibold tabular-nums">
+                  Total: {fmt(itemsTotal)}
+                </span>
+              </div>
             )}
 
             {/* search at bottom */}
@@ -1218,18 +1143,26 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
 
               {kind === "item" &&
                 itemsList.filter((it) => it.name.trim()).length > 0 && (
-                  <div className="border rounded-lg px-3 py-1">
+                  <div className="border rounded-lg px-3 divide-y">
                     {itemsList
                       .filter((it) => it.name.trim())
-                      .map((it, i) => (
-                        <ItemDisplayRow key={i} item={it} />
+                      .map((it, i, arr) => (
+                        <ItemDisplayRow
+                          key={i}
+                          item={it}
+                          isLast={
+                            i === arr.length - 1 &&
+                            additionalAmounts.filter((e) => e.name.trim())
+                              .length === 0
+                          }
+                        />
                       ))}
                     {additionalAmounts
                       .filter((e) => e.name.trim())
-                      .map((e, i) => (
+                      .map((e, i, arr) => (
                         <div
                           key={i}
-                          className="py-1.5 border-b last:border-b-0 flex justify-between text-sm"
+                          className="py-2 flex justify-between text-sm"
                         >
                           <span className="text-muted-foreground">
                             {e.name}

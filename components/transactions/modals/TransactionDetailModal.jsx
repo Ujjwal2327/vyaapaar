@@ -415,107 +415,116 @@ const CatalogSearch = ({ onSelect, txType, sellPriceMode, allPriceItems }) => {
 };
 
 // ─── ItemEditRow (module-level) ───────────────────────────────────────────────
-const ItemEditRow = ({ item, index, onUpdate, onRemove }) => {
+const ItemEditRow = ({ item, index, onUpdate, onRemove, isLast }) => {
   const qty = parseFloat(item.quantity) || 0,
     price = parseFloat(item.price) || 0;
+  const total = qty * price;
+  const cat =
+    item.name && item.name.includes(" › ")
+      ? item.name.split(" › ").slice(0, -1).join(" › ")
+      : "";
+
+  const inputCls =
+    "bg-muted border-0 rounded px-1.5 py-0.5 text-xs font-mono outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary min-w-0 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
+
   return (
-    <div className="rounded border p-2.5 space-y-2 bg-background">
-      <div className="flex gap-2">
-        <Input
+    <div
+      className={`flex items-start gap-3 py-2.5 ${!isLast ? "border-b" : ""}`}
+    >
+      <div className="flex-1 min-w-0">
+        <input
+          type="text"
           value={item.name}
           onChange={(e) => onUpdate(index, "name", e.target.value)}
           placeholder="Item name"
-          className="flex-1 h-8 text-sm"
+          className="w-full bg-muted border-0 rounded px-2 py-1 text-sm font-medium outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary transition-colors"
         />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 shrink-0"
-          onClick={() => onRemove(index)}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </Button>
-      </div>
-      <div className="grid grid-cols-3 gap-1.5">
-        <div>
-          <Label className="text-xs text-muted-foreground mb-0.5 block">
-            Qty
-          </Label>
-          <Input
+        {/* always rendered so DOM structure stays stable — prevents sibling inputs losing focus */}
+        <p className="text-[11px] text-muted-foreground truncate px-1 min-h-[1rem]">
+          {cat}
+        </p>
+        <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+          <input
             type="number"
-            min="0"
-            step="any"
             value={item.quantity}
             onChange={(e) => onUpdate(index, "quantity", e.target.value)}
-            onBlur={(e) =>
-              onUpdate(index, "quantity", sanitizeNum(e.target.value))
-            }
-            placeholder="1"
-            className="h-8 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            placeholder="qty"
+            className={`${inputCls} w-14`}
           />
-        </div>
-        <div>
-          <Label className="text-xs text-muted-foreground mb-0.5 block">
-            Price (₹)
-          </Label>
-          <Input
-            type="number"
-            min="0"
-            step="any"
-            value={item.price}
-            onChange={(e) => onUpdate(index, "price", e.target.value)}
-            onBlur={(e) =>
-              onUpdate(index, "price", sanitizeNum(e.target.value))
-            }
-            placeholder="0"
-            className="h-8 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-          />
-        </div>
-        <div>
-          <Label className="text-xs text-muted-foreground mb-0.5 block">
-            Unit
-          </Label>
-          <Input
+          <input
+            type="text"
             value={item.unit || ""}
             onChange={(e) => onUpdate(index, "unit", e.target.value)}
-            placeholder="kg, ft…"
-            className="h-8 text-sm"
+            placeholder="unit"
+            className={`${inputCls} w-14`}
           />
+          <span className="text-[11px] text-muted-foreground">×</span>
+          <input
+            type="number"
+            value={item.price}
+            onChange={(e) => onUpdate(index, "price", e.target.value)}
+            placeholder="₹0"
+            className={`${inputCls} w-16`}
+          />
+          {total > 0 && (
+            <>
+              <span className="text-[11px] text-muted-foreground">=</span>
+              <span className="text-[11px] font-semibold tabular-nums">
+                {fmtC(total)}
+              </span>
+            </>
+          )}
         </div>
       </div>
-      {item.name && (
-        <p className="text-xs text-muted-foreground text-right">
-          {fmtNum(item.quantity)}
-          {item.unit ? ` ${item.unit}` : ""} × {fmtC(price)} ={" "}
-          <span className="font-semibold text-foreground">
-            {fmtC(qty * price)}
-          </span>
-        </p>
-      )}
+      <button
+        type="button"
+        onClick={() => onRemove(index)}
+        className="shrink-0 mt-1 w-6 h-6 flex items-center justify-center rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors"
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
     </div>
   );
 };
 
 // ─── ItemViewRow (module-level) ───────────────────────────────────────────────
-const ItemViewRow = ({ item }) => {
+const ItemViewRow = ({ item, index, isLast }) => {
   const qty = parseFloat(item.quantity) || 0,
     price = parseFloat(item.price) || 0;
+  const total = qty * price;
   const parts = item.name ? item.name.split(" › ") : [""];
   const name = parts[parts.length - 1];
   const cat = parts.slice(0, -1).join(" › ");
   return (
-    <div className="py-2 border-b last:border-b-0">
-      <p className="text-sm font-medium leading-tight">{name}</p>
-      {cat && (
-        <p className="text-xs text-muted-foreground leading-tight">{cat}</p>
-      )}
-      <p className="text-xs text-muted-foreground mt-0.5">
-        {fmtNum(item.quantity)}
-        {item.unit ? ` ${item.unit}` : ""} · {fmtC(price)}
-        {item.unit ? `/${item.unit}` : ""} ·{" "}
-        <span className="font-medium text-foreground">{fmtC(qty * price)}</span>
-      </p>
+    <div
+      className={`flex items-start gap-3 py-2.5 ${!isLast ? "border-b" : ""}`}
+    >
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium leading-snug truncate">
+          {name || (
+            <span className="italic text-muted-foreground">Unnamed</span>
+          )}
+        </p>
+        {cat && (
+          <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+            {cat}
+          </p>
+        )}
+        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+          <span className="inline-flex items-center gap-1 text-[11px] bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
+            {fmtNum(item.quantity)}
+            {item.unit ? ` ${item.unit}` : ""}
+          </span>
+          <span className="text-[11px] text-muted-foreground">×</span>
+          <span className="inline-flex items-center gap-1 text-[11px] bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
+            {fmtC(price)}
+            {item.unit ? `/${item.unit}` : ""}
+          </span>
+        </div>
+      </div>
+      <div className="shrink-0 text-right pt-0.5">
+        <p className="text-sm font-semibold tabular-nums">{fmtC(total)}</p>
+      </div>
     </div>
   );
 };
@@ -813,7 +822,7 @@ export const TransactionDetailModal = ({
                   )}
                 </div>
 
-                <div className="border rounded-lg px-3 py-0.5">
+                <div className="border rounded-lg px-3 divide-y">
                   {editMode ? (
                     (editedTx.itemsList ?? []).length === 0 ? (
                       <p className="text-xs text-muted-foreground py-3 text-center">
@@ -821,22 +830,24 @@ export const TransactionDetailModal = ({
                       </p>
                     ) : (
                       (editedTx.itemsList ?? []).map((item, i) => (
-                        <div
+                        <ItemEditRow
                           key={i}
-                          className="py-1.5 border-b last:border-b-0"
-                        >
-                          <ItemEditRow
-                            item={item}
-                            index={i}
-                            onUpdate={updateItem}
-                            onRemove={removeItem}
-                          />
-                        </div>
+                          item={item}
+                          index={i}
+                          onUpdate={updateItem}
+                          onRemove={removeItem}
+                          isLast={i === (editedTx.itemsList ?? []).length - 1}
+                        />
                       ))
                     )
                   ) : (
                     (tx.itemsList ?? []).map((it, i) => (
-                      <ItemViewRow key={i} item={it} />
+                      <ItemViewRow
+                        key={i}
+                        item={it}
+                        index={i}
+                        isLast={i === (tx.itemsList ?? []).length - 1}
+                      />
                     ))
                   )}
                   {!editMode &&
@@ -845,7 +856,7 @@ export const TransactionDetailModal = ({
                       .map((e, i) => (
                         <div
                           key={i}
-                          className="py-1.5 border-b last:border-b-0 flex justify-between text-sm"
+                          className="py-2 flex justify-between text-sm"
                         >
                           <span className="text-muted-foreground">
                             {e.name}
@@ -860,6 +871,21 @@ export const TransactionDetailModal = ({
                         </div>
                       ))}
                 </div>
+
+                {!editMode && tx.itemsList?.length > 0 && (
+                  <div className="flex justify-between items-center pt-1.5 text-sm">
+                    <span className="text-xs text-muted-foreground">
+                      {tx.itemsList.length} item
+                      {tx.itemsList.length !== 1 ? "s" : ""}
+                      {tx.additionalAmounts?.filter((e) => e.name).length > 0
+                        ? ` + ${tx.additionalAmounts.filter((e) => e.name).length} extra`
+                        : ""}
+                    </span>
+                    <span className="font-semibold tabular-nums">
+                      {fmtC(tx.totalAmount)}
+                    </span>
+                  </div>
+                )}
 
                 {editMode && (
                   <div className="space-y-1.5">
