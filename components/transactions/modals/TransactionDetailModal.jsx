@@ -1017,6 +1017,40 @@ export const TransactionDetailModal = ({
                     const isAdvanceApplied = p.method === "advance-applied";
                     const isSettlementType = isSettlement || isAdvanceApplied;
                     const amountVal = p.amount ?? 0;
+
+                    // Build a human-readable before→after balance line when
+                    // balanceBefore was stored (all new settlement entries have it).
+                    let balanceLine = null;
+                    if (isSettlementType && p.balanceBefore !== undefined) {
+                      const before = p.balanceBefore;
+                      const after = p.balanceAfter ?? 0;
+                      if (isAdvanceApplied) {
+                        // before is negative (advance), after moves toward 0
+                        const beforeLabel = `Advance ${fmtC(Math.abs(before))}`;
+                        const afterLabel =
+                          Math.abs(after) < 0.01
+                            ? "Fully consumed"
+                            : `Advance ${fmtC(Math.abs(after))} remaining`;
+                        balanceLine = {
+                          before: beforeLabel,
+                          after: afterLabel,
+                          afterOk: Math.abs(after) < 0.01,
+                        };
+                      } else {
+                        // before is positive (due), after moves toward 0
+                        const beforeLabel = `Due ${fmtC(before)}`;
+                        const afterLabel =
+                          after <= 0.01
+                            ? "Fully settled"
+                            : `${fmtC(after)} still due`;
+                        balanceLine = {
+                          before: beforeLabel,
+                          after: afterLabel,
+                          afterOk: after <= 0.01,
+                        };
+                      }
+                    }
+
                     return (
                       <div
                         key={i}
@@ -1027,6 +1061,7 @@ export const TransactionDetailModal = ({
                         }`}
                       >
                         <div className="min-w-0 flex-1">
+                          {/* Amount + badge row */}
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <p
                               className={`text-sm font-semibold ${isAdvanceApplied ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"}`}
@@ -1046,10 +1081,34 @@ export const TransactionDetailModal = ({
                               </span>
                             )}
                           </div>
-                          <p className="text-xs text-muted-foreground">
-                            {isSettlementType ? "Settled against" : p.method}
-                            {p.note && !isSettlementType ? ` · ${p.note}` : ""}
-                          </p>
+
+                          {/* Before → After balance context */}
+                          {balanceLine && (
+                            <div className="flex items-center gap-1 mt-1 text-xs">
+                              <span className="text-muted-foreground">
+                                {balanceLine.before}
+                              </span>
+                              <span className="text-muted-foreground">→</span>
+                              <span
+                                className={
+                                  balanceLine.afterOk
+                                    ? "text-green-600 dark:text-green-400 font-medium"
+                                    : "text-amber-600 font-medium"
+                                }
+                              >
+                                {balanceLine.after}
+                              </span>
+                            </div>
+                          )}
+
+                          {/* Method / note for non-settlement entries */}
+                          {!isSettlementType && (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {p.method}
+                              {p.note ? ` · ${p.note}` : ""}
+                            </p>
+                          )}
+
                           {/* Partner transaction IDs — full UUID, clickable */}
                           {isSettlementType && p.partnerIds?.length > 0 && (
                             <div className="mt-1.5 space-y-1">
@@ -1088,7 +1147,7 @@ export const TransactionDetailModal = ({
                             </div>
                           )}
                         </div>
-                        <p className="text-xs text-muted-foreground shrink-0 text-right">
+                        <p className="text-xs text-muted-foreground shrink-0 text-right whitespace-nowrap">
                           {fmtDate(p.date)}
                         </p>
                       </div>

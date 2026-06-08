@@ -337,6 +337,9 @@ export const useTransactions = (contactId) => {
           date: settledAt,
           settlementGroupId,
           partnerIds: settlement.partnerIds,
+          // Snapshot of balance at the time of settlement for clear audit display
+          balanceBefore: currentRemaining, // negative = was advance (e.g. -500)
+          balanceAfter: currentRemaining + settlement.amount, // moves toward 0
         };
       } else {
         // Normal pending settlement: increase paidAmount
@@ -348,6 +351,9 @@ export const useTransactions = (contactId) => {
           date: settledAt,
           settlementGroupId,
           partnerIds: settlement.partnerIds,
+          // Snapshot of balance at the time of settlement for clear audit display
+          balanceBefore: currentRemaining, // positive = was pending due (e.g. +1000)
+          balanceAfter: currentRemaining - settlement.amount, // moves toward 0
         };
       }
 

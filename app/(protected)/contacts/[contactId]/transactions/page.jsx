@@ -57,7 +57,18 @@ export default function TransactionsPage() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showSettleModal, setShowSettleModal] = useState(false);
-  const [selectedTx, setSelectedTx] = useState(null);
+  const [selectedTxId, setSelectedTxId] = useState(null);
+
+  // Derive the live transaction object from the hook's transactions array so
+  // that any updates (settle, payment, edit) are reflected immediately without
+  // a manual page refresh.
+  const selectedTx = useMemo(
+    () =>
+      selectedTxId
+        ? (transactions.find((t) => t.id === selectedTxId) ?? null)
+        : null,
+    [selectedTxId, transactions],
+  );
   const [kindFilter, setKindFilter] = useState("all"); // all / item / financial
   const [statusFilter, setStatusFilter] = useState("all"); // all / pending / complete
 
@@ -120,7 +131,7 @@ export default function TransactionsPage() {
       await updateTransaction(txId, updates);
       toast.success("Transaction updated", { id: loadingToast });
       setShowDetailModal(false);
-      setSelectedTx(null);
+      setSelectedTxId(null);
     } catch (e) {
       toast.error(getErrorMessage(e), { id: loadingToast });
     }
@@ -136,7 +147,7 @@ export default function TransactionsPage() {
             await deleteTransaction(txId);
             toast.success("Transaction deleted", { id: loadingToast });
             setShowDetailModal(false);
-            setSelectedTx(null);
+            setSelectedTxId(null);
           } catch (e) {
             toast.error(getErrorMessage(e), { id: loadingToast });
           }
@@ -154,7 +165,7 @@ export default function TransactionsPage() {
       toast.success("Payment recorded", { id: loadingToast });
       setShowPaymentModal(false);
       setShowDetailModal(false);
-      setSelectedTx(null);
+      setSelectedTxId(null);
     } catch (e) {
       toast.error(getErrorMessage(e), { id: loadingToast });
     }
@@ -284,7 +295,7 @@ export default function TransactionsPage() {
           statusFilter={statusFilter}
           setStatusFilter={setStatusFilter}
           onSelectTransaction={(tx) => {
-            setSelectedTx(tx);
+            setSelectedTxId(tx.id);
             setShowDetailModal(true);
           }}
         />
@@ -302,12 +313,12 @@ export default function TransactionsPage() {
         open={showDetailModal}
         onOpenChange={(v) => {
           setShowDetailModal(v);
-          if (!v) setSelectedTx(null);
+          if (!v) setSelectedTxId(null);
         }}
         transaction={selectedTx}
         contact={contact}
         allTransactions={transactions}
-        onNavigateToTransaction={(tx) => setSelectedTx(tx)}
+        onNavigateToTransaction={(tx) => setSelectedTxId(tx.id)}
         onUpdate={handleUpdateTransaction}
         onDelete={handleDeleteTransaction}
         onAddPayment={() => setShowPaymentModal(true)}
