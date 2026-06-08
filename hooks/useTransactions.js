@@ -192,6 +192,171 @@ export const useTransactions = (contactId) => {
     return updateTransaction(txId, updates);
   };
 
+  // ── settleTransactions ────────────────────────────────────────────────────
+  // Given a list of transaction IDs, apply mutual offset settlement.
+  // "out" transactions have positive remaining (money owed TO us).
+  // "in"  transactions have positive remaining (money we OWE).
+  // Settlement reduces both sides by the minimum shared amount, recording
+  // a "settlement" entry in paidAmountHistory with a note linking partner IDs.
+  const settleTransactions = async (txIds) => {
+    if (!user) throw new Error("NOT_AUTHENTICATED");
+
+    const selected = txIds
+      .map((id) => transactions.find((t) => t.id === id))
+      .filter(Boolean)
+      .filter((t) => t.status === "pending");
+
+    if (selected.length < 2)
+      throw new Error("Need at least 2 pending transactions");
+
+    const settledAt = new Date().toISOString();
+    const settlementGroupId = crypto.randomUUID();
+
+    // Separate into receivables (out) and payables (in)
+    let outPool = selected
+      .filter((t) => t.type === "out")
+      .map((t) => ({
+        ...t,
+        remaining: (t.totalAmount ?? 0) - (t.paidAmount ?? 0),
+      }))
+      .filter((t) => t.remaining > 0);
+
+    let inPool = selected
+      .filter((t) => t.type === "in")
+      .map((t) => ({
+        ...t,
+        remaining: (t.totalAmount ?? 0) - (t.paidAmount ?? 0),
+      }))
+      .filter((t) => t.remaining > 0);
+
+    // Map of txId → accumulated settlement amount + partner IDs
+    const settlementMap = {};
+    selected.forEach((t) => {
+      settlementMap[t.id] = { amount: 0, partnerIds: [] };
+    });
+
+    // Greedy offset: pair out entries against in entries
+    let oi = 0,
+      ii = 0;
+    while (oi < outPool.length && ii < inPool.length) {
+      const outTx = outPool[oi];
+      const inTx = inPool[ii];
+      const offset = Math.min(outTx.remaining, inTx.remaining);
+      if (offset > 0) {
+        settlementMap[outTx.id].amount += offset;
+        settlementMap[outTx.id].partnerIds.push(inTx.id);
+        settlementMap[inTx.id].amount += offset;
+        settlementMap[inTx.id].partnerIds.push(outTx.id);
+        outTx.remaining -= offset;
+        inTx.remaining -= offset;
+      }
+      if (outTx.remaining <= 0.001) oi++;
+      if (inTx.remaining <= 0.001) ii++;
+    }
+
+    // Apply updates for all transactions that had any settlement
+    const updatePromises = [];
+    for (const tx of selected) {
+      const settlement = settlementMap[tx.id];
+      if (settlement.amount <= 0) continue;
+
+      const existing = transactions.find((t) => t.id === tx.id);
+      const newPaid = (existing.paidAmount ?? 0) + settlement.amount;
+      const newStatus =
+        newPaid >= existing.totalAmount ? "complete" : "pending";
+
+      const partnerNote =
+        settlement.partnerIds.length > 0
+          ? `Settled against: ${settlement.partnerIds.map((id) => id.slice(0, 8)).join(", ")}`
+          : "Mutual settlement";
+
+      const updates = {
+        paidAmount: newPaid,
+        paidAmountHistory: [
+          ...existing.paidAmountHistory,
+          {
+            amount: settlement.amount,
+            note: partnerNote,
+            method: "settlement",
+            date: settledAt,
+            settlementGroupId,
+            partnerIds: settlement.partnerIds,
+          },
+        ],
+        status: newStatus,
+      };
+
+      updatePromises.push(updateTransaction(tx.id, updates));
+    }
+
+    await Promise.all(updatePromises);
+    return settlementGroupId;
+  };
+
+  // ── computeSettlementPreview ──────────────────────────────────────────────
+  // Returns a preview of what would happen if the selected txIds are settled.
+  // Used by the UI to show the user what will change before confirming.
+  const computeSettlementPreview = (txIds) => {
+    const selected = txIds
+      .map((id) => transactions.find((t) => t.id === id))
+      .filter(Boolean)
+      .filter((t) => t.status === "pending");
+
+    let outPool = selected
+      .filter((t) => t.type === "out")
+      .map((t) => ({
+        ...t,
+        remaining: (t.totalAmount ?? 0) - (t.paidAmount ?? 0),
+      }))
+      .filter((t) => t.remaining > 0);
+
+    let inPool = selected
+      .filter((t) => t.type === "in")
+      .map((t) => ({
+        ...t,
+        remaining: (t.totalAmount ?? 0) - (t.paidAmount ?? 0),
+      }))
+      .filter((t) => t.remaining > 0);
+
+    const settlementMap = {};
+    selected.forEach((t) => {
+      settlementMap[t.id] = { amount: 0 };
+    });
+
+    let oi = 0,
+      ii = 0;
+    while (oi < outPool.length && ii < inPool.length) {
+      const outTx = outPool[oi];
+      const inTx = inPool[ii];
+      const offset = Math.min(outTx.remaining, inTx.remaining);
+      if (offset > 0) {
+        settlementMap[outTx.id].amount += offset;
+        settlementMap[inTx.id].amount += offset;
+        outTx.remaining -= offset;
+        inTx.remaining -= offset;
+      }
+      if (outTx.remaining <= 0.001) oi++;
+      if (inTx.remaining <= 0.001) ii++;
+    }
+
+    const totalSettled =
+      Object.values(settlementMap).reduce((s, v) => s + v.amount, 0) / 2; // divide by 2 since both sides are counted
+
+    const affectedCount = Object.values(settlementMap).filter(
+      (v) => v.amount > 0,
+    ).length;
+
+    const previews = selected.map((tx) => {
+      const settled = settlementMap[tx.id]?.amount ?? 0;
+      const oldRemaining = (tx.totalAmount ?? 0) - (tx.paidAmount ?? 0);
+      const newRemaining = Math.max(0, oldRemaining - settled);
+      const willComplete = newRemaining <= 0.001 && settled > 0;
+      return { tx, settled, oldRemaining, newRemaining, willComplete };
+    });
+
+    return { previews, totalSettled, affectedCount };
+  };
+
   // ── Summary ───────────────────────────────────────────────────────────────
   // Include ALL transactions (pending + complete with advance) in net balance.
   // "toReceive" = money still owed TO us (type=out, remaining > 0, pending)
@@ -235,5 +400,7 @@ export const useTransactions = (contactId) => {
     updateTransaction,
     deleteTransaction,
     addPayment,
+    settleTransactions,
+    computeSettlementPreview,
   };
 };

@@ -701,64 +701,24 @@ export const TransactionDetailModal = ({
       <DialogContent className="w-full max-w-lg p-0 gap-0 overflow-hidden">
         {/* ── header ── */}
         <DialogHeader className="px-4 pt-4 pb-3 border-b">
-          <div className="flex items-center justify-between">
-            <DialogTitle className="flex items-center gap-2 text-base">
-              {isItem ? (
-                <Package className="w-4 h-4 text-blue-600 shrink-0" />
-              ) : (
-                <Banknote className="w-4 h-4 text-purple-600 shrink-0" />
-              )}
-              {isItem ? "Item" : "Financial"} Transaction
-            </DialogTitle>
-            <div className="flex items-center gap-1">
-              {!editMode ? (
-                <>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => setEditMode(true)}
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => onDelete(tx.id)}
-                  >
-                    <Trash2 className="w-4 h-4 text-destructive" />
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => {
-                      setEditMode(false);
-                      setEditedTx({ ...transaction });
-                    }}
-                  >
-                    <X className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    className="h-8 px-3 gap-1"
-                    onClick={handleSave}
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    Save
-                  </Button>
-                </>
-              )}
+          <div className="flex items-center gap-2">
+            {isItem ? (
+              <Package className="w-4 h-4 text-blue-600 shrink-0" />
+            ) : (
+              <Banknote className="w-4 h-4 text-purple-600 shrink-0" />
+            )}
+            <div className="flex-1 min-w-0">
+              <DialogTitle className="text-base leading-tight">
+                {isItem ? "Item" : "Financial"} Transaction
+              </DialogTitle>
+              <p className="text-[10px] text-muted-foreground font-mono mt-0.5 truncate">
+                ID: {tx.id}
+              </p>
             </div>
           </div>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[80vh]">
+        <ScrollArea className="max-h-[75vh]">
           <div className="px-4 py-3 space-y-4">
             {/* direction + status + date */}
             <div className="flex items-start justify-between gap-2">
@@ -1050,25 +1010,38 @@ export const TransactionDetailModal = ({
                   </Label>
                 </div>
                 <div className="space-y-2">
-                  {tx.paidAmountHistory.map((p, i) => (
-                    <div
-                      key={i}
-                      className="rounded-lg border px-3 py-2 flex items-start justify-between gap-2"
-                    >
-                      <div>
-                        <p className="text-sm font-semibold text-green-600 dark:text-green-400">
-                          {fmtC(p.amount)}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {p.method}
-                          {p.note ? ` · ${p.note}` : ""}
+                  {tx.paidAmountHistory.map((p, i) => {
+                    const isSettlement = p.method === "settlement";
+                    return (
+                      <div
+                        key={i}
+                        className={`rounded-lg border px-3 py-2 flex items-start justify-between gap-2 ${isSettlement ? "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30" : ""}`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="text-sm font-semibold text-green-600 dark:text-green-400">
+                              {fmtC(p.amount)}
+                            </p>
+                            {isSettlement && (
+                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                                Auto-settled
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {isSettlement ? "Mutual settlement" : p.method}
+                            {p.note && !isSettlement ? ` · ${p.note}` : ""}
+                            {isSettlement && p.partnerIds?.length > 0
+                              ? ` · with ${p.partnerIds.length} transaction${p.partnerIds.length > 1 ? "s" : ""}`
+                              : ""}
+                          </p>
+                        </div>
+                        <p className="text-xs text-muted-foreground shrink-0 text-right">
+                          {fmtDate(p.date)}
                         </p>
                       </div>
-                      <p className="text-xs text-muted-foreground shrink-0 text-right">
-                        {fmtDate(p.date)}
-                      </p>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1091,6 +1064,59 @@ export const TransactionDetailModal = ({
             )}
           </div>
         </ScrollArea>
+
+        {/* ── bottom action bar ── */}
+        <div className="border-t px-4 py-3 flex items-center gap-2 bg-background">
+          {!editMode ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 gap-1.5"
+                onClick={() => setEditMode(true)}
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+                Edit
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
+                onClick={() => onDelete(tx.id)}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1"
+                onClick={() => onOpenChange(false)}
+              >
+                Close
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 gap-1.5"
+                onClick={() => {
+                  setEditMode(false);
+                  setEditedTx({ ...transaction });
+                }}
+              >
+                <X className="w-3.5 h-3.5" />
+                Cancel
+              </Button>
+              <Button size="sm" className="flex-1 gap-1.5" onClick={handleSave}>
+                <Check className="w-3.5 h-3.5" />
+                Save changes
+              </Button>
+            </>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

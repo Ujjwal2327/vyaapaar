@@ -9,9 +9,10 @@ import { TransactionList } from "@/components/transactions/TransactionList";
 import { AddTransactionModal } from "@/components/transactions/modals/AddTransactionModal";
 import { TransactionDetailModal } from "@/components/transactions/modals/TransactionDetailModal";
 import { AddPaymentModal } from "@/components/transactions/modals/AddPaymentModal";
+import { SettleTransactionsModal } from "@/components/transactions/modals/SettleTransactionsModal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Plus, Phone, MapPin } from "lucide-react";
+import { ArrowLeft, Plus, Phone, MapPin, ArrowLeftRight } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import Logo from "@/components/Logo";
 import Navigation from "@/components/Navigation";
@@ -48,11 +49,14 @@ export default function TransactionsPage() {
     updateTransaction,
     deleteTransaction,
     addPayment,
+    settleTransactions,
+    computeSettlementPreview,
   } = useTransactions(contactId);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showSettleModal, setShowSettleModal] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
   const [kindFilter, setKindFilter] = useState("all"); // all / item / financial
   const [statusFilter, setStatusFilter] = useState("all"); // all / pending / complete
@@ -156,6 +160,25 @@ export default function TransactionsPage() {
     }
   };
 
+  const handleSettle = async (txIds) => {
+    const loadingToast = toast.loading("Settling transactions...");
+    try {
+      await settleTransactions(txIds);
+      toast.success("Transactions settled successfully", { id: loadingToast });
+    } catch (e) {
+      toast.error(getErrorMessage(e), { id: loadingToast });
+    }
+  };
+
+  // Whether auto-settle is possible: need at least one pending sale + one pending purchase
+  const pendingTxs = transactions.filter(
+    (t) =>
+      t.status === "pending" && (t.totalAmount ?? 0) - (t.paidAmount ?? 0) > 0,
+  );
+  const canAutoSettle =
+    pendingTxs.some((t) => t.type === "out") &&
+    pendingTxs.some((t) => t.type === "in");
+
   return (
     <main className="min-h-screen">
       {/* Header */}
@@ -224,6 +247,18 @@ export default function TransactionsPage() {
               <Plus className="w-4 h-4 mr-1" />
               Add
             </Button>
+            {canAutoSettle && (
+              <Button
+                onClick={() => setShowSettleModal(true)}
+                size="sm"
+                variant="outline"
+                className="shrink-0 gap-1"
+                title="Auto-settle pending transactions"
+              >
+                <ArrowLeftRight className="w-4 h-4" />
+                <span className="hidden sm:inline">Settle</span>
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -278,6 +313,14 @@ export default function TransactionsPage() {
         }}
         transaction={selectedTx}
         onSave={handleAddPayment}
+      />
+
+      <SettleTransactionsModal
+        open={showSettleModal}
+        onOpenChange={setShowSettleModal}
+        transactions={transactions}
+        computeSettlementPreview={computeSettlementPreview}
+        onSettle={handleSettle}
       />
     </main>
   );
