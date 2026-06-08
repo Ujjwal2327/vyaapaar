@@ -696,7 +696,11 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
       itemListHistory: [],
       note,
       status:
-        paidNow >= totalAmount && totalAmount > 0 ? "complete" : "pending",
+        paidNow > totalAmount && totalAmount > 0
+          ? "overpaid"
+          : paidNow >= totalAmount && totalAmount > 0
+            ? "complete"
+            : "pending",
     });
     reset();
   };
@@ -1204,9 +1208,11 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                   {kind} {type === "out" ? "Sale" : "Purchase"}
                 </span>
                 <Badge variant="outline" className="text-xs ml-auto">
-                  {paidNow >= totalAmount && totalAmount > 0
-                    ? "Complete"
-                    : "Pending"}
+                  {paidNow > totalAmount && totalAmount > 0
+                    ? "Overpaid"
+                    : paidNow >= totalAmount && totalAmount > 0
+                      ? "Complete"
+                      : "Pending"}
                 </Badge>
               </div>
 

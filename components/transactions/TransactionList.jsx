@@ -25,6 +25,7 @@ export const TransactionList = ({
     financial: allTransactions.filter((t) => t.kind === "financial").length,
     pending: allTransactions.filter((t) => t.status === "pending").length,
     complete: allTransactions.filter((t) => t.status === "complete").length,
+    overpaid: allTransactions.filter((t) => t.status === "overpaid").length,
   };
 
   return (
@@ -62,6 +63,11 @@ export const TransactionList = ({
             <SelectItem value="complete" className="text-xs">
               Complete ({counts.complete})
             </SelectItem>
+            {counts.overpaid > 0 && (
+              <SelectItem value="overpaid" className="text-xs">
+                Overpaid ({counts.overpaid})
+              </SelectItem>
+            )}
           </SelectContent>
         </Select>
       </div>

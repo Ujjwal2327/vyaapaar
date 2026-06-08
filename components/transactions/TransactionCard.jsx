@@ -23,8 +23,8 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
   const isItem = tx.kind === "item";
   const isOut = tx.type === "out";
   const isPending = tx.status === "pending";
+  const isOverpaid = tx.status === "overpaid";
   const remaining = (tx.totalAmount ?? 0) - (tx.paidAmount ?? 0);
-  const isOverpaid = remaining < 0;
   const progress =
     tx.totalAmount > 0
       ? Math.min((tx.paidAmount / tx.totalAmount) * 100, 100)
@@ -161,6 +161,11 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
               <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
                 <Clock className="w-3 h-3" />
                 Pending
+              </span>
+            ) : isOverpaid ? (
+              <span className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
+                <AlertTriangle className="w-3 h-3" />
+                Overpaid
               </span>
             ) : (
               <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">

@@ -182,13 +182,8 @@ export default function TransactionsPage() {
   };
 
   // Whether auto-settle is possible: need at least one pending sale + one pending purchase
-  const pendingTxs = transactions.filter(
-    (t) =>
-      t.status === "pending" && (t.totalAmount ?? 0) - (t.paidAmount ?? 0) > 0,
-  );
-  const overpaidTxs = transactions.filter(
-    (t) => (t.totalAmount ?? 0) - (t.paidAmount ?? 0) < 0,
-  );
+  const pendingTxs = transactions.filter((t) => t.status === "pending");
+  const overpaidTxs = transactions.filter((t) => t.status === "overpaid");
   // Show Settle button when there's at least one receivable source AND one payable source:
   //   receivable: pending sale OR overpaid purchase (supplier owes us back)
   //   payable:    pending purchase OR overpaid sale (we owe customer back)

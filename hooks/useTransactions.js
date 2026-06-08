@@ -119,9 +119,11 @@ export const useTransactions = (contactId) => {
     const { error: err } = await supabase.from("transactions").insert([row]);
     if (err) throw err;
 
-    const updated = [tx, ...transactions];
-    setTransactions(updated);
-    saveToLocal(updated);
+    setTransactions((prev) => {
+      const updated = [tx, ...prev];
+      saveToLocal(updated);
+      return updated;
+    });
     return tx;
   };
 
@@ -145,9 +147,13 @@ export const useTransactions = (contactId) => {
 
     if (err) throw err;
 
-    const newList = transactions.map((t) => (t.id === txId ? updated : t));
-    setTransactions(newList);
-    saveToLocal(newList);
+    // Use functional setState so this always applies on top of the latest state,
+    // even when multiple updateTransaction calls run concurrently (e.g. settlement).
+    setTransactions((prev) => {
+      const newList = prev.map((t) => (t.id === txId ? updated : t));
+      saveToLocal(newList);
+      return newList;
+    });
     return updated;
   };
 
@@ -162,9 +168,11 @@ export const useTransactions = (contactId) => {
 
     if (err) throw err;
 
-    const newList = transactions.filter((t) => t.id !== txId);
-    setTransactions(newList);
-    saveToLocal(newList);
+    setTransactions((prev) => {
+      const newList = prev.filter((t) => t.id !== txId);
+      saveToLocal(newList);
+      return newList;
+    });
   };
 
   const addPayment = async (txId, payment) => {
@@ -172,8 +180,12 @@ export const useTransactions = (contactId) => {
     if (!existing) throw new Error("Transaction not found");
 
     const newPaid = (existing.paidAmount ?? 0) + payment.amount;
-    // complete only when fully paid; overpaid also → complete
-    const newStatus = newPaid >= existing.totalAmount ? "complete" : "pending";
+    const newStatus =
+      newPaid > existing.totalAmount && existing.totalAmount > 0
+        ? "overpaid"
+        : newPaid >= existing.totalAmount && existing.totalAmount > 0
+          ? "complete"
+          : "pending";
 
     const updates = {
       paidAmount: newPaid,
@@ -307,8 +319,11 @@ export const useTransactions = (contactId) => {
       if (inTx.remaining <= 0.001) ii++;
     }
 
-    // Apply updates for all transactions that had any settlement
-    const updatePromises = [];
+    // Build the complete set of updated transaction objects up front,
+    // using the current snapshot of `transactions` (not re-reading after each DB write).
+    const updatedTxs = {}; // id → updated transaction object
+    const now = new Date().toISOString();
+
     for (const tx of selected) {
       const settlement = settlementMap[tx.id];
       if (settlement.amount <= 0) continue;
@@ -331,15 +346,14 @@ export const useTransactions = (contactId) => {
         // e.g. total=1500, paid=2000, advance=500 → apply 500 → paid becomes 1500
         newPaid = (existing.paidAmount ?? 0) - settlement.amount;
         historyEntry = {
-          amount: -settlement.amount, // negative = advance consumed
+          amount: -settlement.amount,
           note: partnerNote,
           method: "advance-applied",
           date: settledAt,
           settlementGroupId,
           partnerIds: settlement.partnerIds,
-          // Snapshot of balance at the time of settlement for clear audit display
-          balanceBefore: currentRemaining, // negative = was advance (e.g. -500)
-          balanceAfter: currentRemaining + settlement.amount, // moves toward 0
+          balanceBefore: currentRemaining,
+          balanceAfter: currentRemaining + settlement.amount,
         };
       } else {
         // Normal pending settlement: increase paidAmount
@@ -351,26 +365,48 @@ export const useTransactions = (contactId) => {
           date: settledAt,
           settlementGroupId,
           partnerIds: settlement.partnerIds,
-          // Snapshot of balance at the time of settlement for clear audit display
-          balanceBefore: currentRemaining, // positive = was pending due (e.g. +1000)
-          balanceAfter: currentRemaining - settlement.amount, // moves toward 0
+          balanceBefore: currentRemaining,
+          balanceAfter: currentRemaining - settlement.amount,
         };
       }
 
-      // Status: complete when fully settled (no advance remaining, no pending balance)
       const newRemaining = (existing.totalAmount ?? 0) - newPaid;
-      const newStatus = Math.abs(newRemaining) < 0.001 ? "complete" : "pending";
+      const newStatus =
+        Math.abs(newRemaining) < 0.001
+          ? "complete"
+          : newRemaining < 0
+            ? "overpaid"
+            : "pending";
 
-      const updates = {
+      updatedTxs[tx.id] = {
+        ...existing,
         paidAmount: newPaid,
         paidAmountHistory: [...existing.paidAmountHistory, historyEntry],
         status: newStatus,
+        updatedAt: now,
       };
-
-      updatePromises.push(updateTransaction(tx.id, updates));
     }
 
-    await Promise.all(updatePromises);
+    // Push all DB writes in parallel (each is independent, no ordering concern).
+    await Promise.all(
+      Object.values(updatedTxs).map((updated) =>
+        supabase
+          .from("transactions")
+          .upsert([transactionToRow(updated)], { onConflict: "id" })
+          .then(({ error: err }) => {
+            if (err) throw err;
+          }),
+      ),
+    );
+
+    // Single state update — applies all changes atomically so every card
+    // and the summary re-render together in one pass.
+    setTransactions((prev) => {
+      const newList = prev.map((t) => updatedTxs[t.id] ?? t);
+      saveToLocal(newList);
+      return newList;
+    });
+
     return settlementGroupId;
   };
 

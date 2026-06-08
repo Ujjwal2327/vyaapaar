@@ -40,21 +40,13 @@ export const SettleTransactionsModal = ({
 }) => {
   // Pending transactions with a remaining balance (tier 1)
   const pendingTxs = useMemo(
-    () =>
-      transactions.filter(
-        (t) =>
-          t.status === "pending" &&
-          (t.totalAmount ?? 0) - (t.paidAmount ?? 0) > 0,
-      ),
+    () => transactions.filter((t) => t.status === "pending"),
     [transactions],
   );
 
-  // Overpaid complete transactions — they carry an advance balance (tier 2)
+  // Overpaid transactions — they carry an advance balance (tier 2)
   const overpaidTxs = useMemo(
-    () =>
-      transactions.filter(
-        (t) => (t.totalAmount ?? 0) - (t.paidAmount ?? 0) < 0,
-      ),
+    () => transactions.filter((t) => t.status === "overpaid"),
     [transactions],
   );
 
@@ -78,11 +70,17 @@ export const SettleTransactionsModal = ({
 
   const hasReceivable = selectedTxs.some((t) => {
     const rem = (t.totalAmount ?? 0) - (t.paidAmount ?? 0);
-    return (t.type === "out" && rem > 0) || (t.type === "in" && rem < 0);
+    return (
+      (t.type === "out" && t.status === "pending" && rem > 0) ||
+      (t.type === "in" && t.status === "overpaid")
+    );
   });
   const hasPayable = selectedTxs.some((t) => {
     const rem = (t.totalAmount ?? 0) - (t.paidAmount ?? 0);
-    return (t.type === "in" && rem > 0) || (t.type === "out" && rem < 0);
+    return (
+      (t.type === "in" && t.status === "pending" && rem > 0) ||
+      (t.type === "out" && t.status === "overpaid")
+    );
   });
   const canSettle = hasReceivable && hasPayable;
 

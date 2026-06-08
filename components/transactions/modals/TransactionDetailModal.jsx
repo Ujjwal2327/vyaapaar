@@ -641,8 +641,8 @@ export const TransactionDetailModal = ({
   const tx = transaction;
   const isItem = tx.kind === "item";
   const isPending = tx.status === "pending";
+  const isOverpaid = tx.status === "overpaid";
   const remaining = (tx.totalAmount ?? 0) - (tx.paidAmount ?? 0);
-  const isOverpaid = remaining < 0;
   const progress =
     tx.totalAmount > 0
       ? Math.min((tx.paidAmount / tx.totalAmount) * 100, 100)
@@ -689,11 +689,14 @@ export const TransactionDetailModal = ({
         ];
       }
     }
+    const total = parseFloat(u.totalAmount || 0);
+    const paid = u.paidAmount ?? 0;
     u.status =
-      (u.paidAmount ?? 0) >= parseFloat(u.totalAmount || 0) &&
-      parseFloat(u.totalAmount || 0) > 0
-        ? "complete"
-        : "pending";
+      paid > total && total > 0
+        ? "overpaid"
+        : paid >= total && total > 0
+          ? "complete"
+          : "pending";
     await onUpdate(tx.id, u);
     setEditMode(false);
   };
@@ -743,10 +746,12 @@ export const TransactionDetailModal = ({
               </div>
               <Badge
                 variant="outline"
-                className={`shrink-0 text-xs ${isPending ? "border-amber-400 text-amber-700 dark:text-amber-400" : "border-green-400 text-green-700 dark:text-green-400"}`}
+                className={`shrink-0 text-xs ${isPending ? "border-amber-400 text-amber-700 dark:text-amber-400" : isOverpaid ? "border-blue-400 text-blue-700 dark:text-blue-400" : "border-green-400 text-green-700 dark:text-green-400"}`}
               >
                 {isPending ? (
                   <Clock className="w-3 h-3 mr-1 inline" />
+                ) : isOverpaid ? (
+                  <AlertTriangle className="w-3 h-3 mr-1 inline" />
                 ) : (
                   <CheckCircle2 className="w-3 h-3 mr-1 inline" />
                 )}
