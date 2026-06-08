@@ -9,6 +9,7 @@ import {
   Clock,
   CheckCircle2,
   AlertTriangle,
+  Trash2,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -24,6 +25,7 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
   const isOut = tx.type === "out";
   const isPending = tx.status === "pending";
   const isOverpaid = tx.status === "overpaid";
+  const isDeleted = tx.status === "deleted";
   const remaining = (tx.totalAmount ?? 0) - (tx.paidAmount ?? 0);
   const progress =
     tx.totalAmount > 0
@@ -33,9 +35,11 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
     ? format(new Date(tx.createdAt), "d MMM yy")
     : "";
 
-  const dirColor = isOut
-    ? "text-green-600 dark:text-green-400"
-    : "text-red-600 dark:text-red-400";
+  const dirColor = isDeleted
+    ? "text-muted-foreground"
+    : isOut
+      ? "text-green-600 dark:text-green-400"
+      : "text-red-600 dark:text-red-400";
 
   const overpaidMsg = isOut
     ? `Customer overpaid ${fmt(Math.abs(remaining))}`
@@ -55,18 +59,26 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
   return (
     <div
       onClick={onClick}
-      className="bg-card rounded-xl border p-3 sm:p-4 cursor-pointer hover:bg-muted/40 active:bg-muted/60 transition-colors"
+      className={`bg-card rounded-xl border p-3 sm:p-4 cursor-pointer transition-colors ${
+        isDeleted
+          ? "opacity-60 border-dashed hover:bg-muted/20 active:bg-muted/30"
+          : "hover:bg-muted/40 active:bg-muted/60"
+      }`}
     >
       <div className="flex items-start gap-3">
         {/* kind icon */}
         <div
           className={`mt-0.5 w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-            isItem
-              ? "bg-blue-100 dark:bg-blue-900/60"
-              : "bg-purple-100 dark:bg-purple-900/60"
+            isDeleted
+              ? "bg-muted"
+              : isItem
+                ? "bg-blue-100 dark:bg-blue-900/60"
+                : "bg-purple-100 dark:bg-purple-900/60"
           }`}
         >
-          {isItem ? (
+          {isDeleted ? (
+            <Trash2 className="w-4 h-4 text-muted-foreground" />
+          ) : isItem ? (
             <Package className="w-4 h-4 text-blue-700 dark:text-blue-300" />
           ) : (
             <Banknote className="w-4 h-4 text-purple-700 dark:text-purple-300" />
@@ -79,7 +91,7 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span
-                  className={`text-sm font-semibold ${dirColor} flex items-center gap-0.5`}
+                  className={`text-sm font-semibold ${dirColor} flex items-center gap-0.5 ${isDeleted ? "line-through" : ""}`}
                 >
                   {isOut ? (
                     <TrendingUp className="w-3.5 h-3.5" />
@@ -94,7 +106,12 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
                 >
                   {isItem ? "Items" : "Financial"}
                 </Badge>
-                {isOverpaid && (
+                {isDeleted && (
+                  <Badge className="text-xs px-1.5 py-0 h-5 bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 border-0">
+                    Deleted
+                  </Badge>
+                )}
+                {!isDeleted && isOverpaid && (
                   <Badge className="text-xs px-1.5 py-0 h-5 bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 border-0">
                     Overpaid
                   </Badge>
@@ -114,15 +131,17 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
 
             {/* amount */}
             <div className="text-right shrink-0">
-              <p className={`text-base font-bold ${dirColor}`}>
+              <p
+                className={`text-base font-bold ${dirColor} ${isDeleted ? "line-through" : ""}`}
+              >
                 {fmt(tx.totalAmount)}
               </p>
-              {isPending && remaining > 0 && (
+              {!isDeleted && isPending && remaining > 0 && (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
                   Due {fmt(remaining)}
                 </p>
               )}
-              {isOverpaid && (
+              {!isDeleted && isOverpaid && (
                 <p className="text-xs text-blue-600 dark:text-blue-400">
                   +{fmt(Math.abs(remaining))} adv.
                 </p>
@@ -130,8 +149,8 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
             </div>
           </div>
 
-          {/* progress bar */}
-          {tx.paidAmount > 0 && remaining > 0 && (
+          {/* progress bar — hide for deleted */}
+          {!isDeleted && tx.paidAmount > 0 && remaining > 0 && (
             <div className="mb-1.5">
               <div className="h-1 bg-muted rounded-full overflow-hidden">
                 <div
@@ -145,8 +164,8 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
             </div>
           )}
 
-          {/* overpayment note */}
-          {isOverpaid && (
+          {/* overpayment note — hide for deleted */}
+          {!isDeleted && isOverpaid && (
             <div className="flex items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-2 py-1 mb-1.5">
               <AlertTriangle className="w-3 h-3 shrink-0 text-amber-600" />
               <p className="text-xs text-amber-700 dark:text-amber-400">
@@ -157,7 +176,12 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
 
           {/* status + date */}
           <div className="flex items-center gap-2">
-            {isPending ? (
+            {isDeleted ? (
+              <span className="flex items-center gap-1 text-xs text-red-500 dark:text-red-400">
+                <Trash2 className="w-3 h-3" />
+                Deleted
+              </span>
+            ) : isPending ? (
               <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
                 <Clock className="w-3 h-3" />
                 Pending

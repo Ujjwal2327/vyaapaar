@@ -157,19 +157,141 @@ export const useTransactions = (contactId) => {
     return updated;
   };
 
+  // ── deleteTransaction ─────────────────────────────────────────────────────
+  //
+  // Soft-delete: marks status as "deleted" in DB instead of removing the row.
+  // Then finds every transaction that was linked to this one via a settlement
+  // (by scanning paidAmountHistory for entries referencing txId in partnerIds),
+  // strips those settlement entries from their history, recomputes paidAmount
+  // from scratch from remaining non-reversed entries, and re-derives status.
+  //
+  // This effectively "undoes" the settlement contributions of the deleted tx
+  // across all its partners, leaving them in the correct state as if the
+  // settlement had never included the deleted transaction.
+  //
   const deleteTransaction = async (txId) => {
     if (!user) throw new Error("NOT_AUTHENTICATED");
 
-    const { error: err } = await supabase
-      .from("transactions")
-      .delete()
-      .eq("id", txId)
-      .eq("user_id", user.id);
+    const now = new Date().toISOString();
 
-    if (err) throw err;
+    // Snapshot current list so we work from a consistent base.
+    const allTxs = transactions;
 
+    // 1. Soft-delete the target transaction.
+    const target = allTxs.find((t) => t.id === txId);
+    if (!target) throw new Error("Transaction not found");
+
+    const deletedTx = {
+      ...target,
+      status: "deleted",
+      updatedAt: now,
+    };
+
+    // 2. Find all partner transactions that reference txId in any settlement
+    //    entry in their paidAmountHistory.
+    const affectedPartners = allTxs.filter(
+      (t) =>
+        t.id !== txId &&
+        t.status !== "deleted" &&
+        (t.paidAmountHistory ?? []).some(
+          (entry) =>
+            (entry.method === "settlement" ||
+              entry.method === "advance-applied") &&
+            (entry.partnerIds ?? []).includes(txId),
+        ),
+    );
+
+    // 3. For each partner, rebuild their payment state by removing every
+    //    settlement entry that references the deleted tx (by settlementGroupId
+    //    shared with the deleted tx's entries, or directly by partnerIds match).
+    //    We recompute paidAmount from what remains.
+    //
+    //    Strategy:
+    //      a) Collect all settlementGroupIds from the deleted tx's own history
+    //         that involved txId — these are the groups to unwind.
+    //      b) For each partner, strip any history entries whose settlementGroupId
+    //         is in that set OR whose partnerIds include txId.
+    //      c) Recompute paidAmount = sum of remaining history amounts.
+    //      d) Re-derive status from new paidAmount vs totalAmount.
+
+    const deletedGroups = new Set(
+      (target.paidAmountHistory ?? [])
+        .filter(
+          (e) =>
+            (e.method === "settlement" || e.method === "advance-applied") &&
+            e.settlementGroupId,
+        )
+        .map((e) => e.settlementGroupId),
+    );
+
+    const updatedPartners = affectedPartners.map((partner) => {
+      // Strip settlement entries belonging to the deleted groups or directly
+      // referencing the deleted tx.
+      const cleanedHistory = (partner.paidAmountHistory ?? []).filter(
+        (entry) => {
+          const isSettlementEntry =
+            entry.method === "settlement" || entry.method === "advance-applied";
+          if (!isSettlementEntry) return true; // keep all non-settlement entries
+          const inGroup =
+            entry.settlementGroupId &&
+            deletedGroups.has(entry.settlementGroupId);
+          const directRef = (entry.partnerIds ?? []).includes(txId);
+          return !inGroup && !directRef;
+        },
+      );
+
+      // Recompute paidAmount from remaining history entries.
+      // "advance-applied" entries have negative amounts (they reduce paid).
+      const newPaid = cleanedHistory.reduce(
+        (sum, e) => sum + (e.amount ?? 0),
+        0,
+      );
+
+      const total = partner.totalAmount ?? 0;
+      const newStatus =
+        newPaid > total && total > 0
+          ? "overpaid"
+          : newPaid >= total && total > 0
+            ? "complete"
+            : "pending";
+
+      return {
+        ...partner,
+        paidAmount: Math.max(0, newPaid), // guard against floating-point negatives
+        paidAmountHistory: cleanedHistory,
+        status: newStatus,
+        updatedAt: now,
+      };
+    });
+
+    // 4. Persist all changes in parallel.
+    await Promise.all([
+      supabase
+        .from("transactions")
+        .upsert([transactionToRow(deletedTx)], { onConflict: "id" })
+        .then(({ error: err }) => {
+          if (err) throw err;
+        }),
+      ...updatedPartners.map((p) =>
+        supabase
+          .from("transactions")
+          .upsert([transactionToRow(p)], { onConflict: "id" })
+          .then(({ error: err }) => {
+            if (err) throw err;
+          }),
+      ),
+    ]);
+
+    // 5. Single atomic state update.
     setTransactions((prev) => {
-      const newList = prev.filter((t) => t.id !== txId);
+      const partnerMap = Object.fromEntries(
+        updatedPartners.map((p) => [p.id, p]),
+      );
+      const newList = prev.map((t) => {
+        if (t.id === txId) return deletedTx;
+        if (partnerMap[t.id]) return partnerMap[t.id];
+        return t;
+      });
       saveToLocal(newList);
       return newList;
     });
@@ -223,11 +345,13 @@ export const useTransactions = (contactId) => {
   const settleTransactions = async (txIds) => {
     if (!user) throw new Error("NOT_AUTHENTICATED");
 
-    // Pull all selected transactions — both pending AND overpaid complete ones
+    // Pull all selected transactions — both pending AND overpaid complete ones.
+    // Exclude deleted transactions.
     const selected = txIds
       .map((id) => transactions.find((t) => t.id === id))
       .filter(Boolean)
       .filter((t) => {
+        if (t.status === "deleted") return false;
         const rem = (t.totalAmount ?? 0) - (t.paidAmount ?? 0);
         return t.status === "pending" || rem < 0; // pending OR overpaid
       });
@@ -418,6 +542,7 @@ export const useTransactions = (contactId) => {
       .map((id) => transactions.find((t) => t.id === id))
       .filter(Boolean)
       .filter((t) => {
+        if (t.status === "deleted") return false;
         const rem = (t.totalAmount ?? 0) - (t.paidAmount ?? 0);
         return t.status === "pending" || rem < 0;
       });
@@ -533,10 +658,13 @@ export const useTransactions = (contactId) => {
   //   overpaid in  (remaining < 0) → we overpaid supplier, they owe us back
   //                                  → toReceive += |remaining|
   //
-  // This means both toReceive and toGive are always ≥ 0, and net = toReceive − toGive.
+  // Deleted transactions are excluded from all summary calculations.
   //
   const summary = transactions.reduce(
     (acc, tx) => {
+      // Deleted transactions contribute nothing to the summary.
+      if (tx.status === "deleted") return acc;
+
       const remaining = (tx.totalAmount ?? 0) - (tx.paidAmount ?? 0);
       const isOverpaid = remaining < 0;
       const isPending = tx.status === "pending";

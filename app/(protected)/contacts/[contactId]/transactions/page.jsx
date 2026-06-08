@@ -70,7 +70,7 @@ export default function TransactionsPage() {
     [selectedTxId, transactions],
   );
   const [kindFilter, setKindFilter] = useState("all"); // all / item / financial
-  const [statusFilter, setStatusFilter] = useState("all"); // all / pending / complete
+  const [statusFilter, setStatusFilter] = useState("active"); // active / pending / complete / overpaid / deleted
 
   const contact = useMemo(
     () => peopleData.find((p) => p.id === contactId),
@@ -80,7 +80,13 @@ export default function TransactionsPage() {
   const filteredTransactions = useMemo(() => {
     return transactions.filter((tx) => {
       const matchKind = kindFilter === "all" || tx.kind === kindFilter;
-      const matchStatus = statusFilter === "all" || tx.status === statusFilter;
+      let matchStatus;
+      if (statusFilter === "active") {
+        // "active" = everything except deleted — the sensible default view
+        matchStatus = tx.status !== "deleted";
+      } else {
+        matchStatus = tx.status === statusFilter;
+      }
       return matchKind && matchStatus;
     });
   }, [transactions, kindFilter, statusFilter]);
@@ -139,6 +145,8 @@ export default function TransactionsPage() {
 
   const handleDeleteTransaction = async (txId) => {
     toast.warning("Delete this transaction?", {
+      description:
+        "It will be soft-deleted and any linked settlements will be reversed.",
       action: {
         label: "Delete",
         onClick: async () => {
@@ -181,9 +189,11 @@ export default function TransactionsPage() {
     }
   };
 
-  // Whether auto-settle is possible: need at least one pending sale + one pending purchase
-  const pendingTxs = transactions.filter((t) => t.status === "pending");
-  const overpaidTxs = transactions.filter((t) => t.status === "overpaid");
+  // Whether auto-settle is possible: need at least one pending sale + one pending purchase.
+  // Deleted transactions are excluded.
+  const activeTxs = transactions.filter((t) => t.status !== "deleted");
+  const pendingTxs = activeTxs.filter((t) => t.status === "pending");
+  const overpaidTxs = activeTxs.filter((t) => t.status === "overpaid");
   // Show Settle button when there's at least one receivable source AND one payable source:
   //   receivable: pending sale OR overpaid purchase (supplier owes us back)
   //   payable:    pending purchase OR overpaid sale (we owe customer back)

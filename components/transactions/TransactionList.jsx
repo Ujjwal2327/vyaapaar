@@ -19,14 +19,21 @@ export const TransactionList = ({
   setStatusFilter,
   onSelectTransaction,
 }) => {
+  // Active = everything that isn't deleted (used for kind counts and the
+  // "active" status bucket so deleted transactions don't inflate counts).
+  const activeTxs = allTransactions.filter((t) => t.status !== "deleted");
+
   const counts = {
-    all: allTransactions.length,
-    item: allTransactions.filter((t) => t.kind === "item").length,
-    financial: allTransactions.filter((t) => t.kind === "financial").length,
-    pending: allTransactions.filter((t) => t.status === "pending").length,
-    complete: allTransactions.filter((t) => t.status === "complete").length,
-    overpaid: allTransactions.filter((t) => t.status === "overpaid").length,
+    active: activeTxs.length,
+    item: activeTxs.filter((t) => t.kind === "item").length,
+    financial: activeTxs.filter((t) => t.kind === "financial").length,
+    pending: activeTxs.filter((t) => t.status === "pending").length,
+    complete: activeTxs.filter((t) => t.status === "complete").length,
+    overpaid: activeTxs.filter((t) => t.status === "overpaid").length,
+    deleted: allTransactions.filter((t) => t.status === "deleted").length,
   };
+
+  const isShowingDeleted = statusFilter === "deleted";
 
   return (
     <div className="space-y-3">
@@ -39,7 +46,7 @@ export const TransactionList = ({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all" className="text-xs">
-              All types ({counts.all})
+              All types ({isShowingDeleted ? counts.deleted : counts.active})
             </SelectItem>
             <SelectItem value="item" className="text-xs">
               Items ({counts.item})
@@ -54,8 +61,8 @@ export const TransactionList = ({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all" className="text-xs">
-              All statuses
+            <SelectItem value="active" className="text-xs">
+              Active ({counts.active})
             </SelectItem>
             <SelectItem value="pending" className="text-xs">
               Pending ({counts.pending})
@@ -68,6 +75,11 @@ export const TransactionList = ({
                 Overpaid ({counts.overpaid})
               </SelectItem>
             )}
+            {counts.deleted > 0 && (
+              <SelectItem value="deleted" className="text-xs">
+                Deleted ({counts.deleted})
+              </SelectItem>
+            )}
           </SelectContent>
         </Select>
       </div>
@@ -76,7 +88,7 @@ export const TransactionList = ({
       {transactions.length === 0 ? (
         <div className="rounded-xl border bg-card p-8 text-center">
           <p className="text-muted-foreground text-sm">No transactions found</p>
-          {(kindFilter !== "all" || statusFilter !== "all") && (
+          {(kindFilter !== "all" || statusFilter !== "active") && (
             <p className="text-xs text-muted-foreground mt-1">
               Try changing the filters above
             </p>

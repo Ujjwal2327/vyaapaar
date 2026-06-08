@@ -37,6 +37,7 @@ import {
   CreditCard,
   AlertTriangle,
   Search,
+  Ban,
 } from "lucide-react";
 import { format } from "date-fns";
 import { usePriceList } from "@/hooks/usePriceList";
@@ -642,6 +643,7 @@ export const TransactionDetailModal = ({
   const isItem = tx.kind === "item";
   const isPending = tx.status === "pending";
   const isOverpaid = tx.status === "overpaid";
+  const isDeleted = tx.status === "deleted";
   const remaining = (tx.totalAmount ?? 0) - (tx.paidAmount ?? 0);
   const progress =
     tx.totalAmount > 0
@@ -746,9 +748,19 @@ export const TransactionDetailModal = ({
               </div>
               <Badge
                 variant="outline"
-                className={`shrink-0 text-xs ${isPending ? "border-amber-400 text-amber-700 dark:text-amber-400" : isOverpaid ? "border-blue-400 text-blue-700 dark:text-blue-400" : "border-green-400 text-green-700 dark:text-green-400"}`}
+                className={`shrink-0 text-xs ${
+                  isDeleted
+                    ? "border-red-300 text-red-600 dark:border-red-700 dark:text-red-400"
+                    : isPending
+                      ? "border-amber-400 text-amber-700 dark:text-amber-400"
+                      : isOverpaid
+                        ? "border-blue-400 text-blue-700 dark:text-blue-400"
+                        : "border-green-400 text-green-700 dark:text-green-400"
+                }`}
               >
-                {isPending ? (
+                {isDeleted ? (
+                  <Trash2 className="w-3 h-3 mr-1 inline" />
+                ) : isPending ? (
                   <Clock className="w-3 h-3 mr-1 inline" />
                 ) : isOverpaid ? (
                   <AlertTriangle className="w-3 h-3 mr-1 inline" />
@@ -758,6 +770,21 @@ export const TransactionDetailModal = ({
                 {tx.status}
               </Badge>
             </div>
+
+            {/* deleted banner */}
+            {isDeleted && (
+              <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 px-3 py-2.5 flex items-start gap-2">
+                <Ban className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
+                <div className="text-xs text-red-700 dark:text-red-400">
+                  <p className="font-semibold mb-0.5">Transaction deleted</p>
+                  <p>
+                    This transaction has been soft-deleted. Any settlements it
+                    was part of have been reversed on the linked transactions.
+                    This record is kept for audit purposes only.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* edit mode banner */}
             {editMode && (
@@ -994,7 +1021,7 @@ export const TransactionDetailModal = ({
                 </div>
               )}
 
-              {isPending && remaining > 0 && !editMode && (
+              {isPending && remaining > 0 && !editMode && !isDeleted && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -1121,27 +1148,39 @@ export const TransactionDetailModal = ({
                                 const partnerTx = allTransactions.find(
                                   (t) => t.id === pid,
                                 );
+                                const partnerDeleted =
+                                  partnerTx?.status === "deleted";
                                 return (
                                   <button
                                     key={pid}
                                     type="button"
                                     onClick={() =>
                                       partnerTx &&
+                                      !partnerDeleted &&
                                       onNavigateToTransaction?.(partnerTx)
                                     }
                                     className={`block w-full text-left text-[10px] font-mono px-2 py-1 rounded border transition-colors ${
-                                      partnerTx
-                                        ? "border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 cursor-pointer"
-                                        : "border-muted bg-muted/30 text-muted-foreground cursor-default"
+                                      partnerDeleted
+                                        ? "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/20 text-red-500 dark:text-red-400 cursor-default line-through"
+                                        : partnerTx
+                                          ? "border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 cursor-pointer"
+                                          : "border-muted bg-muted/30 text-muted-foreground cursor-default"
                                     }`}
                                     title={
-                                      partnerTx
-                                        ? "Open this transaction"
-                                        : "Transaction not found"
+                                      partnerDeleted
+                                        ? "This transaction was deleted"
+                                        : partnerTx
+                                          ? "Open this transaction"
+                                          : "Transaction not found"
                                     }
                                   >
                                     {pid}
-                                    {partnerTx && (
+                                    {partnerDeleted && (
+                                      <span className="ml-1.5 not-italic no-underline text-red-400">
+                                        (deleted)
+                                      </span>
+                                    )}
+                                    {!partnerDeleted && partnerTx && (
                                       <span className="ml-1.5 text-blue-500 dark:text-blue-400">
                                         ↗
                                       </span>
@@ -1183,7 +1222,17 @@ export const TransactionDetailModal = ({
 
         {/* ── bottom action bar ── */}
         <div className="border-t px-4 py-3 flex items-center gap-2 bg-background">
-          {!editMode ? (
+          {isDeleted ? (
+            // Deleted transactions: read-only, just close
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              onClick={() => onOpenChange(false)}
+            >
+              Close
+            </Button>
+          ) : !editMode ? (
             <>
               <Button
                 variant="outline"
