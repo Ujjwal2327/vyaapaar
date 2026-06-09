@@ -130,19 +130,19 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
             </div>
 
             {/* amount */}
-            <div className="text-right shrink-0">
+            <div className="text-right shrink-0 max-w-[7rem]">
               <p
-                className={`text-base font-bold ${dirColor} ${isDeleted ? "line-through" : ""}`}
+                className={`text-base font-bold tabular-nums ${dirColor} ${isDeleted ? "line-through" : ""}`}
               >
                 {fmt(tx.totalAmount)}
               </p>
               {!isDeleted && isPending && remaining > 0 && (
-                <p className="text-xs text-amber-600 dark:text-amber-400">
+                <p className="text-xs text-amber-600 dark:text-amber-400 tabular-nums">
                   Due {fmt(remaining)}
                 </p>
               )}
               {!isDeleted && isOverpaid && (
-                <p className="text-xs text-blue-600 dark:text-blue-400">
+                <p className="text-xs text-blue-600 dark:text-blue-400 tabular-nums">
                   +{fmt(Math.abs(remaining))} adv.
                 </p>
               )}
@@ -166,9 +166,9 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
 
           {/* overpayment note — hide for deleted */}
           {!isDeleted && isOverpaid && (
-            <div className="flex items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-2 py-1 mb-1.5">
-              <AlertTriangle className="w-3 h-3 shrink-0 text-amber-600" />
-              <p className="text-xs text-amber-700 dark:text-amber-400">
+            <div className="flex items-start gap-1 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-2 py-1 mb-1.5">
+              <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5 text-amber-600" />
+              <p className="text-xs text-amber-700 dark:text-amber-400 break-words min-w-0">
                 {overpaidMsg}
               </p>
             </div>

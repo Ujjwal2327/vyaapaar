@@ -99,7 +99,7 @@ export const TransactionSummary = ({ summary }) => {
           {fmt(netBalance)}
         </p>
         <p className="text-xs text-muted-foreground mt-0.5">
-          {totalPendingAll} pending
+          {totalPendingAll} active
         </p>
       </div>
     </div>

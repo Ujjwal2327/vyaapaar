@@ -37,20 +37,31 @@ export const AddPaymentModal = ({
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState("cash");
   const [note, setNote] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!transaction) return null;
 
   const remaining =
     (transaction.totalAmount ?? 0) - (transaction.paidAmount ?? 0);
   const paidNow = parseFloat(amount) || 0;
-  const isOverpaid = paidNow > remaining && remaining > 0;
+  // Fire the overpayment warning whenever paidNow would push past the total,
+  // regardless of whether the transaction is already overpaid (remaining <= 0).
+  // When remaining <= 0 the transaction already carries an advance balance, so
+  // any further payment adds to it — the warning should still appear.
+  const isOverpaid = paidNow > 0 && paidNow > remaining;
   const afterPayment = remaining - paidNow;
 
   const handleSubmit = async () => {
-    await onSave({ amount: paidNow, method, note });
-    setAmount("");
-    setMethod("cash");
-    setNote("");
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await onSave({ amount: paidNow, method, note });
+      setAmount("");
+      setMethod("cash");
+      setNote("");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const isValid = paidNow > 0;
@@ -176,10 +187,10 @@ export const AddPaymentModal = ({
             </Button>
             <Button
               className="flex-1"
-              disabled={!isValid}
+              disabled={!isValid || isSubmitting}
               onClick={handleSubmit}
             >
-              Save Payment
+              {isSubmitting ? "Saving…" : "Save Payment"}
             </Button>
           </div>
         </div>

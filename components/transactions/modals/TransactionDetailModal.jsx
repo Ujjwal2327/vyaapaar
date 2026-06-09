@@ -429,9 +429,9 @@ const ItemEditRow = ({ item, index, onUpdate, onRemove, isLast }) => {
 
   return (
     <div
-      className={`flex items-start gap-3 py-2.5 ${!isLast ? "border-b" : ""}`}
+      className={`flex items-start gap-3 py-2.5 overflow-hidden ${!isLast ? "border-b" : ""}`}
     >
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 overflow-hidden">
         <input
           type="text"
           value={item.name}
@@ -440,7 +440,7 @@ const ItemEditRow = ({ item, index, onUpdate, onRemove, isLast }) => {
           className="w-full bg-muted border-0 rounded px-2 py-1 text-sm font-medium outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary transition-colors"
         />
         {/* always rendered so DOM structure stays stable — prevents sibling inputs losing focus */}
-        <p className="text-[11px] text-muted-foreground truncate px-1 min-h-[1rem]">
+        <p className="text-[11px] text-muted-foreground break-all px-1 min-h-[1rem]">
           {cat}
         </p>
         <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
@@ -497,16 +497,16 @@ const ItemViewRow = ({ item, index, isLast }) => {
   const cat = parts.slice(0, -1).join(" › ");
   return (
     <div
-      className={`flex items-start gap-3 py-2.5 ${!isLast ? "border-b" : ""}`}
+      className={`flex items-start gap-2 py-2.5 overflow-hidden ${!isLast ? "border-b" : ""}`}
     >
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium leading-snug truncate">
+      <div className="flex-1 overflow-hidden">
+        <p className="text-sm font-medium leading-snug break-all">
           {name || (
             <span className="italic text-muted-foreground">Unnamed</span>
           )}
         </p>
         {cat && (
-          <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+          <p className="text-[11px] text-muted-foreground mt-0.5 break-all">
             {cat}
           </p>
         )}
@@ -515,7 +515,7 @@ const ItemViewRow = ({ item, index, isLast }) => {
             {fmtNum(item.quantity)}
             {item.unit ? ` ${item.unit}` : ""}
           </span>
-          <span className="text-[11px] text-muted-foreground">×</span>
+          <span className="text-[11px] text-muted-foreground shrink-0">×</span>
           <span className="inline-flex items-center gap-1 text-[11px] bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
             {fmtC(price)}
             {item.unit ? `/${item.unit}` : ""}
@@ -523,7 +523,9 @@ const ItemViewRow = ({ item, index, isLast }) => {
         </div>
       </div>
       <div className="shrink-0 text-right pt-0.5">
-        <p className="text-sm font-semibold tabular-nums">{fmtC(total)}</p>
+        <p className="text-sm font-semibold tabular-nums whitespace-nowrap">
+          {fmtC(total)}
+        </p>
       </div>
     </div>
   );
@@ -531,14 +533,14 @@ const ItemViewRow = ({ item, index, isLast }) => {
 
 // ─── ChangeHistoryEntry ───────────────────────────────────────────────────────
 const ChangeHistoryEntry = ({ entry }) => (
-  <div className="rounded-lg border px-3 py-2.5 space-y-1.5">
+  <div className="rounded-lg border px-3 py-2.5 space-y-1.5 overflow-hidden">
     <p className="text-xs font-medium text-muted-foreground">
       {fmtDate(entry.date)}
     </p>
     {(entry.changes ?? []).filter(Boolean).map((c, j) => (
       <p
         key={j}
-        className={`text-sm ${
+        className={`text-sm break-all ${
           c.type === "added"
             ? "text-green-700 dark:text-green-400"
             : c.type === "removed"
@@ -550,7 +552,9 @@ const ChangeHistoryEntry = ({ entry }) => (
       </p>
     ))}
     {entry.noteChange && (
-      <p className="text-xs text-muted-foreground">Note: {entry.noteChange}</p>
+      <p className="text-xs text-muted-foreground break-all">
+        Note: {entry.noteChange}
+      </p>
     )}
     {entry.totalBefore !== undefined &&
       entry.totalBefore !== entry.totalAfter && (
@@ -579,11 +583,44 @@ export const TransactionDetailModal = ({
   const [editMode, setEditMode] = useState(false);
   const [editedTx, setEditedTx] = useState(null);
 
+  // Track the id of the last transaction we initialised editedTx for so we
+  // can detect a genuine tx-identity change vs a same-tx payment update.
+  const lastTxIdRef = useRef(null);
+
   useEffect(() => {
-    if (transaction) {
+    if (!transaction) return;
+
+    const txChanged = lastTxIdRef.current !== transaction.id;
+    lastTxIdRef.current = transaction.id;
+
+    if (txChanged) {
+      // Different transaction opened — full reset including edit mode.
       setEditedTx({ ...transaction });
       setEditMode(false);
+      return;
     }
+
+    setEditedTx((prev) => {
+      // Not in edit mode — just sync fully.
+      if (!prev || !editMode) {
+        return { ...transaction };
+      }
+
+      // In edit mode and same transaction: the prop updated because a payment
+      // was recorded (or a settlement ran). Refresh only the payment-related
+      // fields so liveRemaining / saveBlockedZeroTotal stay accurate, without
+      // discarding the user's in-progress structural edits (items, note, etc.).
+      return {
+        ...prev,
+        paidAmount: transaction.paidAmount,
+        paidAmountHistory: transaction.paidAmountHistory,
+        status: transaction.status,
+        updatedAt: transaction.updatedAt,
+      };
+    });
+    // editMode is intentionally omitted from deps: we only want this to re-run
+    // when the transaction prop itself changes, not when editMode toggles.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transaction]);
 
   const allPriceItems = useMemo(() => flattenPrice(priceData), [priceData]);
@@ -664,59 +701,90 @@ export const TransactionDetailModal = ({
       ? `Customer overpaid ${fmtC(overpaidAmt)} — they have a credit with us`
       : `We overpaid ${fmtC(overpaidAmt)} — supplier owes us this back`;
 
+  // Guard: saving a transaction with total === 0 while payments are already
+  // recorded would permanently corrupt it (status stuck at "pending" forever,
+  // phantom money in summary). Block the save and surface a clear warning.
+  // Applies to both item and financial transactions.
+  const editedTotal = isItem
+    ? liveTotal
+    : parseFloat(editedTx?.totalAmount) || 0;
+  const saveBlockedZeroTotal =
+    editMode && editedTotal === 0 && (editedTx?.paidAmount ?? 0) > 0;
+
   const handleSave = async () => {
-    const u = { ...editedTx };
+    if (saveBlockedZeroTotal) return;
+
+    // Build an updates object that contains ONLY the fields the user can
+    // actually edit in this modal. Crucially, paidAmount and paidAmountHistory
+    // are intentionally excluded — updateTransaction fetches a fresh DB row
+    // and those fields must come from there, not from editedTx which was
+    // initialised at modal-open time and would be stale if a payment was
+    // recorded mid-edit.
+    let updates;
+
     if (isItem) {
-      u.totalAmount = liveTotal;
-      const changes = diffItems(tx.itemsList, u.itemsList);
-      const noteChanged = tx.note !== u.note;
+      const newTotal = liveTotal;
+      const changes = diffItems(tx.itemsList, editedTx.itemsList);
+      const noteChanged = tx.note !== editedTx.note;
       const hasChange = changes.length > 0 || noteChanged;
-      if (hasChange) {
-        u.itemListHistory = [
-          ...(u.itemListHistory ?? []),
-          {
-            date: new Date().toISOString(),
-            changes,
-            ...(noteChanged
-              ? { noteChange: `"${tx.note || ""}" → "${u.note || ""}"` }
-              : {}),
-            totalBefore: tx.totalAmount,
-            totalAfter: u.totalAmount,
-          },
-        ];
-      }
+      const newHistory = hasChange
+        ? [
+            ...(editedTx.itemListHistory ?? []),
+            {
+              date: new Date().toISOString(),
+              changes,
+              ...(noteChanged
+                ? {
+                    noteChange: `"${tx.note || ""}" → "${editedTx.note || ""}"`,
+                  }
+                : {}),
+              totalBefore: tx.totalAmount,
+              totalAfter: newTotal,
+            },
+          ]
+        : editedTx.itemListHistory;
+
+      updates = {
+        itemsList: editedTx.itemsList,
+        additionalAmounts: editedTx.additionalAmounts,
+        totalAmount: newTotal,
+        note: editedTx.note,
+        itemListHistory: newHistory,
+      };
     } else {
-      // financial: track changes separately
-      const changes = diffFinancial(tx, u);
-      if (changes.length > 0) {
-        u.itemListHistory = [
-          ...(u.itemListHistory ?? []),
-          {
-            date: new Date().toISOString(),
-            changes,
-            totalBefore: tx.totalAmount,
-            totalAfter: parseFloat(u.totalAmount) || 0,
-          },
-        ];
-      }
+      // Coerce to number immediately so all downstream arithmetic and DB
+      // writes always receive a numeric value.
+      const newTotal = parseFloat(editedTx.totalAmount) || 0;
+      const changes = diffFinancial(tx, { ...editedTx, totalAmount: newTotal });
+      const newHistory =
+        changes.length > 0
+          ? [
+              ...(editedTx.itemListHistory ?? []),
+              {
+                date: new Date().toISOString(),
+                changes,
+                totalBefore: tx.totalAmount,
+                totalAfter: newTotal,
+              },
+            ]
+          : editedTx.itemListHistory;
+
+      updates = {
+        totalAmount: newTotal,
+        note: editedTx.note,
+        itemListHistory: newHistory,
+      };
     }
-    const total = parseFloat(u.totalAmount || 0);
-    const paid = u.paidAmount ?? 0;
-    u.status =
-      paid > total && total > 0
-        ? "overpaid"
-        : paid >= total && total > 0
-          ? "complete"
-          : "pending";
-    await onUpdate(tx.id, u);
+
+    await onUpdate(tx.id, updates);
     setEditMode(false);
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-full max-w-lg p-0 gap-0 overflow-hidden">
+      <DialogContent className="w-full max-w-lg p-0 gap-0 flex flex-col max-h-[90svh]">
         {/* ── header ── */}
-        <DialogHeader className="px-4 pt-4 pb-3 border-b">
+        <DialogHeader className="px-4 pt-4 pb-3 border-b shrink-0">
           <div className="flex items-center gap-2">
             {isItem ? (
               <Package className="w-4 h-4 text-blue-600 shrink-0" />
@@ -734,8 +802,8 @@ export const TransactionDetailModal = ({
           </div>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[75vh]">
-          <div className="px-4 py-3 space-y-4">
+        <ScrollArea className="flex-1 overflow-y-auto">
+          <div className="px-4 py-3 space-y-4 min-w-0 overflow-hidden">
             {/* direction + status + date */}
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -822,7 +890,7 @@ export const TransactionDetailModal = ({
                   )}
                 </div>
 
-                <div className="border rounded-lg px-3 divide-y">
+                <div className="border rounded-lg px-3 divide-y overflow-hidden">
                   {editMode ? (
                     (editedTx.itemsList ?? []).length === 0 ? (
                       <p className="text-xs text-muted-foreground py-3 text-center">
@@ -856,15 +924,15 @@ export const TransactionDetailModal = ({
                       .map((e, i) => (
                         <div
                           key={i}
-                          className="py-2 flex justify-between text-sm"
+                          className="py-2 flex justify-between gap-2 text-sm min-w-0"
                         >
-                          <span className="text-muted-foreground">
+                          <span className="text-muted-foreground truncate min-w-0">
                             {e.name}
                           </span>
                           <span
-                            className={
+                            className={`shrink-0 tabular-nums ${
                               parseFloat(e.amount) < 0 ? "text-red-600" : ""
-                            }
+                            }`}
                           >
                             {fmtC(parseFloat(e.amount) || 0)}
                           </span>
@@ -933,12 +1001,25 @@ export const TransactionDetailModal = ({
                     </div>
                   </div>
                 )}
+
+                {/* Zero-total + prior payment warning */}
+                {saveBlockedZeroTotal && (
+                  <div className="flex items-start gap-2 rounded-lg border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30 px-3 py-2.5 text-xs text-red-700 dark:text-red-400">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>
+                      Cannot save: total is ₹0 but{" "}
+                      <strong>{fmtC(editedTx?.paidAmount ?? 0)}</strong> has
+                      already been paid. Add at least one item with a price, or
+                      delete this transaction and start fresh.
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 
             {/* ── FINANCIAL AMOUNT (financial tx) ──────────────────────────── */}
             {!isItem && (
-              <div>
+              <div className="space-y-2">
                 <Label className="text-sm font-semibold mb-1.5 block">
                   Amount
                 </Label>
@@ -964,6 +1045,18 @@ export const TransactionDetailModal = ({
                   />
                 ) : (
                   <p className="text-2xl font-bold">{fmtC(tx.totalAmount)}</p>
+                )}
+                {/* Zero-total + prior payment warning (financial) */}
+                {saveBlockedZeroTotal && (
+                  <div className="flex items-start gap-2 rounded-lg border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30 px-3 py-2.5 text-xs text-red-700 dark:text-red-400">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>
+                      Cannot save: amount is ₹0 but{" "}
+                      <strong>{fmtC(editedTx?.paidAmount ?? 0)}</strong> has
+                      already been paid. Set a non-zero amount, or delete this
+                      transaction and start fresh.
+                    </span>
+                  </div>
                 )}
               </div>
             )}
@@ -995,20 +1088,26 @@ export const TransactionDetailModal = ({
 
               {/* amounts grid */}
               <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="rounded-lg border p-2.5">
-                  <p className="text-xs text-muted-foreground mb-0.5">Total</p>
-                  <p className="text-sm font-bold">{fmtC(tx.totalAmount)}</p>
+                <div className="rounded-lg border p-2.5 min-w-0">
+                  <p className="text-xs text-muted-foreground mb-0.5 truncate">
+                    Total
+                  </p>
+                  <p className="text-sm font-bold tabular-nums break-all leading-tight">
+                    {fmtC(tx.totalAmount)}
+                  </p>
                 </div>
-                <div className="rounded-lg border p-2.5">
-                  <p className="text-xs text-muted-foreground mb-0.5">Paid</p>
-                  <p className="text-sm font-bold text-green-600 dark:text-green-400">
+                <div className="rounded-lg border p-2.5 min-w-0">
+                  <p className="text-xs text-muted-foreground mb-0.5 truncate">
+                    Paid
+                  </p>
+                  <p className="text-sm font-bold text-green-600 dark:text-green-400 tabular-nums break-all leading-tight">
                     {fmtC(tx.paidAmount)}
                   </p>
                 </div>
                 <div
-                  className={`rounded-lg border p-2.5 ${isOverpaid ? "border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30" : ""}`}
+                  className={`rounded-lg border p-2.5 min-w-0 ${isOverpaid ? "border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30" : ""}`}
                 >
-                  <p className="text-xs text-muted-foreground mb-0.5">
+                  <p className="text-xs text-muted-foreground mb-0.5 truncate">
                     {isOverpaid
                       ? "Advance"
                       : remaining === 0
@@ -1016,7 +1115,7 @@ export const TransactionDetailModal = ({
                         : "Due"}
                   </p>
                   <p
-                    className={`text-sm font-bold ${isOverpaid ? "text-amber-700 dark:text-amber-400" : remaining === 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
+                    className={`text-sm font-bold tabular-nums break-all leading-tight ${isOverpaid ? "text-amber-700 dark:text-amber-400" : remaining === 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
                   >
                     {isOverpaid
                       ? `+${fmtC(overpaidAmt)}`
@@ -1112,13 +1211,13 @@ export const TransactionDetailModal = ({
                     return (
                       <div
                         key={i}
-                        className={`rounded-lg border px-3 py-2 flex items-start justify-between gap-2 ${
+                        className={`rounded-lg border px-3 py-2 flex items-start justify-between gap-2 min-w-0 overflow-hidden ${
                           isSettlementType
                             ? "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30"
                             : ""
                         }`}
                       >
-                        <div className="min-w-0 flex-1">
+                        <div className="min-w-0 flex-1 overflow-hidden">
                           {/* Amount + badge row */}
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <p
@@ -1161,7 +1260,7 @@ export const TransactionDetailModal = ({
 
                           {/* Method / note for non-settlement entries */}
                           {!isSettlementType && (
-                            <p className="text-xs text-muted-foreground mt-0.5">
+                            <p className="text-xs text-muted-foreground mt-0.5 break-words">
                               {p.method}
                               {p.note ? ` · ${p.note}` : ""}
                             </p>
@@ -1169,7 +1268,7 @@ export const TransactionDetailModal = ({
 
                           {/* Partner transaction IDs — full UUID, clickable */}
                           {isSettlementType && p.partnerIds?.length > 0 && (
-                            <div className="mt-1.5 space-y-1">
+                            <div className="mt-1.5 space-y-1 overflow-hidden">
                               {p.partnerIds.map((pid) => {
                                 const partnerTx = allTransactions.find(
                                   (t) => t.id === pid,
@@ -1185,7 +1284,7 @@ export const TransactionDetailModal = ({
                                       !partnerDeleted &&
                                       onNavigateToTransaction?.(partnerTx)
                                     }
-                                    className={`block w-full text-left text-[10px] font-mono px-2 py-1 rounded border transition-colors ${
+                                    className={`flex w-full items-center justify-between gap-1 text-left text-[10px] font-mono px-2 py-1 rounded border transition-colors overflow-hidden ${
                                       partnerDeleted
                                         ? "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/20 text-red-500 dark:text-red-400 cursor-default line-through"
                                         : partnerTx
@@ -1200,14 +1299,14 @@ export const TransactionDetailModal = ({
                                           : "Transaction not found"
                                     }
                                   >
-                                    {pid}
+                                    <span className="truncate">{pid}</span>
                                     {partnerDeleted && (
-                                      <span className="ml-1.5 not-italic no-underline text-red-400">
+                                      <span className="ml-1.5 shrink-0 not-italic no-underline text-red-400">
                                         (deleted)
                                       </span>
                                     )}
                                     {!partnerDeleted && partnerTx && (
-                                      <span className="ml-1.5 text-blue-500 dark:text-blue-400">
+                                      <span className="ml-1.5 shrink-0 text-blue-500 dark:text-blue-400">
                                         ↗
                                       </span>
                                     )}
@@ -1217,7 +1316,7 @@ export const TransactionDetailModal = ({
                             </div>
                           )}
                         </div>
-                        <p className="text-xs text-muted-foreground shrink-0 text-right whitespace-nowrap">
+                        <p className="text-xs text-muted-foreground shrink-0 text-right whitespace-nowrap ml-1">
                           {fmtDate(p.date)}
                         </p>
                       </div>
@@ -1247,7 +1346,7 @@ export const TransactionDetailModal = ({
         </ScrollArea>
 
         {/* ── bottom action bar ── */}
-        <div className="border-t px-4 py-3 flex items-center gap-2 bg-background">
+        <div className="border-t px-4 py-3 flex items-center gap-2 bg-background shrink-0">
           {isDeleted ? (
             // Deleted transactions: read-only, just close
             <Button
@@ -1301,7 +1400,12 @@ export const TransactionDetailModal = ({
                 <X className="w-3.5 h-3.5" />
                 Cancel
               </Button>
-              <Button size="sm" className="flex-1 gap-1.5" onClick={handleSave}>
+              <Button
+                size="sm"
+                className="flex-1 gap-1.5"
+                onClick={handleSave}
+                disabled={saveBlockedZeroTotal}
+              >
                 <Check className="w-3.5 h-3.5" />
                 Save changes
               </Button>

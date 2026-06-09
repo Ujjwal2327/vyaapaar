@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -22,7 +22,9 @@ import {
   Sparkles,
   ArrowRight,
   Zap,
+  Loader2,
 } from "lucide-react";
+import { toast } from "sonner";
 
 const fmt = (n) =>
   new Intl.NumberFormat("en-IN", {
@@ -38,9 +40,16 @@ export const SettleTransactionsModal = ({
   computeSettlementPreview,
   onSettle,
 }) => {
-  // Pending transactions with a remaining balance (tier 1)
+  // Pending transactions with a real positive balance (tier 1).
+  // Exclude zero-balance pending transactions — they can't contribute to a
+  // settlement and would be shown to the user as eligible when they aren't.
   const pendingTxs = useMemo(
-    () => transactions.filter((t) => t.status === "pending"),
+    () =>
+      transactions.filter(
+        (t) =>
+          t.status === "pending" &&
+          (t.totalAmount ?? 0) - (t.paidAmount ?? 0) > 0,
+      ),
     [transactions],
   );
 
@@ -55,10 +64,19 @@ export const SettleTransactionsModal = ({
     [pendingTxs, overpaidTxs],
   );
 
-  // Default: select all eligible
+  // selectedIds is kept in sync with eligibleTxs whenever the modal opens or
+  // the eligible set changes (e.g. after a settlement completes and the modal
+  // is opened again). This ensures newly added transactions are pre-selected
+  // and transactions that are no longer eligible are removed from the set.
   const [selectedIds, setSelectedIds] = useState(
     () => new Set(eligibleTxs.map((t) => t.id)),
   );
+
+  useEffect(() => {
+    if (open) {
+      setSelectedIds(new Set(eligibleTxs.map((t) => t.id)));
+    }
+  }, [open, eligibleTxs]);
 
   // Can settle if we have at least one "receivable source" and one "payable source":
   //   receivable sources: pending out OR overpaid in
@@ -84,6 +102,8 @@ export const SettleTransactionsModal = ({
   });
   const canSettle = hasReceivable && hasPayable;
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const toggleId = (id) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -96,17 +116,76 @@ export const SettleTransactionsModal = ({
   const selectAll = () => setSelectedIds(new Set(eligibleTxs.map((t) => t.id)));
   const selectNone = () => setSelectedIds(new Set());
 
-  const preview = useMemo(() => {
-    if (selectedIds.size < 2) return null;
-    return computeSettlementPreview(Array.from(selectedIds));
+  // Preview fetch: async, cancellable, with error state so a fetch failure
+  // doesn't silently leave the Confirm button permanently disabled.
+  const [preview, setPreview] = useState(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState(false);
+  const previewCancelRef = useRef(0);
+
+  const runPreview = useCallback(() => {
+    if (selectedIds.size < 2) {
+      setPreview(null);
+      setPreviewError(false);
+      return;
+    }
+
+    const token = ++previewCancelRef.current;
+    setIsPreviewLoading(true);
+    setPreviewError(false);
+
+    computeSettlementPreview(Array.from(selectedIds))
+      .then((result) => {
+        if (token !== previewCancelRef.current) return; // superseded
+        setPreview(result);
+        setIsPreviewLoading(false);
+      })
+      .catch(() => {
+        if (token !== previewCancelRef.current) return;
+        setPreview(null);
+        setIsPreviewLoading(false);
+        setPreviewError(true);
+      });
   }, [selectedIds, computeSettlementPreview]);
+
+  useEffect(() => {
+    runPreview();
+  }, [runPreview]);
+
+  // Reset preview when modal closes so stale data is never shown on re-open
+  // before the fresh fetch lands.
+  useEffect(() => {
+    if (!open) {
+      setPreview(null);
+      setPreviewError(false);
+      previewCancelRef.current += 1; // cancel any in-flight preview fetch
+    }
+  }, [open]);
 
   const affectedCount =
     preview?.previews?.filter((p) => p.settled > 0).length ?? 0;
 
   const handleConfirm = async () => {
-    await onSettle(Array.from(selectedIds));
-    onOpenChange(false);
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const result = await onSettle(Array.from(selectedIds));
+      // If the fresh DB re-filter dropped transactions that were shown in the
+      // preview, let the user know the result differed from what they saw.
+      if (result?.staleCount > 0) {
+        toast.warning(
+          `${result.staleCount} transaction${result.staleCount !== 1 ? "s were" : " was"} already settled or paid — settlement applied to the rest.`,
+        );
+      }
+      // Only close on success. onSettle re-throws on failure so the catch
+      // below runs instead and the modal stays open for the user to retry.
+      onOpenChange(false);
+    } catch {
+      // Error toast is already shown by handleSettle in the page.
+      // Nothing to do here — modal stays open.
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const noEligible = eligibleTxs.length === 0;
@@ -284,8 +363,8 @@ export const SettleTransactionsModal = ({
                                 className="mt-0.5 shrink-0"
                               />
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between gap-2">
-                                  <p className="text-sm font-medium truncate">
+                                <div className="flex items-center justify-between gap-2 min-w-0">
+                                  <p className="text-sm font-medium truncate min-w-0">
                                     {tx.kind === "item" &&
                                     tx.itemsList?.length > 0
                                       ? tx.itemsList
@@ -303,7 +382,7 @@ export const SettleTransactionsModal = ({
                                           : "Items")}
                                   </p>
                                   <p
-                                    className={`text-sm font-bold shrink-0 ${info.color}`}
+                                    className={`text-sm font-bold shrink-0 tabular-nums whitespace-nowrap ${info.color}`}
                                   >
                                     {fmt(displayAmount)}
                                   </p>
@@ -319,7 +398,16 @@ export const SettleTransactionsModal = ({
                                   )}
                                 </div>
                                 {/* Preview of what will happen */}
-                                {previewEntry &&
+                                {isPreviewLoading && isSelected && (
+                                  <div className="flex items-center gap-1 mt-1">
+                                    <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+                                    <span className="text-xs text-muted-foreground">
+                                      Calculating…
+                                    </span>
+                                  </div>
+                                )}
+                                {!isPreviewLoading &&
+                                  previewEntry &&
                                   previewEntry.settled > 0 &&
                                   isSelected && (
                                     <div className="flex items-center gap-1 mt-1">
@@ -363,7 +451,17 @@ export const SettleTransactionsModal = ({
                 )}
 
                 {/* Settlement preview summary */}
-                {preview && affectedCount > 0 && (
+                {isPreviewLoading && selectedIds.size >= 2 && (
+                  <>
+                    <Separator />
+                    <div className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Fetching latest balances…
+                    </div>
+                  </>
+                )}
+
+                {!isPreviewLoading && preview && affectedCount > 0 && (
                   <>
                     <Separator />
                     <div className="rounded-xl border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3 space-y-2">
@@ -432,6 +530,32 @@ export const SettleTransactionsModal = ({
                     Select at least 2 transactions
                   </p>
                 )}
+
+                {/* Preview fetch error */}
+                {previewError && !isPreviewLoading && selectedIds.size >= 2 && (
+                  <>
+                    <Separator />
+                    <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/30 p-3 flex items-start gap-2">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-red-500" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-red-700 dark:text-red-400">
+                          Could not load latest balances
+                        </p>
+                        <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
+                          Check your connection and try again.
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs shrink-0 text-red-700 dark:text-red-400 hover:text-red-900"
+                        onClick={runPreview}
+                      >
+                        Retry
+                      </Button>
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -443,12 +567,15 @@ export const SettleTransactionsModal = ({
             variant="outline"
             className="flex-1"
             onClick={() => onOpenChange(false)}
+            disabled={isSubmitting}
           >
             Cancel
           </Button>
           <Button
             className="flex-1 gap-1.5"
             disabled={
+              isSubmitting ||
+              isPreviewLoading ||
               noEligible ||
               !canSettle ||
               selectedIds.size < 2 ||
@@ -458,7 +585,9 @@ export const SettleTransactionsModal = ({
             onClick={handleConfirm}
           >
             <CheckCircle2 className="w-4 h-4" />
-            Settle {affectedCount > 0 ? `${affectedCount} transactions` : ""}
+            {isSubmitting
+              ? "Settling…"
+              : `Settle ${affectedCount > 0 ? `${affectedCount} transaction${affectedCount !== 1 ? "s" : ""}` : ""}`}
           </Button>
         </div>
       </DialogContent>
