@@ -68,7 +68,7 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
       <div className="flex items-start gap-3">
         {/* kind icon */}
         <div
-          className={`mt-0.5 w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+          className={`mt-0.5 w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
             isDeleted
               ? "bg-muted"
               : isItem
@@ -130,7 +130,7 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
             </div>
 
             {/* amount */}
-            <div className="text-right shrink-0 max-w-[7rem]">
+            <div className="text-right shrink-0 max-w-[8rem]">
               <p
                 className={`text-base font-bold tabular-nums ${dirColor} ${isDeleted ? "line-through" : ""}`}
               >
@@ -152,7 +152,7 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
           {/* progress bar — hide for deleted */}
           {!isDeleted && tx.paidAmount > 0 && remaining > 0 && (
             <div className="mb-1.5">
-              <div className="h-1 bg-muted rounded-full overflow-hidden">
+              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                 <div
                   className="h-full bg-green-500 rounded-full"
                   style={{ width: `${progress}%` }}

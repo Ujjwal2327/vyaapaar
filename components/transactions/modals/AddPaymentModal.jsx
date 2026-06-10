@@ -68,131 +68,137 @@ export const AddPaymentModal = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
+      <DialogContent className="max-w-sm p-0 gap-0 flex flex-col h-[90svh] overflow-hidden">
+        <DialogHeader className="px-4 pt-4 pb-3 border-b shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <CreditCard className="w-4 h-4" />
             Record Payment
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="rounded-lg bg-muted/50 border p-3 text-center space-y-1">
-            <p className="text-xs text-muted-foreground">Remaining balance</p>
-            <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-              {fmt(remaining)}
-            </p>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-xs text-muted-foreground h-6 px-2"
-              onClick={() => setAmount(remaining.toString())}
-            >
-              Pay full amount
-            </Button>
-          </div>
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="p-4 space-y-4">
+            <div className="rounded-lg bg-muted/50 border p-3 text-center space-y-1">
+              <p className="text-xs text-muted-foreground">Remaining balance</p>
+              <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">
+                {fmt(remaining)}
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-muted-foreground h-6 px-2"
+                onClick={() => setAmount(remaining.toString())}
+              >
+                Pay full amount
+              </Button>
+            </div>
 
-          <div>
-            <Label className="text-sm font-medium mb-1 block">Amount (₹)</Label>
-            <p className="text-xs text-muted-foreground mb-2">
-              Can exceed remaining balance — the extra will be tracked as
-              advance.
-            </p>
-            <Input
-              type="number"
-              min="0"
-              placeholder="0"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              autoFocus
-              className="text-lg"
-            />
+            <div>
+              <Label className="text-sm font-medium mb-1 block">
+                Amount (₹)
+              </Label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Can exceed remaining balance — the extra will be tracked as
+                advance.
+              </p>
+              <Input
+                type="number"
+                min="0"
+                placeholder="0"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                autoFocus
+                className="text-lg"
+              />
 
-            {isOverpaid && (
-              <div className="flex items-start gap-2 mt-2 rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                <span>
-                  Paying <strong>{fmt(paidNow)}</strong> exceeds remaining{" "}
-                  <strong>{fmt(remaining)}</strong>. Advance of{" "}
-                  <strong>{fmt(paidNow - remaining)}</strong> will be recorded.
-                </span>
+              {isOverpaid && (
+                <div className="flex items-start gap-2 mt-2 rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    Paying <strong>{fmt(paidNow)}</strong> exceeds remaining{" "}
+                    <strong>{fmt(remaining)}</strong>. Advance of{" "}
+                    <strong>{fmt(paidNow - remaining)}</strong> will be
+                    recorded.
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <Label className="text-sm font-medium mb-1 block">Method</Label>
+              <Select value={method} onValueChange={setMethod}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_METHODS.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m.charAt(0).toUpperCase() + m.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label className="text-sm font-medium mb-1 block">
+                Note (optional)
+              </Label>
+              <Input
+                placeholder="e.g. Received via Paytm"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
+            </div>
+
+            {isValid && (
+              <div className="rounded-lg border p-3 space-y-1 text-sm">
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Paying now</span>
+                  <span className="text-green-600 font-medium">
+                    {fmt(paidNow)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-muted-foreground">
+                  <span>
+                    {afterPayment < 0 ? "Advance recorded" : "Still owed after"}
+                  </span>
+                  <span
+                    className={
+                      afterPayment < 0
+                        ? "text-blue-600 dark:text-blue-400 font-medium"
+                        : afterPayment === 0
+                          ? "text-green-600 font-medium"
+                          : "text-amber-600 font-medium"
+                    }
+                  >
+                    {afterPayment < 0
+                      ? fmt(Math.abs(afterPayment))
+                      : fmt(afterPayment)}
+                    {afterPayment === 0 && " (fully paid)"}
+                  </span>
+                </div>
               </div>
             )}
           </div>
+        </div>
 
-          <div>
-            <Label className="text-sm font-medium mb-1 block">Method</Label>
-            <Select value={method} onValueChange={setMethod}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PAYMENT_METHODS.map((m) => (
-                  <SelectItem key={m} value={m}>
-                    {m.charAt(0).toUpperCase() + m.slice(1)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <Label className="text-sm font-medium mb-1 block">
-              Note (optional)
-            </Label>
-            <Input
-              placeholder="e.g. Received via Paytm"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-            />
-          </div>
-
-          {isValid && (
-            <div className="rounded-lg border p-3 space-y-1 text-sm">
-              <div className="flex justify-between text-muted-foreground">
-                <span>Paying now</span>
-                <span className="text-green-600 font-medium">
-                  {fmt(paidNow)}
-                </span>
-              </div>
-              <div className="flex justify-between text-muted-foreground">
-                <span>
-                  {afterPayment < 0 ? "Advance recorded" : "Still owed after"}
-                </span>
-                <span
-                  className={
-                    afterPayment < 0
-                      ? "text-blue-600 dark:text-blue-400 font-medium"
-                      : afterPayment === 0
-                        ? "text-green-600 font-medium"
-                        : "text-amber-600 font-medium"
-                  }
-                >
-                  {afterPayment < 0
-                    ? fmt(Math.abs(afterPayment))
-                    : fmt(afterPayment)}
-                  {afterPayment === 0 && " (fully paid)"}
-                </span>
-              </div>
-            </div>
-          )}
-
-          <div className="flex gap-2 pt-2">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="flex-1"
-              disabled={!isValid || isSubmitting}
-              onClick={handleSubmit}
-            >
-              {isSubmitting ? "Saving…" : "Save Payment"}
-            </Button>
-          </div>
+        {/* Sticky footer */}
+        <div className="border-t px-4 py-3 flex gap-2 shrink-0 bg-background">
+          <Button
+            variant="outline"
+            className="flex-1"
+            onClick={() => onOpenChange(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            className="flex-1"
+            disabled={!isValid || isSubmitting}
+            onClick={handleSubmit}
+          >
+            {isSubmitting ? "Saving…" : "Save Payment"}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

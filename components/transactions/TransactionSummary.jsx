@@ -58,7 +58,7 @@ export const TransactionSummary = ({ summary }) => {
             Receivable
           </span>
         </div>
-        <p className="text-lg sm:text-2xl font-bold text-green-600 dark:text-green-400 leading-tight">
+        <p className="text-xl sm:text-2xl font-bold text-green-600 dark:text-green-400 leading-tight">
           {fmt(toReceive)}
         </p>
         <p className="text-xs text-muted-foreground mt-0.5 leading-tight">
@@ -74,7 +74,7 @@ export const TransactionSummary = ({ summary }) => {
             Payable
           </span>
         </div>
-        <p className="text-lg sm:text-2xl font-bold text-red-600 dark:text-red-400 leading-tight">
+        <p className="text-xl sm:text-2xl font-bold text-red-600 dark:text-red-400 leading-tight">
           {fmt(toGive)}
         </p>
         <p className="text-xs text-muted-foreground mt-0.5 leading-tight">
@@ -93,7 +93,7 @@ export const TransactionSummary = ({ summary }) => {
           </span>
         </div>
         <p
-          className={`text-lg sm:text-2xl font-bold leading-tight ${netBalance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
+          className={`text-xl sm:text-2xl font-bold leading-tight ${netBalance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
         >
           {netBalance >= 0 ? "+" : ""}
           {fmt(netBalance)}

@@ -430,7 +430,7 @@ const PriceItemSearch = ({
       </div>
 
       {focused && query.trim() && (
-        <div className="absolute z-50 top-full mt-1 w-full rounded-md border bg-popover shadow-lg overflow-hidden max-h-60 overflow-y-auto">
+        <div className="absolute z-[200] top-full mt-1 w-full rounded-md border bg-popover shadow-lg overflow-hidden max-h-72 overflow-y-auto">
           {results.length === 0 ? (
             <p className="px-3 py-2 text-sm text-muted-foreground">
               No results for "{query}"
@@ -837,631 +837,542 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-lg overflow-hidden">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            New Transaction
-            {step > 0 && kind && type && (
-              <span className="flex items-center gap-1.5 ml-1">
-                {kind === "item" ? (
-                  <Package className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                ) : (
-                  <Banknote className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-                )}
-                {type === "out" ? (
-                  <TrendingUp className="w-3.5 h-3.5 text-green-600 shrink-0" />
-                ) : (
-                  <TrendingDown className="w-3.5 h-3.5 text-red-500 shrink-0" />
-                )}
-                <span className="text-xs font-normal text-muted-foreground">
-                  {kind === "item" ? "Item" : "Financial"}{" "}
-                  {type === "out" ? "Sale" : "Purchase"}
+      <DialogContent className="max-w-lg p-0 gap-0 flex flex-col h-[90svh] overflow-hidden">
+        <div className="px-4 pt-4 pb-3 border-b shrink-0">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              New Transaction
+              {step > 0 && kind && type && (
+                <span className="flex items-center gap-1.5 ml-1">
+                  {kind === "item" ? (
+                    <Package className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                  ) : (
+                    <Banknote className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                  )}
+                  {type === "out" ? (
+                    <TrendingUp className="w-3.5 h-3.5 text-green-600 shrink-0" />
+                  ) : (
+                    <TrendingDown className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                  )}
+                  <span className="text-xs font-normal text-muted-foreground">
+                    {kind === "item" ? "Item" : "Financial"}{" "}
+                    {type === "out" ? "Sale" : "Purchase"}
+                  </span>
                 </span>
-              </span>
-            )}
-          </DialogTitle>
-        </DialogHeader>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+        </div>
 
-        {/* ── Draft restore prompt ─────────────────────────────────────────── */}
-        {showDraftPrompt && pendingDraft && (
-          <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 p-3 space-y-2.5">
-            <div className="flex items-start gap-2">
-              <FileEdit className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                  Unsaved draft found
-                </p>
-                {draftSummary(pendingDraft) && (
-                  <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5 truncate">
-                    {draftSummary(pendingDraft)}
-                  </p>
-                )}
-                {pendingDraft.savedAt && (
-                  <p className="text-[0.625rem] text-amber-600/70 dark:text-amber-500/70 mt-0.5">
-                    Saved{" "}
-                    {(() => {
-                      try {
-                        const d = new Date(pendingDraft.savedAt);
-                        const now = new Date();
-                        const diffMs = now - d;
-                        const diffMins = Math.floor(diffMs / 60000);
-                        if (diffMins < 1) return "just now";
-                        if (diffMins < 60)
-                          return `${diffMins} min${diffMins !== 1 ? "s" : ""} ago`;
-                        const diffHrs = Math.floor(diffMins / 60);
-                        if (diffHrs < 24)
-                          return `${diffHrs} hr${diffHrs !== 1 ? "s" : ""} ago`;
-                        return d.toLocaleDateString();
-                      } catch {
-                        return "";
-                      }
-                    })()}
-                  </p>
-                )}
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-1 text-xs border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40"
-                onClick={handleDiscardDraft}
-              >
-                <Trash2 className="w-3 h-3 mr-1" />
-                Discard
-              </Button>
-              <Button
-                size="sm"
-                className="flex-1 text-xs bg-amber-600 hover:bg-amber-700 dark:bg-amber-700 dark:hover:bg-amber-600 text-white border-0"
-                onClick={handleRestoreDraft}
-              >
-                <FileEdit className="w-3 h-3 mr-1" />
-                Resume draft
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* progress */}
-        {kind && !showDraftPrompt && (
-          <div className="flex items-center gap-1 pb-1">
-            {steps.map((s, i) => (
-              <div
-                key={s}
-                className="flex-1 h-1 rounded-full transition-colors"
-                style={{
-                  background:
-                    i <= step ? "hsl(var(--primary))" : "hsl(var(--muted))",
-                }}
-              />
-            ))}
-            <span className="text-xs text-muted-foreground ml-2 whitespace-nowrap">
-              {step + 1}/{steps.length}
-            </span>
-          </div>
-        )}
-
-        {/* Hide form steps while draft prompt is showing */}
-        {!showDraftPrompt && (
-          <>
-            {/* ── TYPE ──────────────────────────────────────────────────────────── */}
-            {stepName === "Type" && (
-              <div className="space-y-5 min-h-[13.75rem]">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Kind</Label>
-                  <div className="grid grid-cols-2 gap-3">
-                    {[
-                      {
-                        value: "item",
-                        label: "Item",
-                        icon: Package,
-                        desc: "Items with qty & price",
-                      },
-                      {
-                        value: "financial",
-                        label: "Financial",
-                        icon: Banknote,
-                        desc: "Plain money in / out",
-                      },
-                    ].map(({ value, label, icon: Icon, desc }) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => setKind(value)}
-                        className={`rounded-lg border-2 p-4 text-left transition-all ${kind === value ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
-                      >
-                        <Icon className="w-5 h-5 mb-2 text-primary" />
-                        <p className="font-semibold text-sm">{label}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {desc}
-                        </p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Direction</Label>
-                  <div className="grid grid-cols-2 gap-3">
-                    {[
-                      {
-                        value: "out",
-                        label: "Sale / We give",
-                        icon: TrendingUp,
-                        desc: `Sell to ${contact?.name}`,
-                        color: "text-green-600",
-                      },
-                      {
-                        value: "in",
-                        label: "Purchase / We get",
-                        icon: TrendingDown,
-                        desc: `Buy from ${contact?.name}`,
-                        color: "text-red-600",
-                      },
-                    ].map(({ value, label, icon: Icon, desc, color }) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => setType(value)}
-                        className={`rounded-lg border-2 p-4 text-left transition-all ${type === value ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
-                      >
-                        <Icon className={`w-5 h-5 mb-2 ${color}`} />
-                        <p className="font-semibold text-sm">{label}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {desc}
-                        </p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── ITEMS ─────────────────────────────────────────────────────────── */}
-            {stepName === "Items" && (
-              <div className="space-y-3 min-h-[13.75rem]">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium">Items</Label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={addBlankItem}
-                  >
-                    <Plus className="w-3.5 h-3.5 mr-1" />
-                    Add blank
-                  </Button>
-                </div>
-
-                {itemsList.length === 0 ? (
-                  <p className="text-xs text-center text-muted-foreground py-4 border rounded-lg">
-                    Search the catalog below or add a blank item
-                  </p>
-                ) : (
-                  <div className="border rounded-lg px-3 max-h-56 overflow-y-auto overflow-x-hidden divide-y">
-                    {itemsList.map((item, i) => (
-                      <ItemRow
-                        key={i}
-                        item={item}
-                        index={i}
-                        onUpdate={updateItem}
-                        onRemove={removeItem}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {itemsList.length > 0 && (
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">
-                      {itemsList.filter((it) => it.name.trim()).length} item
-                      {itemsList.filter((it) => it.name.trim()).length !== 1
-                        ? "s"
-                        : ""}
-                    </span>
-                    <span className="font-semibold tabular-nums">
-                      Total: {fmt(itemsTotal)}
-                    </span>
-                  </div>
-                )}
-
-                {/* search at bottom */}
-                <div className="pt-1 border-t space-y-1">
-                  <Label className="text-xs text-muted-foreground">
-                    Search catalog (
-                    {type === "in"
-                      ? "cost"
-                      : sellPriceMode === "bulk"
-                        ? "bulk"
-                        : "retail"}{" "}
-                    price)
-                  </Label>
-                  <PriceItemSearch
-                    onSelect={addItemFromSearch}
-                    txType={type}
-                    sellPriceMode={sellPriceMode}
-                    allPriceItems={allPriceItems}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* ── EXTRAS ────────────────────────────────────────────────────────── */}
-            {stepName === "Extras" && (
-              <div className="space-y-3 min-h-[13.75rem]">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label className="text-sm font-medium">
-                      Additional charges / discounts
-                    </Label>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Use negative amount for discount
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+          <div className="px-4 py-3 flex flex-col gap-3">
+            {/* ── Draft restore prompt ─────────────────────────────────────────── */}
+            {showDraftPrompt && pendingDraft && (
+              <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 p-3 space-y-2.5">
+                <div className="flex items-start gap-2">
+                  <FileEdit className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                      Unsaved draft found
                     </p>
+                    {draftSummary(pendingDraft) && (
+                      <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5 truncate">
+                        {draftSummary(pendingDraft)}
+                      </p>
+                    )}
+                    {pendingDraft.savedAt && (
+                      <p className="text-[0.625rem] text-amber-600/70 dark:text-amber-500/70 mt-0.5">
+                        Saved{" "}
+                        {(() => {
+                          try {
+                            const d = new Date(pendingDraft.savedAt);
+                            const now = new Date();
+                            const diffMs = now - d;
+                            const diffMins = Math.floor(diffMs / 60000);
+                            if (diffMins < 1) return "just now";
+                            if (diffMins < 60)
+                              return `${diffMins} min${diffMins !== 1 ? "s" : ""} ago`;
+                            const diffHrs = Math.floor(diffMins / 60);
+                            if (diffHrs < 24)
+                              return `${diffHrs} hr${diffHrs !== 1 ? "s" : ""} ago`;
+                            return d.toLocaleDateString();
+                          } catch {
+                            return "";
+                          }
+                        })()}
+                      </p>
+                    )}
                   </div>
+                </div>
+                <div className="flex gap-2">
                   <Button
-                    type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() =>
-                      setAdditionalAmounts((p) => [...p, emptyExtra()])
-                    }
+                    className="flex-1 text-xs border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40"
+                    onClick={handleDiscardDraft}
                   >
-                    <Plus className="w-3.5 h-3.5 mr-1" />
-                    Add
+                    <Trash2 className="w-3 h-3 mr-1" />
+                    Discard
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="flex-1 text-xs bg-amber-600 hover:bg-amber-700 dark:bg-amber-700 dark:hover:bg-amber-600 text-white border-0"
+                    onClick={handleRestoreDraft}
+                  >
+                    <FileEdit className="w-3 h-3 mr-1" />
+                    Resume draft
                   </Button>
                 </div>
+              </div>
+            )}
 
-                {additionalAmounts.length === 0 ? (
-                  <p className="text-xs text-center text-muted-foreground py-4 border rounded-lg">
-                    No extras — skip or add one
-                  </p>
-                ) : (
-                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                    {additionalAmounts.map((ex, i) => (
-                      <div key={i} className="rounded-lg border p-3 space-y-2">
-                        <div className="flex gap-2">
-                          <Input
-                            placeholder="Label (e.g. Delivery)"
-                            value={ex.name}
-                            onChange={(e) =>
-                              updateExtra(i, "name", e.target.value)
-                            }
-                            className="flex-1"
-                          />
-                          <Button
+            {/* progress */}
+            {kind && !showDraftPrompt && (
+              <div className="flex items-center gap-1 pb-1">
+                {steps.map((s, i) => (
+                  <div
+                    key={s}
+                    className="flex-1 h-1 rounded-full transition-colors"
+                    style={{
+                      background:
+                        i <= step ? "hsl(var(--primary))" : "hsl(var(--muted))",
+                    }}
+                  />
+                ))}
+                <span className="text-xs text-muted-foreground ml-2 whitespace-nowrap">
+                  {step + 1}/{steps.length}
+                </span>
+              </div>
+            )}
+
+            {/* Hide form steps while draft prompt is showing */}
+            {!showDraftPrompt && (
+              <>
+                {/* ── TYPE ──────────────────────────────────────────────────────────── */}
+                {stepName === "Type" && (
+                  <div className="space-y-5">
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">Kind</Label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {[
+                          {
+                            value: "item",
+                            label: "Item",
+                            icon: Package,
+                            desc: "Items with qty & price",
+                          },
+                          {
+                            value: "financial",
+                            label: "Financial",
+                            icon: Banknote,
+                            desc: "Plain money in / out",
+                          },
+                        ].map(({ value, label, icon: Icon, desc }) => (
+                          <button
+                            key={value}
                             type="button"
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => removeExtra(i)}
+                            onClick={() => setKind(value)}
+                            className={`rounded-lg border-2 p-4 text-left transition-all ${kind === value ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
                           >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <Label className="text-xs text-muted-foreground mb-0.5 block">
-                              Amount (₹)
-                            </Label>
-                            <Input
-                              type="number"
-                              step="any"
-                              placeholder="0"
-                              value={ex.amount}
-                              onChange={(e) =>
-                                updateExtra(i, "amount", e.target.value)
-                              }
-                              onBlur={(e) =>
-                                updateExtra(
-                                  i,
-                                  "amount",
-                                  sanitizeNum(e.target.value),
-                                )
-                              }
-                              className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                            />
-                          </div>
-                          <div>
-                            <Label className="text-xs text-muted-foreground mb-0.5 block">
-                              Note
-                            </Label>
-                            <Input
-                              placeholder="Optional"
-                              value={ex.note}
-                              onChange={(e) =>
-                                updateExtra(i, "note", e.target.value)
-                              }
-                            />
-                          </div>
-                        </div>
+                            <Icon className="w-5 h-5 mb-2 text-primary" />
+                            <p className="font-semibold text-sm">{label}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {desc}
+                            </p>
+                          </button>
+                        ))}
                       </div>
-                    ))}
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">Direction</Label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {[
+                          {
+                            value: "out",
+                            label: "Sale / We give",
+                            icon: TrendingUp,
+                            desc: `Sell to ${contact?.name}`,
+                            color: "text-green-600",
+                          },
+                          {
+                            value: "in",
+                            label: "Purchase / We get",
+                            icon: TrendingDown,
+                            desc: `Buy from ${contact?.name}`,
+                            color: "text-red-600",
+                          },
+                        ].map(({ value, label, icon: Icon, desc, color }) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setType(value)}
+                            className={`rounded-lg border-2 p-4 text-left transition-all ${type === value ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
+                          >
+                            <Icon className={`w-5 h-5 mb-2 ${color}`} />
+                            <p className="font-semibold text-sm">{label}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {desc}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 )}
 
-                <div className="pt-2 border-t space-y-1 text-sm">
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Items</span>
-                    <span>{fmt(itemsTotal)}</span>
-                  </div>
-                  {additionalAmounts
-                    .filter((e) => e.name.trim())
-                    .map((e, i) => (
-                      <div
-                        key={i}
-                        className="flex justify-between gap-2 text-muted-foreground min-w-0"
+                {/* ── ITEMS ─────────────────────────────────────────────────────────── */}
+                {stepName === "Items" && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-medium">Items</Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={addBlankItem}
                       >
-                        <span className="truncate min-w-0">{e.name}</span>
-                        <span
-                          className={`shrink-0 tabular-nums ${
-                            parseFloat(e.amount) < 0 ? "text-red-600" : ""
-                          }`}
-                        >
-                          {parseFloat(e.amount) < 0 ? "" : "+"}
-                          {fmt(parseFloat(e.amount) || 0)}
+                        <Plus className="w-3.5 h-3.5 mr-1" />
+                        Add blank
+                      </Button>
+                    </div>
+
+                    {itemsList.length === 0 ? (
+                      <p className="text-xs text-center text-muted-foreground py-4 border rounded-lg">
+                        Search the catalog below or add a blank item
+                      </p>
+                    ) : (
+                      <div className="border rounded-lg px-3 max-h-56 overflow-y-auto overflow-x-hidden divide-y">
+                        {itemsList.map((item, i) => (
+                          <ItemRow
+                            key={i}
+                            item={item}
+                            index={i}
+                            onUpdate={updateItem}
+                            onRemove={removeItem}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    {itemsList.length > 0 && (
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">
+                          {itemsList.filter((it) => it.name.trim()).length} item
+                          {itemsList.filter((it) => it.name.trim()).length !== 1
+                            ? "s"
+                            : ""}
+                        </span>
+                        <span className="font-semibold tabular-nums">
+                          Total: {fmt(itemsTotal)}
                         </span>
                       </div>
-                    ))}
-                  <div className="flex justify-between font-semibold border-t pt-1">
-                    <span>Total</span>
-                    <span>{fmt(totalAmount)}</span>
-                  </div>
-                  {totalAmount === 0 && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                      Total is ₹0 — set a price on at least one item to
-                      continue.
-                    </p>
-                  )}
-                </div>
+                    )}
 
-                <div>
-                  <Label className="text-xs text-muted-foreground mb-1 block">
-                    Note (optional)
-                  </Label>
-                  <Textarea
-                    placeholder="Any notes…"
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    rows={2}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* ── FINANCIAL DETAILS ─────────────────────────────────────────────── */}
-            {stepName === "Details" && (
-              <div className="space-y-4 min-h-[13.75rem]">
-                <div>
-                  <Label className="text-sm font-medium mb-1 block">
-                    Amount (₹)
-                  </Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="any"
-                    placeholder="0"
-                    value={financialTotal}
-                    onChange={(e) => setFinancialTotal(e.target.value)}
-                    onBlur={(e) =>
-                      setFinancialTotal(sanitizeNum(e.target.value))
-                    }
-                    className="text-lg [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    autoFocus
-                  />
-                </div>
-                <div>
-                  <Label className="text-sm font-medium mb-1 block">Note</Label>
-                  <Textarea
-                    placeholder="What is this payment for?"
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    rows={3}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* ── PAYMENT ───────────────────────────────────────────────────────── */}
-            {stepName === "Payment" && (
-              <div className="space-y-4 min-h-[13.75rem]">
-                <div className="rounded-lg border bg-muted/40 p-3 text-center">
-                  <p className="text-xs text-muted-foreground">Total amount</p>
-                  <p className="text-2xl font-bold">{fmt(totalAmount)}</p>
-                </div>
-
-                <div>
-                  <Label className="text-sm font-medium mb-1 block">
-                    Paid now (₹)
-                  </Label>
-                  <p className="text-xs text-muted-foreground mb-2">
-                    Leave 0 if nothing paid yet. Overpayment is allowed.
-                  </p>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="any"
-                    placeholder="0"
-                    value={initialPayment.amount}
-                    onChange={(e) =>
-                      setInitialPayment((p) => ({
-                        ...p,
-                        amount: e.target.value,
-                      }))
-                    }
-                    onBlur={(e) =>
-                      setInitialPayment((p) => ({
-                        ...p,
-                        amount: sanitizeNum(e.target.value),
-                      }))
-                    }
-                    className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  />
-                  {isOverpaid && (
-                    <div className="flex gap-2 mt-2 rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                      {overpaidMsg}
-                    </div>
-                  )}
-                </div>
-
-                {paidNow > 0 && (
-                  <>
-                    <div>
-                      <Label className="text-sm font-medium mb-1 block">
-                        Method
+                    {/* search at bottom */}
+                    <div className="pt-1 border-t space-y-1">
+                      <Label className="text-xs text-muted-foreground">
+                        Search catalog (
+                        {type === "in"
+                          ? "cost"
+                          : sellPriceMode === "bulk"
+                            ? "bulk"
+                            : "retail"}{" "}
+                        price)
                       </Label>
-                      <Select
-                        value={initialPayment.method}
-                        onValueChange={(v) =>
-                          setInitialPayment((p) => ({ ...p, method: v }))
+                      <PriceItemSearch
+                        onSelect={addItemFromSearch}
+                        txType={type}
+                        sellPriceMode={sellPriceMode}
+                        allPriceItems={allPriceItems}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* ── EXTRAS ────────────────────────────────────────────────────────── */}
+                {stepName === "Extras" && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label className="text-sm font-medium">
+                          Additional charges / discounts
+                        </Label>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Use negative amount for discount
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setAdditionalAmounts((p) => [...p, emptyExtra()])
                         }
                       >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {PAYMENT_METHODS.map((m) => (
-                            <SelectItem key={m} value={m}>
-                              {m[0].toUpperCase() + m.slice(1)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        <Plus className="w-3.5 h-3.5 mr-1" />
+                        Add
+                      </Button>
+                    </div>
+
+                    {additionalAmounts.length === 0 ? (
+                      <p className="text-xs text-center text-muted-foreground py-4 border rounded-lg">
+                        No extras — skip or add one
+                      </p>
+                    ) : (
+                      <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                        {additionalAmounts.map((ex, i) => (
+                          <div
+                            key={i}
+                            className="rounded-lg border p-3 space-y-2"
+                          >
+                            <div className="flex gap-2">
+                              <Input
+                                placeholder="Label (e.g. Delivery)"
+                                value={ex.name}
+                                onChange={(e) =>
+                                  updateExtra(i, "name", e.target.value)
+                                }
+                                className="flex-1"
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => removeExtra(i)}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <Label className="text-xs text-muted-foreground mb-0.5 block">
+                                  Amount (₹)
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="any"
+                                  placeholder="0"
+                                  value={ex.amount}
+                                  onChange={(e) =>
+                                    updateExtra(i, "amount", e.target.value)
+                                  }
+                                  onBlur={(e) =>
+                                    updateExtra(
+                                      i,
+                                      "amount",
+                                      sanitizeNum(e.target.value),
+                                    )
+                                  }
+                                  className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-xs text-muted-foreground mb-0.5 block">
+                                  Note
+                                </Label>
+                                <Input
+                                  placeholder="Optional"
+                                  value={ex.note}
+                                  onChange={(e) =>
+                                    updateExtra(i, "note", e.target.value)
+                                  }
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="pt-2 border-t space-y-1 text-sm">
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>Items</span>
+                        <span>{fmt(itemsTotal)}</span>
+                      </div>
+                      {additionalAmounts
+                        .filter((e) => e.name.trim())
+                        .map((e, i) => (
+                          <div
+                            key={i}
+                            className="flex justify-between gap-2 text-muted-foreground min-w-0"
+                          >
+                            <span className="truncate min-w-0">{e.name}</span>
+                            <span
+                              className={`shrink-0 tabular-nums ${
+                                parseFloat(e.amount) < 0 ? "text-red-600" : ""
+                              }`}
+                            >
+                              {parseFloat(e.amount) < 0 ? "" : "+"}
+                              {fmt(parseFloat(e.amount) || 0)}
+                            </span>
+                          </div>
+                        ))}
+                      <div className="flex justify-between font-semibold border-t pt-1">
+                        <span>Total</span>
+                        <span>{fmt(totalAmount)}</span>
+                      </div>
+                      {totalAmount === 0 && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                          Total is ₹0 — set a price on at least one item to
+                          continue.
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <Label className="text-xs text-muted-foreground mb-1 block">
+                        Note (optional)
+                      </Label>
+                      <Textarea
+                        placeholder="Any notes…"
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        rows={2}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* ── FINANCIAL DETAILS ─────────────────────────────────────────────── */}
+                {stepName === "Details" && (
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-sm font-medium mb-1 block">
+                        Amount (₹)
+                      </Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="any"
+                        placeholder="0"
+                        value={financialTotal}
+                        onChange={(e) => setFinancialTotal(e.target.value)}
+                        onBlur={(e) =>
+                          setFinancialTotal(sanitizeNum(e.target.value))
+                        }
+                        className="text-lg [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        autoFocus
+                      />
                     </div>
                     <div>
                       <Label className="text-sm font-medium mb-1 block">
-                        Payment note (optional)
+                        Note
                       </Label>
+                      <Textarea
+                        placeholder="What is this payment for?"
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        rows={3}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* ── PAYMENT ───────────────────────────────────────────────────────── */}
+                {stepName === "Payment" && (
+                  <div className="space-y-4">
+                    <div className="rounded-lg border bg-muted/40 p-3 text-center">
+                      <p className="text-xs text-muted-foreground">
+                        Total amount
+                      </p>
+                      <p className="text-2xl font-bold">{fmt(totalAmount)}</p>
+                    </div>
+
+                    <div>
+                      <Label className="text-sm font-medium mb-1 block">
+                        Paid now (₹)
+                      </Label>
+                      <p className="text-xs text-muted-foreground mb-2">
+                        Leave 0 if nothing paid yet. Overpayment is allowed.
+                      </p>
                       <Input
-                        placeholder="e.g. Paid via Paytm"
-                        value={initialPayment.note}
+                        type="number"
+                        min="0"
+                        step="any"
+                        placeholder="0"
+                        value={initialPayment.amount}
                         onChange={(e) =>
                           setInitialPayment((p) => ({
                             ...p,
-                            note: e.target.value,
+                            amount: e.target.value,
                           }))
                         }
+                        onBlur={(e) =>
+                          setInitialPayment((p) => ({
+                            ...p,
+                            amount: sanitizeNum(e.target.value),
+                          }))
+                        }
+                        className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       />
+                      {isOverpaid && (
+                        <div className="flex gap-2 mt-2 rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                          {overpaidMsg}
+                        </div>
+                      )}
                     </div>
-                  </>
-                )}
 
-                {totalAmount > 0 && (
-                  <div className="rounded-lg border p-3 space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Total</span>
-                      <span className="font-medium">{fmt(totalAmount)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Paid now</span>
-                      <span className="font-medium text-green-600">
-                        {fmt(paidNow)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between border-t pt-1">
-                      <span className="text-muted-foreground">
-                        {remaining < 0
-                          ? type === "out"
-                            ? "Customer credit"
-                            : "Supplier owes us"
-                          : "Remaining"}
-                      </span>
-                      <span
-                        className={`font-semibold ${remaining < 0 ? "text-blue-600 dark:text-blue-400" : "text-amber-600"}`}
-                      >
-                        {fmt(Math.abs(remaining))}
-                        {remaining < 0 && (
-                          <span className="ml-1 text-xs font-normal">
-                            (advance)
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── REVIEW ────────────────────────────────────────────────────────── */}
-            {stepName === "Review" && (
-              <div className="space-y-3 min-h-[13.75rem]">
-                <div className="rounded-lg border p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    {kind === "item" ? (
-                      <Package className="w-4 h-4 text-blue-600" />
-                    ) : (
-                      <Banknote className="w-4 h-4 text-purple-600" />
-                    )}
-                    <span className="font-semibold capitalize">
-                      {kind} {type === "out" ? "Sale" : "Purchase"}
-                    </span>
-                    <Badge variant="outline" className="text-xs ml-auto">
-                      {paidNow > totalAmount && totalAmount > 0
-                        ? "Overpaid"
-                        : paidNow >= totalAmount && totalAmount > 0
-                          ? "Complete"
-                          : "Pending"}
-                    </Badge>
-                  </div>
-
-                  {kind === "item" &&
-                    itemsList.filter((it) => it.name.trim()).length > 0 && (
-                      <div className="border rounded-lg px-3 divide-y overflow-hidden">
-                        {itemsList
-                          .filter((it) => it.name.trim())
-                          .map((it, i, arr) => (
-                            <ItemDisplayRow
-                              key={i}
-                              item={it}
-                              isLast={
-                                i === arr.length - 1 &&
-                                additionalAmounts.filter((e) => e.name.trim())
-                                  .length === 0
-                              }
-                            />
-                          ))}
-                        {additionalAmounts
-                          .filter((e) => e.name.trim())
-                          .map((e, i) => (
-                            <div
-                              key={i}
-                              className="py-2 flex justify-between gap-2 text-sm min-w-0"
-                            >
-                              <span className="text-muted-foreground truncate min-w-0">
-                                {e.name}
-                              </span>
-                              <span
-                                className={`shrink-0 tabular-nums ${
-                                  parseFloat(e.amount) < 0 ? "text-red-600" : ""
-                                }`}
-                              >
-                                {fmt(parseFloat(e.amount) || 0)}
-                              </span>
-                            </div>
-                          ))}
-                      </div>
-                    )}
-
-                  {note && (
-                    <div>
-                      <p className="text-xs text-muted-foreground uppercase font-medium">
-                        Note
-                      </p>
-                      <p className="text-sm">{note}</p>
-                    </div>
-                  )}
-
-                  <div className="border-t pt-3 space-y-1">
-                    <div className="flex justify-between font-semibold">
-                      <span>Total</span>
-                      <span>{fmt(totalAmount)}</span>
-                    </div>
                     {paidNow > 0 && (
                       <>
-                        <div className="flex justify-between text-sm text-green-600">
-                          <span>Paid ({initialPayment.method})</span>
-                          <span>{fmt(paidNow)}</span>
+                        <div>
+                          <Label className="text-sm font-medium mb-1 block">
+                            Method
+                          </Label>
+                          <Select
+                            value={initialPayment.method}
+                            onValueChange={(v) =>
+                              setInitialPayment((p) => ({ ...p, method: v }))
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {PAYMENT_METHODS.map((m) => (
+                                <SelectItem key={m} value={m}>
+                                  {m[0].toUpperCase() + m.slice(1)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
-                        <div className="flex justify-between text-sm font-medium">
-                          <span>
+                        <div>
+                          <Label className="text-sm font-medium mb-1 block">
+                            Payment note (optional)
+                          </Label>
+                          <Input
+                            placeholder="e.g. Paid via Paytm"
+                            value={initialPayment.note}
+                            onChange={(e) =>
+                              setInitialPayment((p) => ({
+                                ...p,
+                                note: e.target.value,
+                              }))
+                            }
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {totalAmount > 0 && (
+                      <div className="rounded-lg border p-3 space-y-1 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Total</span>
+                          <span className="font-medium">
+                            {fmt(totalAmount)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">
+                            Paid now
+                          </span>
+                          <span className="font-medium text-green-600">
+                            {fmt(paidNow)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between border-t pt-1">
+                          <span className="text-muted-foreground">
                             {remaining < 0
                               ? type === "out"
                                 ? "Customer credit"
@@ -1469,11 +1380,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                               : "Remaining"}
                           </span>
                           <span
-                            className={
-                              remaining < 0
-                                ? "text-blue-600 dark:text-blue-400"
-                                : "text-amber-600"
-                            }
+                            className={`font-semibold ${remaining < 0 ? "text-blue-600 dark:text-blue-400" : "text-amber-600"}`}
                           >
                             {fmt(Math.abs(remaining))}
                             {remaining < 0 && (
@@ -1483,25 +1390,149 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                             )}
                           </span>
                         </div>
-                      </>
-                    )}
-                    {paidNow === 0 && (
-                      <p className="text-sm text-amber-600">No payment yet</p>
+                      </div>
                     )}
                   </div>
+                )}
 
-                  {isOverpaid && (
-                    <div className="flex gap-2 rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                      {overpaidMsg}
+                {/* ── REVIEW ────────────────────────────────────────────────────────── */}
+                {stepName === "Review" && (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        {kind === "item" ? (
+                          <Package className="w-4 h-4 text-blue-600" />
+                        ) : (
+                          <Banknote className="w-4 h-4 text-purple-600" />
+                        )}
+                        <span className="font-semibold capitalize">
+                          {kind} {type === "out" ? "Sale" : "Purchase"}
+                        </span>
+                        <Badge variant="outline" className="text-xs ml-auto">
+                          {paidNow > totalAmount && totalAmount > 0
+                            ? "Overpaid"
+                            : paidNow >= totalAmount && totalAmount > 0
+                              ? "Complete"
+                              : "Pending"}
+                        </Badge>
+                      </div>
+
+                      {kind === "item" &&
+                        itemsList.filter((it) => it.name.trim()).length > 0 && (
+                          <div className="border rounded-lg px-3 divide-y overflow-hidden">
+                            {itemsList
+                              .filter((it) => it.name.trim())
+                              .map((it, i, arr) => (
+                                <ItemDisplayRow
+                                  key={i}
+                                  item={it}
+                                  isLast={
+                                    i === arr.length - 1 &&
+                                    additionalAmounts.filter((e) =>
+                                      e.name.trim(),
+                                    ).length === 0
+                                  }
+                                />
+                              ))}
+                            {additionalAmounts
+                              .filter((e) => e.name.trim())
+                              .map((e, i) => (
+                                <div
+                                  key={i}
+                                  className="py-2 flex justify-between gap-2 text-sm min-w-0"
+                                >
+                                  <span className="text-muted-foreground truncate min-w-0">
+                                    {e.name}
+                                  </span>
+                                  <span
+                                    className={`shrink-0 tabular-nums ${
+                                      parseFloat(e.amount) < 0
+                                        ? "text-red-600"
+                                        : ""
+                                    }`}
+                                  >
+                                    {fmt(parseFloat(e.amount) || 0)}
+                                  </span>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+
+                      {note && (
+                        <div>
+                          <p className="text-xs text-muted-foreground uppercase font-medium">
+                            Note
+                          </p>
+                          <p className="text-sm">{note}</p>
+                        </div>
+                      )}
+
+                      <div className="border-t pt-3 space-y-1">
+                        <div className="flex justify-between font-semibold">
+                          <span>Total</span>
+                          <span>{fmt(totalAmount)}</span>
+                        </div>
+                        {paidNow > 0 && (
+                          <>
+                            <div className="flex justify-between text-sm text-green-600">
+                              <span>Paid ({initialPayment.method})</span>
+                              <span>{fmt(paidNow)}</span>
+                            </div>
+                            <div className="flex justify-between text-sm font-medium">
+                              <span>
+                                {remaining < 0
+                                  ? type === "out"
+                                    ? "Customer credit"
+                                    : "Supplier owes us"
+                                  : "Remaining"}
+                              </span>
+                              <span
+                                className={
+                                  remaining < 0
+                                    ? "text-blue-600 dark:text-blue-400"
+                                    : "text-amber-600"
+                                }
+                              >
+                                {fmt(Math.abs(remaining))}
+                                {remaining < 0 && (
+                                  <span className="ml-1 text-xs font-normal">
+                                    (advance)
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                          </>
+                        )}
+                        {paidNow === 0 && (
+                          <p className="text-sm text-amber-600">
+                            No payment yet
+                          </p>
+                        )}
+                      </div>
+
+                      {isOverpaid && (
+                        <div className="flex gap-2 rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                          {overpaidMsg}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              </div>
+                  </div>
+                )}
+
+                {/* nav — moved outside scroll area below */}
+              </>
             )}
 
-            {/* nav */}
-            <div className="flex gap-2 pt-2 border-t">
+            {/* When showing draft prompt, add bottom spacer */}
+            {showDraftPrompt && <div className="h-2" />}
+          </div>
+        </div>
+
+        {/* ── Fixed bottom nav bar ── */}
+        <div className="border-t px-4 py-3 bg-background shrink-0">
+          {!showDraftPrompt ? (
+            <div className="flex gap-2">
               <Button
                 variant="outline"
                 type="button"
@@ -1530,23 +1561,18 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                 )}
               </Button>
             </div>
-          </>
-        )}
-
-        {/* When showing draft prompt, show action buttons below it */}
-        {showDraftPrompt && (
-          <div className="flex gap-2 pt-2 border-t">
+          ) : (
             <Button
               variant="outline"
               type="button"
               onClick={() => handleClose(false)}
-              className="flex-1"
+              className="w-full"
             >
               <X className="w-4 h-4 mr-1" />
               Close
             </Button>
-          </div>
-        )}
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

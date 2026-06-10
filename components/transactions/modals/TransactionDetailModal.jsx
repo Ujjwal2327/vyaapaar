@@ -12,7 +12,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
   Select,
@@ -366,7 +365,7 @@ const CatalogSearch = ({ onSelect, txType, sellPriceMode, allPriceItems }) => {
         )}
       </div>
       {focused && query.trim() && (
-        <div className="absolute z-50 top-full mt-1 w-full rounded-md border bg-popover shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+        <div className="absolute z-[200] top-full mt-1 w-full rounded-md border bg-popover shadow-lg overflow-hidden max-h-64 overflow-y-auto">
           {results.length === 0 ? (
             <p className="px-3 py-2 text-sm text-muted-foreground">
               No results for "{query}"
@@ -784,7 +783,7 @@ export const TransactionDetailModal = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-full max-w-lg p-0 gap-0 flex flex-col max-h-[90svh]">
+      <DialogContent className="w-full max-w-lg p-0 gap-0 flex flex-col h-[90svh] overflow-hidden">
         {/* ── header ── */}
         <DialogHeader className="px-4 pt-4 pb-3 border-b shrink-0">
           <div className="flex items-center gap-2">
@@ -804,8 +803,8 @@ export const TransactionDetailModal = ({
           </div>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 overflow-y-auto">
-          <div className="px-4 py-3 space-y-4 min-w-0 overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+          <div className="px-4 py-3 space-y-4 min-w-0">
             {/* direction + status + date */}
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -1345,7 +1344,7 @@ export const TransactionDetailModal = ({
               </div>
             )}
           </div>
-        </ScrollArea>
+        </div>
 
         {/* ── bottom action bar ── */}
         <div className="border-t px-4 py-3 flex items-center gap-2 bg-background shrink-0">

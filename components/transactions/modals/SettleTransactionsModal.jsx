@@ -247,7 +247,7 @@ export const SettleTransactionsModal = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg p-0 gap-0 overflow-hidden">
+      <DialogContent className="max-w-lg p-0 gap-0 flex flex-col h-[90svh] overflow-hidden">
         <DialogHeader className="px-4 pt-4 pb-3 border-b">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/60 flex items-center justify-center shrink-0">
@@ -264,7 +264,7 @@ export const SettleTransactionsModal = ({
           </div>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[70vh]">
+        <ScrollArea className="flex-1 min-h-0 overflow-y-auto">
           <div className="px-4 py-3 space-y-4">
             {noEligible ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 p-4 flex items-start gap-3">
