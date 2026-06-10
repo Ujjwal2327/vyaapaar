@@ -44,10 +44,6 @@ export const AddPaymentModal = ({
   const remaining =
     (transaction.totalAmount ?? 0) - (transaction.paidAmount ?? 0);
   const paidNow = parseFloat(amount) || 0;
-  // Fire the overpayment warning whenever paidNow would push past the total,
-  // regardless of whether the transaction is already overpaid (remaining <= 0).
-  // When remaining <= 0 the transaction already carries an advance balance, so
-  // any further payment adds to it — the warning should still appear.
   const isOverpaid = paidNow > 0 && paidNow > remaining;
   const afterPayment = remaining - paidNow;
 
@@ -71,22 +67,22 @@ export const AddPaymentModal = ({
       <DialogContent className="max-w-sm p-0 gap-0 flex flex-col h-[90svh] overflow-hidden">
         <DialogHeader className="px-4 pt-4 pb-3 border-b shrink-0">
           <DialogTitle className="flex items-center gap-2">
-            <CreditCard className="w-4 h-4" />
+            <CreditCard className="w-5 h-5" />
             Record Payment
           </DialogTitle>
         </DialogHeader>
 
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div className="p-4 space-y-4">
-            <div className="rounded-lg bg-muted/50 border p-3 text-center space-y-1">
-              <p className="text-xs text-muted-foreground">Remaining balance</p>
-              <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">
+            <div className="rounded-lg bg-muted/50 border p-4 text-center space-y-1.5">
+              <p className="text-sm text-muted-foreground">Remaining balance</p>
+              <p className="text-3xl font-bold text-amber-600 dark:text-amber-400">
                 {fmt(remaining)}
               </p>
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-xs text-muted-foreground h-6 px-2"
+                className="text-sm text-muted-foreground h-7 px-2"
                 onClick={() => setAmount(remaining.toString())}
               >
                 Pay full amount
@@ -94,10 +90,10 @@ export const AddPaymentModal = ({
             </div>
 
             <div>
-              <Label className="text-sm font-medium mb-1 block">
+              <Label className="text-base font-medium mb-1 block">
                 Amount (₹)
               </Label>
-              <p className="text-xs text-muted-foreground mb-2">
+              <p className="text-sm text-muted-foreground mb-2">
                 Can exceed remaining balance — the extra will be tracked as
                 advance.
               </p>
@@ -108,12 +104,12 @@ export const AddPaymentModal = ({
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 autoFocus
-                className="text-lg"
+                className="text-xl h-12"
               />
 
               {isOverpaid && (
-                <div className="flex items-start gap-2 mt-2 rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <div className="flex items-start gap-2 mt-2 rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-950/30 px-3 py-2.5 text-sm text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>
                     Paying <strong>{fmt(paidNow)}</strong> exceeds remaining{" "}
                     <strong>{fmt(remaining)}</strong>. Advance of{" "}
@@ -125,9 +121,9 @@ export const AddPaymentModal = ({
             </div>
 
             <div>
-              <Label className="text-sm font-medium mb-1 block">Method</Label>
+              <Label className="text-base font-medium mb-1 block">Method</Label>
               <Select value={method} onValueChange={setMethod}>
-                <SelectTrigger>
+                <SelectTrigger className="h-10">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -141,18 +137,19 @@ export const AddPaymentModal = ({
             </div>
 
             <div>
-              <Label className="text-sm font-medium mb-1 block">
+              <Label className="text-base font-medium mb-1 block">
                 Note (optional)
               </Label>
               <Input
                 placeholder="e.g. Received via Paytm"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
+                className="h-10"
               />
             </div>
 
             {isValid && (
-              <div className="rounded-lg border p-3 space-y-1 text-sm">
+              <div className="rounded-lg border p-3 space-y-1.5 text-sm">
                 <div className="flex justify-between text-muted-foreground">
                   <span>Paying now</span>
                   <span className="text-green-600 font-medium">

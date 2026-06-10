@@ -42,7 +42,7 @@ export const TransactionSummary = ({ summary }) => {
 
   if (totalPendingAll === 0 && toReceive === 0 && toGive === 0) {
     return (
-      <div className="rounded-xl border bg-card p-4 text-center text-muted-foreground text-sm">
+      <div className="rounded-xl border bg-card p-4 text-center text-muted-foreground text-base">
         No pending transactions
       </div>
     );
@@ -52,53 +52,53 @@ export const TransactionSummary = ({ summary }) => {
     <div className="grid grid-cols-3 gap-2 sm:gap-3">
       {/* Receivable */}
       <div className="rounded-xl border bg-card p-3 sm:p-4">
-        <div className="flex items-center gap-1.5 mb-1">
-          <TrendingUp className="w-3.5 h-3.5 text-green-600 dark:text-green-400 shrink-0" />
-          <span className="text-xs text-muted-foreground font-medium truncate">
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <TrendingUp className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" />
+          <span className="text-sm text-muted-foreground font-medium truncate">
             Receivable
           </span>
         </div>
-        <p className="text-xl sm:text-2xl font-bold text-green-600 dark:text-green-400 leading-tight">
+        <p className="text-2xl sm:text-3xl font-bold text-green-600 dark:text-green-400 leading-tight">
           {fmt(toReceive)}
         </p>
-        <p className="text-xs text-muted-foreground mt-0.5 leading-tight">
+        <p className="text-sm text-muted-foreground mt-1 leading-tight">
           {receivableParts.length > 0 ? receivableParts.join(", ") : "—"}
         </p>
       </div>
 
       {/* Payable */}
       <div className="rounded-xl border bg-card p-3 sm:p-4">
-        <div className="flex items-center gap-1.5 mb-1">
-          <TrendingDown className="w-3.5 h-3.5 text-red-600 dark:text-red-400 shrink-0" />
-          <span className="text-xs text-muted-foreground font-medium truncate">
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <TrendingDown className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
+          <span className="text-sm text-muted-foreground font-medium truncate">
             Payable
           </span>
         </div>
-        <p className="text-xl sm:text-2xl font-bold text-red-600 dark:text-red-400 leading-tight">
+        <p className="text-2xl sm:text-3xl font-bold text-red-600 dark:text-red-400 leading-tight">
           {fmt(toGive)}
         </p>
-        <p className="text-xs text-muted-foreground mt-0.5 leading-tight">
+        <p className="text-sm text-muted-foreground mt-1 leading-tight">
           {payableParts.length > 0 ? payableParts.join(", ") : "—"}
         </p>
       </div>
 
       {/* Net */}
       <div className="rounded-xl border bg-card p-3 sm:p-4">
-        <div className="flex items-center gap-1.5 mb-1">
+        <div className="flex items-center gap-1.5 mb-1.5">
           <Scale
-            className={`w-3.5 h-3.5 shrink-0 ${netBalance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
+            className={`w-4 h-4 shrink-0 ${netBalance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
           />
-          <span className="text-xs text-muted-foreground font-medium truncate">
+          <span className="text-sm text-muted-foreground font-medium truncate">
             Net
           </span>
         </div>
         <p
-          className={`text-xl sm:text-2xl font-bold leading-tight ${netBalance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
+          className={`text-2xl sm:text-3xl font-bold leading-tight ${netBalance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
         >
           {netBalance >= 0 ? "+" : ""}
           {fmt(netBalance)}
         </p>
-        <p className="text-xs text-muted-foreground mt-0.5">
+        <p className="text-sm text-muted-foreground mt-1">
           {totalPendingAll} active
         </p>
       </div>

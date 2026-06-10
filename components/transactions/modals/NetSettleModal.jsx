@@ -92,9 +92,6 @@ export const NetSettleModal = ({
   const breakdown = useMemo(() => buildBreakdown(transactions), [transactions]);
   const settleCount = breakdown.length;
 
-  // What direction the balancing transaction will be
-  // net > 0 → contact pays us → "in" payment recorded
-  // net < 0 → we pay contact → "out" payment recorded
   const balancingDirection = netPositive ? "in" : "out";
   const balancingLabel = netPositive
     ? "Payment received from contact"
@@ -120,12 +117,12 @@ export const NetSettleModal = ({
       <DialogContent className="max-w-sm p-0 gap-0 flex flex-col h-[90svh] overflow-hidden">
         <DialogHeader className="px-4 pt-4 pb-3 border-b">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/60 flex items-center justify-center shrink-0">
-              <Zap className="w-4 h-4 text-green-600 dark:text-green-400" />
+            <div className="w-9 h-9 rounded-full bg-green-100 dark:bg-green-900/60 flex items-center justify-center shrink-0">
+              <Zap className="w-5 h-5 text-green-600 dark:text-green-400" />
             </div>
             <div>
               <DialogTitle className="text-base">Net Settle</DialogTitle>
-              <DialogDescription className="text-xs mt-0.5">
+              <DialogDescription className="text-sm mt-0.5">
                 Record one payment and clear all pending balances
               </DialogDescription>
             </div>
@@ -135,8 +132,8 @@ export const NetSettleModal = ({
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div className="px-4 py-3 space-y-4">
             {/* Net amount hero */}
-            <div className="rounded-xl border bg-muted/40 p-4 text-center space-y-1">
-              <p className="text-xs text-muted-foreground">
+            <div className="rounded-xl border bg-muted/40 p-4 text-center space-y-1.5">
+              <p className="text-sm text-muted-foreground">
                 {netPositive ? "Contact owes you" : "You owe contact"}
               </p>
               <p
@@ -148,41 +145,41 @@ export const NetSettleModal = ({
               >
                 {fmt(Math.abs(netAmount))}
               </p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 = {fmt(toReceive)} receivable − {fmt(toGive)} payable
               </p>
             </div>
 
             {/* What will happen */}
-            <div className="rounded-lg border bg-muted/30 px-3 py-2.5 space-y-2">
-              <p className="text-xs font-medium text-foreground">
+            <div className="rounded-lg border bg-muted/30 px-3 py-3 space-y-2.5">
+              <p className="text-sm font-medium text-foreground">
                 What happens
               </p>
 
               {/* Step 1: new financial tx */}
               <div className="flex items-start gap-2">
-                <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
-                  <Banknote className="w-3 h-3 text-primary" />
+                <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+                  <Banknote className="w-3.5 h-3.5 text-primary" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs text-foreground font-medium">
+                  <p className="text-sm text-foreground font-medium">
                     New financial transaction added
                   </p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     {balancingLabel} — {fmt(Math.abs(netAmount))} marked as paid
                   </p>
                 </div>
                 <Badge
-                  className={`shrink-0 text-[0.625rem] px-1.5 py-0 h-4 border-0 ml-auto ${
+                  className={`shrink-0 text-sm px-2 py-0.5 border-0 ml-auto ${
                     balancingDirection === "in"
                       ? "bg-green-100 text-green-700 dark:bg-green-900/60 dark:text-green-300"
                       : "bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300"
                   }`}
                 >
                   {balancingDirection === "in" ? (
-                    <TrendingDown className="w-2.5 h-2.5 mr-0.5 inline" />
+                    <TrendingDown className="w-3 h-3 mr-0.5 inline" />
                   ) : (
-                    <TrendingUp className="w-2.5 h-2.5 mr-0.5 inline" />
+                    <TrendingUp className="w-3 h-3 mr-0.5 inline" />
                   )}
                   {balancingDirection === "in" ? "Income" : "Expense"}
                 </Badge>
@@ -190,10 +187,10 @@ export const NetSettleModal = ({
 
               {/* Step 2: settle all */}
               <div className="flex items-start gap-2">
-                <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
-                  <CheckCircle2 className="w-3 h-3 text-primary" />
+                <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-primary" />
                 </div>
-                <p className="text-xs text-foreground font-medium">
+                <p className="text-sm text-foreground font-medium">
                   {settleCount} transaction{settleCount !== 1 ? "s" : ""}{" "}
                   settled automatically
                 </p>
@@ -202,11 +199,11 @@ export const NetSettleModal = ({
 
             {/* Transaction breakdown */}
             {breakdown.length > 0 && (
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
                   Transactions being settled
                 </p>
-                <div className="border rounded-lg divide-y overflow-hidden max-h-36 overflow-y-auto">
+                <div className="border rounded-lg divide-y overflow-hidden max-h-40 overflow-y-auto">
                   {breakdown.map((item) => {
                     const previewName =
                       item.kind === "item" && item.itemsList?.length > 0
@@ -223,18 +220,18 @@ export const NetSettleModal = ({
                     return (
                       <div
                         key={item.id}
-                        className="flex items-center gap-2 px-3 py-2 text-xs"
+                        className="flex items-center gap-2 px-3 py-2.5 text-sm"
                       >
                         {item.isOut ? (
-                          <TrendingUp className="w-3 h-3 shrink-0 text-green-600 dark:text-green-400" />
+                          <TrendingUp className="w-3.5 h-3.5 shrink-0 text-green-600 dark:text-green-400" />
                         ) : (
-                          <TrendingDown className="w-3 h-3 shrink-0 text-red-600 dark:text-red-400" />
+                          <TrendingDown className="w-3.5 h-3.5 shrink-0 text-red-600 dark:text-red-400" />
                         )}
                         <span className="flex-1 truncate text-muted-foreground">
                           {previewName}
                         </span>
                         {item.isAdvance && (
-                          <Badge className="text-[0.5625rem] px-1 py-0 h-3.5 bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300 border-0 shrink-0">
+                          <Badge className="text-[0.7em] px-1.5 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300 border-0 shrink-0">
                             advance
                           </Badge>
                         )}
@@ -247,8 +244,8 @@ export const NetSettleModal = ({
                         >
                           {fmt(item.amount)}
                         </span>
-                        <ArrowRight className="w-3 h-3 text-muted-foreground shrink-0" />
-                        <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0" />
+                        <ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                        <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
                       </div>
                     );
                   })}
@@ -261,11 +258,11 @@ export const NetSettleModal = ({
             {/* Payment details */}
             <div className="space-y-3">
               <div>
-                <Label className="text-sm font-medium mb-1 block">
+                <Label className="text-base font-medium mb-1 block">
                   Payment method
                 </Label>
                 <Select value={method} onValueChange={setMethod}>
-                  <SelectTrigger>
+                  <SelectTrigger className="h-10">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -279,7 +276,7 @@ export const NetSettleModal = ({
               </div>
 
               <div>
-                <Label className="text-sm font-medium mb-1 block">
+                <Label className="text-base font-medium mb-1 block">
                   Note{" "}
                   <span className="text-muted-foreground font-normal">
                     (optional)
@@ -289,14 +286,15 @@ export const NetSettleModal = ({
                   placeholder="e.g. Final payment via UPI"
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
+                  className="h-10"
                 />
               </div>
             </div>
 
             {/* Warning for non-round numbers */}
             {netAmount !== Math.round(netAmount) && (
-              <div className="flex items-start gap-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <div className="flex items-start gap-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2.5 text-sm text-amber-700 dark:text-amber-400">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>
                   Net amount includes paise. Confirm the exact figure with the
                   contact before settling.

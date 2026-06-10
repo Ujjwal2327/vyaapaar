@@ -66,7 +66,7 @@ const fmtDate = (iso) => {
   }
 };
 
-// ─── tokenizer + fuzzy search (same as AddTransactionModal) ──────────────────
+// ─── tokenizer + fuzzy search ──────────────────────────────────────────────
 const unitSyn = {
   '"': "inch",
   inch: "inch",
@@ -258,7 +258,7 @@ const flattenPrice = (data, path = []) => {
   return out;
 };
 
-// ─── diff item lists ──────────────────────────────────────────────────────────
+// ─── diff helpers ──────────────────────────────────────────────────────────────
 const diffItems = (before, after) => {
   const bM = Object.fromEntries((before || []).map((it) => [it.name, it]));
   const aM = Object.fromEntries((after || []).map((it) => [it.name, it]));
@@ -297,8 +297,6 @@ const diffItems = (before, after) => {
   }
   return lines;
 };
-
-// ─── diff financial transactions ──────────────────────────────────────────────
 const diffFinancial = (before, after) => {
   const lines = [];
   const bAmt = parseFloat(before.totalAmount) || 0;
@@ -321,7 +319,11 @@ const diffFinancial = (before, after) => {
   return lines;
 };
 
-// ─── CatalogSearch with inline quick-add panel (module-level, stable) ────────
+// ─── shared input style ──────────────────────────────────────────────────────
+const inputCls =
+  "bg-muted border-0 rounded px-2 py-1 text-sm font-mono outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary min-w-0 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
+
+// ─── CatalogSearch ────────────────────────────────────────────────────────────
 const CatalogSearch = ({
   onSelect,
   onAddBlank,
@@ -362,7 +364,6 @@ const CatalogSearch = ({
     setTimeout(() => qtyRef.current?.select(), 60);
   };
 
-  // Duplicate detection: same name + price + unit already in cart
   const isDuplicate = pending
     ? (itemsList ?? []).some(
         (it) =>
@@ -391,15 +392,11 @@ const CatalogSearch = ({
     setTimeout(() => ref.current?.focus(), 60);
   };
 
-  const inputCls =
-    "bg-muted border-0 rounded px-1.5 py-0.5 text-xs font-mono outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary min-w-0 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
-
   return (
     <div className="space-y-2">
-      {/* Search + blank button on same line */}
       <div className="flex gap-2">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
           <input
             ref={ref}
             type="text"
@@ -411,7 +408,7 @@ const CatalogSearch = ({
             }}
             onFocus={() => setFocused(true)}
             onBlur={() => setTimeout(() => setFocused(false), 150)}
-            className="w-full pl-9 pr-8 h-8 rounded-md border border-input bg-background text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="w-full pl-10 pr-8 h-10 rounded-md border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
           {query && (
             <button
@@ -422,7 +419,7 @@ const CatalogSearch = ({
               }}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             >
-              <X className="w-3.5 h-3.5" />
+              <X className="w-4 h-4" />
             </button>
           )}
           {focused && query.trim() && (
@@ -440,18 +437,18 @@ const CatalogSearch = ({
                       e.preventDefault();
                       pickItem(item);
                     }}
-                    className="w-full px-3 py-2 text-sm hover:bg-accent text-left"
+                    className="w-full px-3 py-2.5 text-sm hover:bg-accent text-left"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-medium truncate">{item.name}</p>
                         {item.pathParts.length > 1 && (
-                          <p className="text-xs text-muted-foreground truncate">
+                          <p className="text-sm text-muted-foreground truncate">
                             {item.pathParts.slice(0, -1).join(" › ")}
                           </p>
                         )}
                       </div>
-                      <p className="font-semibold text-xs shrink-0">
+                      <p className="font-semibold text-sm shrink-0">
                         {fmtC(item[pk])}
                         <span className="text-muted-foreground font-normal">
                           /{item[uk]}
@@ -468,29 +465,27 @@ const CatalogSearch = ({
           <button
             type="button"
             onClick={onAddBlank}
-            className="shrink-0 h-8 px-2.5 rounded-md border border-input bg-background text-xs font-medium hover:bg-muted transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
-            title="Add blank item"
+            className="shrink-0 h-10 px-3 rounded-md border border-input bg-background text-sm font-medium hover:bg-muted transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-4 h-4" />
             Blank
           </button>
         )}
       </div>
 
-      {/* Quick-add confirm panel */}
       {pending && (
-        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2.5">
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-3">
           <div className="min-w-0">
-            <p className="text-xs font-semibold truncate">{pending.name}</p>
+            <p className="text-sm font-semibold truncate">{pending.name}</p>
             {pending.pathParts?.length > 1 && (
-              <p className="text-[0.6875rem] text-muted-foreground truncate">
+              <p className="text-sm text-muted-foreground truncate">
                 {pending.pathParts.slice(0, -1).join(" › ")}
               </p>
             )}
           </div>
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
             <div className="flex flex-col gap-0.5">
-              <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+              <span className="text-[0.7em] text-muted-foreground uppercase tracking-wide font-medium">
                 Qty
               </span>
               <input
@@ -503,11 +498,11 @@ const CatalogSearch = ({
                   if (e.key === "Enter") confirmAdd();
                   if (e.key === "Escape") cancelPending();
                 }}
-                className={`${inputCls} w-14`}
+                className={`${inputCls} w-16`}
               />
             </div>
             <div className="flex flex-col gap-0.5">
-              <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+              <span className="text-[0.7em] text-muted-foreground uppercase tracking-wide font-medium">
                 Unit
               </span>
               <input
@@ -515,14 +510,12 @@ const CatalogSearch = ({
                 value={pendingUnit}
                 onChange={(e) => setPendingUnit(e.target.value)}
                 placeholder="—"
-                className={`${inputCls} w-14`}
+                className={`${inputCls} w-16`}
               />
             </div>
-            <span className="text-[0.6875rem] text-muted-foreground mt-3">
-              ×
-            </span>
+            <span className="text-sm text-muted-foreground mt-4">×</span>
             <div className="flex flex-col gap-0.5">
-              <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+              <span className="text-[0.7em] text-muted-foreground uppercase tracking-wide font-medium">
                 Price ₹
               </span>
               <input
@@ -530,32 +523,30 @@ const CatalogSearch = ({
                 min="0"
                 value={pendingPrice}
                 onChange={(e) => setPendingPrice(e.target.value)}
-                className={`${inputCls} w-16`}
+                className={`${inputCls} w-20`}
               />
             </div>
             {parseFloat(pendingQty) > 0 && parseFloat(pendingPrice) > 0 && (
               <>
-                <span className="text-[0.6875rem] text-muted-foreground mt-3">
-                  =
-                </span>
-                <span className="text-xs font-semibold tabular-nums mt-3 text-primary">
+                <span className="text-sm text-muted-foreground mt-4">=</span>
+                <span className="text-sm font-semibold tabular-nums mt-4 text-primary">
                   {fmtC(parseFloat(pendingQty) * parseFloat(pendingPrice))}
                 </span>
               </>
             )}
           </div>
           {isDuplicate && (
-            <div className="flex items-center gap-1.5 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-              Already in cart with same price & unit — adding again will create
-              a duplicate row.
+            <div className="flex items-center gap-1.5 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-2 text-sm text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              Already in cart with same price &amp; unit — adding again will
+              create a duplicate row.
             </div>
           )}
           <div className="flex gap-2">
             <button
               type="button"
               onClick={cancelPending}
-              className="flex-1 h-7 rounded-md border border-input bg-background text-xs font-medium hover:bg-muted transition-colors"
+              className="flex-1 h-9 rounded-md border border-input bg-background text-sm font-medium hover:bg-muted transition-colors"
             >
               Cancel
             </button>
@@ -563,9 +554,9 @@ const CatalogSearch = ({
               type="button"
               onClick={confirmAdd}
               disabled={!(parseFloat(pendingQty) > 0)}
-              className="flex-1 h-7 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-40 flex items-center justify-center gap-1"
+              className="flex-1 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-40 flex items-center justify-center gap-1"
             >
-              <Plus className="w-3 h-3" />
+              <Plus className="w-3.5 h-3.5" />
               Add
             </button>
           </div>
@@ -575,7 +566,7 @@ const CatalogSearch = ({
   );
 };
 
-// ─── ItemsEditTabPanel — 2-tab edit interface for detail modal ────────────────
+// ─── ItemsEditTabPanel ────────────────────────────────────────────────────────
 const ItemsEditTabPanel = ({
   editedTx,
   updateItem,
@@ -596,9 +587,6 @@ const ItemsEditTabPanel = ({
   const itemsList = editedTx?.itemsList ?? [];
   const namedCount = itemsList.filter((it) => it.name?.trim()).length;
 
-  const inputCls =
-    "bg-muted border-0 rounded px-1.5 py-0.5 text-xs font-mono outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary min-w-0 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
-
   const handleAddBlank = () => {
     setBlankPending({ name: "", qty: "1", price: "", unit: "" });
     setTimeout(() => blankNameRef.current?.focus(), 60);
@@ -614,21 +602,17 @@ const ItemsEditTabPanel = ({
     });
     setBlankPending(null);
   };
-
   const cancelBlank = () => setBlankPending(null);
 
   const blankQty = parseFloat(blankPending?.qty) || 0;
   const blankPrice = parseFloat(blankPending?.price) || 0;
 
-  // Add item from catalog — stay on Add tab so user can keep adding
   const handleAddFromCatalog = (item) => {
     addFromCatalog(item);
-    // Don't switch to cart — user stays on Add tab to continue adding
   };
 
   return (
     <div className="space-y-2">
-      {/* Tab bar */}
       <div className="flex gap-1 p-1 rounded-lg bg-muted">
         {[
           { id: "add", label: "Add items" },
@@ -641,18 +625,13 @@ const ItemsEditTabPanel = ({
             key={id}
             type="button"
             onClick={() => setActiveTab(id)}
-            className={`flex-1 h-7 rounded-md text-xs font-medium transition-all ${
-              activeTab === id
-                ? "bg-background shadow-sm text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
+            className={`flex-1 h-8 rounded-md text-sm font-medium transition-all ${activeTab === id ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
           >
             {label}
           </button>
         ))}
       </div>
 
-      {/* ── Add tab ── */}
       {activeTab === "add" && (
         <div className="space-y-2">
           <CatalogSearch
@@ -664,10 +643,9 @@ const ItemsEditTabPanel = ({
             itemsList={itemsList}
           />
 
-          {/* Blank item inline panel */}
           {blankPending && (
-            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
-              <p className="text-[0.6875rem] text-muted-foreground font-medium">
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
+              <p className="text-sm text-muted-foreground font-medium">
                 New blank item
               </p>
               <input
@@ -678,11 +656,11 @@ const ItemsEditTabPanel = ({
                   setBlankPending((p) => ({ ...p, name: e.target.value }))
                 }
                 placeholder="Item name"
-                className="w-full bg-muted border-0 rounded px-2 py-1 text-xs font-medium outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary transition-colors"
+                className="w-full bg-muted border-0 rounded px-2 py-1.5 text-sm font-medium outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary transition-colors"
               />
-              <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+                  <span className="text-[0.7em] text-muted-foreground uppercase tracking-wide font-medium">
                     Qty
                   </span>
                   <input
@@ -696,11 +674,11 @@ const ItemsEditTabPanel = ({
                       if (e.key === "Enter") confirmBlank();
                       if (e.key === "Escape") cancelBlank();
                     }}
-                    className={`${inputCls} w-14`}
+                    className={`${inputCls} w-16`}
                   />
                 </div>
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+                  <span className="text-[0.7em] text-muted-foreground uppercase tracking-wide font-medium">
                     Unit
                   </span>
                   <input
@@ -710,14 +688,12 @@ const ItemsEditTabPanel = ({
                       setBlankPending((p) => ({ ...p, unit: e.target.value }))
                     }
                     placeholder="—"
-                    className={`${inputCls} w-14`}
+                    className={`${inputCls} w-16`}
                   />
                 </div>
-                <span className="text-[0.6875rem] text-muted-foreground mt-3">
-                  ×
-                </span>
+                <span className="text-sm text-muted-foreground mt-4">×</span>
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+                  <span className="text-[0.7em] text-muted-foreground uppercase tracking-wide font-medium">
                     Price ₹
                   </span>
                   <input
@@ -727,15 +703,15 @@ const ItemsEditTabPanel = ({
                     onChange={(e) =>
                       setBlankPending((p) => ({ ...p, price: e.target.value }))
                     }
-                    className={`${inputCls} w-16`}
+                    className={`${inputCls} w-20`}
                   />
                 </div>
                 {blankQty > 0 && blankPrice > 0 && (
                   <>
-                    <span className="text-[0.6875rem] text-muted-foreground mt-3">
+                    <span className="text-sm text-muted-foreground mt-4">
                       =
                     </span>
-                    <span className="text-xs font-semibold tabular-nums mt-3 text-primary">
+                    <span className="text-sm font-semibold tabular-nums mt-4 text-primary">
                       {fmtC(blankQty * blankPrice)}
                     </span>
                   </>
@@ -745,7 +721,7 @@ const ItemsEditTabPanel = ({
                 <button
                   type="button"
                   onClick={cancelBlank}
-                  className="flex-1 h-7 rounded-md border border-input bg-background text-xs font-medium hover:bg-muted transition-colors"
+                  className="flex-1 h-9 rounded-md border border-input bg-background text-sm font-medium hover:bg-muted transition-colors"
                 >
                   Cancel
                 </button>
@@ -753,23 +729,21 @@ const ItemsEditTabPanel = ({
                   type="button"
                   onClick={() => {
                     confirmBlank();
-                    // Stay on Add tab so user can keep adding more items
                   }}
-                  className="flex-1 h-7 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-1"
+                  className="flex-1 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-1"
                 >
-                  <Plus className="w-3 h-3" />
+                  <Plus className="w-3.5 h-3.5" />
                   Add to cart
                 </button>
               </div>
             </div>
           )}
 
-          {/* Show cart count hint if items exist */}
           {namedCount > 0 && !blankPending && (
             <button
               type="button"
               onClick={() => setActiveTab("cart")}
-              className="w-full text-xs text-center text-muted-foreground hover:text-foreground py-1.5 transition-colors"
+              className="w-full text-sm text-center text-muted-foreground hover:text-foreground py-1.5 transition-colors"
             >
               {namedCount} item{namedCount !== 1 ? "s" : ""} in cart ·{" "}
               <span className="text-primary underline">View Cart →</span>
@@ -778,20 +752,16 @@ const ItemsEditTabPanel = ({
         </div>
       )}
 
-      {/* ── Cart tab ── */}
       {activeTab === "cart" && (
         <div className="space-y-2">
-          <div
-            className="border rounded-lg overflow-hidden"
-            style={{ minHeight: "8rem" }}
-          >
+          <div className="border rounded-lg overflow-hidden">
             {itemsList.length === 0 ? (
               <div className="py-6 text-center space-y-1">
-                <p className="text-xs text-muted-foreground">No items yet</p>
+                <p className="text-sm text-muted-foreground">No items yet</p>
                 <button
                   type="button"
                   onClick={() => setActiveTab("add")}
-                  className="text-xs text-primary hover:underline"
+                  className="text-sm text-primary hover:underline"
                 >
                   Go to Add tab to search catalog
                 </button>
@@ -816,8 +786,7 @@ const ItemsEditTabPanel = ({
             )}
           </div>
 
-          {/* Live totals */}
-          <div className="rounded-lg border bg-muted/40 p-3 space-y-1 text-sm">
+          <div className="rounded-lg border bg-muted/40 p-3 space-y-1.5 text-sm">
             <div className="flex justify-between font-semibold">
               <span>Revised total</span>
               <span>{fmtC(liveTotal)}</span>
@@ -839,15 +808,15 @@ const ItemsEditTabPanel = ({
               <span>
                 {fmtC(Math.abs(liveRemaining))}
                 {liveRemaining < 0 && (
-                  <span className="ml-1 text-xs font-normal">(advance)</span>
+                  <span className="ml-1 text-sm font-normal">(advance)</span>
                 )}
               </span>
             </div>
           </div>
 
           {saveBlockedZeroTotal && (
-            <div className="flex items-start gap-2 rounded-lg border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30 px-3 py-2.5 text-xs text-red-700 dark:text-red-400">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <div className="flex items-start gap-2 rounded-lg border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30 px-3 py-2.5 text-sm text-red-700 dark:text-red-400">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>
                 Cannot save: total is ₹0 but{" "}
                 <strong>{fmtC(editedTx?.paidAmount ?? 0)}</strong> has already
@@ -862,10 +831,7 @@ const ItemsEditTabPanel = ({
   );
 };
 
-// ─── CollapsibleCartItem — collapsed card, expands to inline editable inputs ──
-// Shared by both Add and Detail modals for consistent cart UX.
-// Collapsed: name, full path below, qty×price and total on right.
-// Expanded: editable inputs + ✓ done + 🗑 delete.
+// ─── CollapsibleCartItemDetail ────────────────────────────────────────────────
 const CollapsibleCartItemDetail = ({
   item,
   index,
@@ -883,27 +849,24 @@ const CollapsibleCartItemDetail = ({
   );
   const cat = parts.length > 1 ? parts.slice(0, -1).join(" › ") : "";
 
-  const inputCls =
-    "bg-muted border-0 rounded px-1.5 py-0.5 text-xs font-mono outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary min-w-0 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
-
   if (!isExpanded) {
     return (
       <button
         type="button"
         onClick={onToggle}
-        className="w-full flex items-start gap-2 px-3 py-2.5 text-left hover:bg-muted/50 transition-colors border-b last:border-b-0"
+        className="w-full flex items-start gap-2 px-3 py-3 text-left hover:bg-muted/50 transition-colors border-b last:border-b-0"
       >
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium leading-snug truncate">
             {displayName}
           </p>
           {cat && (
-            <p className="text-[0.6875rem] text-muted-foreground truncate mt-0.5">
+            <p className="text-sm text-muted-foreground truncate mt-0.5">
               {cat}
             </p>
           )}
           <div className="flex items-center gap-1 mt-1">
-            <span className="text-[0.6875rem] text-muted-foreground font-mono">
+            <span className="text-sm text-muted-foreground font-mono">
               {fmtNum(item.quantity)}
               {item.unit ? ` ${item.unit}` : ""} × {fmtC(price)}
             </span>
@@ -914,7 +877,7 @@ const CollapsibleCartItemDetail = ({
             {total > 0 ? (
               fmtC(total)
             ) : (
-              <span className="text-muted-foreground text-xs">—</span>
+              <span className="text-muted-foreground text-sm">—</span>
             )}
           </p>
         </div>
@@ -923,7 +886,7 @@ const CollapsibleCartItemDetail = ({
   }
 
   return (
-    <div className="border-b last:border-b-0 px-3 py-3 bg-primary/5 space-y-2">
+    <div className="border-b last:border-b-0 px-3 py-3 bg-primary/5 space-y-2.5">
       <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0">
           <input
@@ -931,26 +894,24 @@ const CollapsibleCartItemDetail = ({
             value={item.name}
             onChange={(e) => onUpdate(index, "name", e.target.value)}
             placeholder="Item name"
-            className="w-full bg-background border border-input rounded px-2 py-1 text-sm font-medium outline-none focus:ring-1 focus:ring-primary transition-colors"
+            className="w-full bg-background border border-input rounded px-2 py-1.5 text-sm font-medium outline-none focus:ring-1 focus:ring-primary transition-colors"
             autoFocus
           />
-          <p className="text-[0.6875rem] text-muted-foreground truncate px-1 min-h-[1rem] mt-0.5">
+          <p className="text-sm text-muted-foreground truncate px-1 min-h-[1.2em] mt-0.5">
             {cat}
           </p>
         </div>
-        {/* Delete icon — alone at top right, separated from Done below */}
         <button
           type="button"
           onClick={() => onRemove(index)}
-          className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors shrink-0 mt-0.5"
-          title="Delete item"
+          className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors shrink-0 mt-0.5"
         >
-          <Trash2 className="w-3.5 h-3.5" />
+          <Trash2 className="w-4 h-4" />
         </button>
       </div>
-      <div className="flex items-center gap-1.5 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap">
         <div className="flex flex-col gap-0.5">
-          <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+          <span className="text-[0.7em] text-muted-foreground uppercase tracking-wide font-medium">
             Qty
           </span>
           <input
@@ -958,11 +919,11 @@ const CollapsibleCartItemDetail = ({
             value={item.quantity}
             onChange={(e) => onUpdate(index, "quantity", e.target.value)}
             placeholder="qty"
-            className={`${inputCls} w-14`}
+            className={`${inputCls} w-16`}
           />
         </div>
         <div className="flex flex-col gap-0.5">
-          <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+          <span className="text-[0.7em] text-muted-foreground uppercase tracking-wide font-medium">
             Unit
           </span>
           <input
@@ -970,12 +931,12 @@ const CollapsibleCartItemDetail = ({
             value={item.unit || ""}
             onChange={(e) => onUpdate(index, "unit", e.target.value)}
             placeholder="—"
-            className={`${inputCls} w-14`}
+            className={`${inputCls} w-16`}
           />
         </div>
-        <span className="text-[0.6875rem] text-muted-foreground mt-3">×</span>
+        <span className="text-sm text-muted-foreground mt-4">×</span>
         <div className="flex flex-col gap-0.5">
-          <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+          <span className="text-[0.7em] text-muted-foreground uppercase tracking-wide font-medium">
             Price ₹
           </span>
           <input
@@ -983,35 +944,31 @@ const CollapsibleCartItemDetail = ({
             value={item.price}
             onChange={(e) => onUpdate(index, "price", e.target.value)}
             placeholder="₹0"
-            className={`${inputCls} w-16`}
+            className={`${inputCls} w-20`}
           />
         </div>
         {qty > 0 && price > 0 && (
           <>
-            <span className="text-[0.6875rem] text-muted-foreground mt-3">
-              =
-            </span>
-            <span className="text-xs font-semibold tabular-nums mt-3 text-primary">
+            <span className="text-sm text-muted-foreground mt-4">=</span>
+            <span className="text-sm font-semibold tabular-nums mt-4 text-primary">
               {fmtC(total)}
             </span>
           </>
         )}
       </div>
-      {/* Done button at the bottom — well separated from Delete above */}
       <button
         type="button"
         onClick={onToggle}
-        className="w-full h-7 flex items-center justify-center gap-1 rounded-md bg-primary/10 hover:bg-primary/20 text-primary text-xs font-medium transition-colors"
-        title="Done editing"
+        className="w-full h-8 flex items-center justify-center gap-1 rounded-md bg-primary/10 hover:bg-primary/20 text-primary text-sm font-medium transition-colors"
       >
-        <Check className="w-3.5 h-3.5" />
+        <Check className="w-4 h-4" />
         Done
       </button>
     </div>
   );
 };
 
-// ─── ItemViewRow — rich read-only card, used in view mode ────────────────────
+// ─── ItemViewRow ──────────────────────────────────────────────────────────────
 const ItemViewRow = ({ item, index, isLast }) => {
   const qty = parseFloat(item.quantity) || 0,
     price = parseFloat(item.price) || 0;
@@ -1021,7 +978,7 @@ const ItemViewRow = ({ item, index, isLast }) => {
   const cat = parts.slice(0, -1).join(" › ");
   return (
     <div
-      className={`flex items-start gap-2 px-3 py-2.5 overflow-hidden ${!isLast ? "border-b" : ""}`}
+      className={`flex items-start gap-2 px-3 py-3 overflow-hidden ${!isLast ? "border-b" : ""}`}
     >
       <div className="flex-1 overflow-hidden">
         <p className="text-sm font-medium leading-snug truncate">
@@ -1030,12 +987,10 @@ const ItemViewRow = ({ item, index, isLast }) => {
           )}
         </p>
         {cat && (
-          <p className="text-[0.6875rem] text-muted-foreground truncate mt-0.5">
-            {cat}
-          </p>
+          <p className="text-sm text-muted-foreground truncate mt-0.5">{cat}</p>
         )}
         <div className="flex items-center gap-1 mt-1">
-          <span className="text-[0.6875rem] text-muted-foreground font-mono">
+          <span className="text-sm text-muted-foreground font-mono">
             {fmtNum(item.quantity)}
             {item.unit ? ` ${item.unit}` : ""} × {fmtC(price)}
           </span>
@@ -1046,7 +1001,7 @@ const ItemViewRow = ({ item, index, isLast }) => {
           {total > 0 ? (
             fmtC(total)
           ) : (
-            <span className="text-muted-foreground text-xs">—</span>
+            <span className="text-muted-foreground text-sm">—</span>
           )}
         </p>
       </div>
@@ -1057,31 +1012,25 @@ const ItemViewRow = ({ item, index, isLast }) => {
 // ─── ChangeHistoryEntry ───────────────────────────────────────────────────────
 const ChangeHistoryEntry = ({ entry }) => (
   <div className="rounded-lg border px-3 py-2.5 space-y-1.5 overflow-hidden">
-    <p className="text-xs font-medium text-muted-foreground">
+    <p className="text-sm font-medium text-muted-foreground">
       {fmtDate(entry.date)}
     </p>
     {(entry.changes ?? []).filter(Boolean).map((c, j) => (
       <p
         key={j}
-        className={`text-sm break-all ${
-          c.type === "added"
-            ? "text-green-700 dark:text-green-400"
-            : c.type === "removed"
-              ? "text-red-700 dark:text-red-400"
-              : "text-foreground"
-        }`}
+        className={`text-sm break-all ${c.type === "added" ? "text-green-700 dark:text-green-400" : c.type === "removed" ? "text-red-700 dark:text-red-400" : "text-foreground"}`}
       >
         {typeof c === "string" ? c : c.text}
       </p>
     ))}
     {entry.noteChange && (
-      <p className="text-xs text-muted-foreground break-all">
+      <p className="text-sm text-muted-foreground break-all">
         Note: {entry.noteChange}
       </p>
     )}
     {entry.totalBefore !== undefined &&
       entry.totalBefore !== entry.totalAfter && (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Total: {fmtC(entry.totalBefore)} → {fmtC(entry.totalAfter)}
         </p>
       )}
@@ -1102,37 +1051,21 @@ export const TransactionDetailModal = ({
 }) => {
   const { priceData, sellPriceMode } = usePriceList();
 
-  // ── all hooks first, unconditionally ─────────────────────────────────────
   const [editMode, setEditMode] = useState(false);
   const [editedTx, setEditedTx] = useState(null);
-
-  // Track the id of the last transaction we initialised editedTx for so we
-  // can detect a genuine tx-identity change vs a same-tx payment update.
   const lastTxIdRef = useRef(null);
 
   useEffect(() => {
     if (!transaction) return;
-
     const txChanged = lastTxIdRef.current !== transaction.id;
     lastTxIdRef.current = transaction.id;
-
     if (txChanged) {
-      // Different transaction opened — full reset including edit mode.
       setEditedTx({ ...transaction });
       setEditMode(false);
       return;
     }
-
     setEditedTx((prev) => {
-      // Not in edit mode — just sync fully.
-      if (!prev || !editMode) {
-        return { ...transaction };
-      }
-
-      // In edit mode and same transaction: the prop updated because a payment
-      // was recorded (or a settlement ran). Refresh only the payment-related
-      // fields so liveRemaining / saveBlockedZeroTotal stay accurate, without
-      // discarding the user's in-progress structural edits (items, note, etc.).
+      if (!prev || !editMode) return { ...transaction };
       return {
         ...prev,
         paidAmount: transaction.paidAmount,
@@ -1141,8 +1074,6 @@ export const TransactionDetailModal = ({
         updatedAt: transaction.updatedAt,
       };
     });
-    // editMode is intentionally omitted from deps: we only want this to re-run
-    // when the transaction prop itself changes, not when editMode toggles.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transaction]);
 
@@ -1197,7 +1128,7 @@ export const TransactionDetailModal = ({
         ...(prev.itemsList ?? []),
         {
           name: item.name,
-          quantity: "1",
+          quantity: String(item.quantity ?? "1"),
           price: String(item.price),
           unit: item.unit || "",
         },
@@ -1205,7 +1136,6 @@ export const TransactionDetailModal = ({
     }));
   }, []);
 
-  // ── early return after all hooks ─────────────────────────────────────────
   if (!transaction || !editedTx) return null;
 
   const tx = transaction;
@@ -1224,10 +1154,6 @@ export const TransactionDetailModal = ({
       ? `Customer overpaid ${fmtC(overpaidAmt)} — they have a credit with us`
       : `We overpaid ${fmtC(overpaidAmt)} — supplier owes us this back`;
 
-  // Guard: saving a transaction with total === 0 while payments are already
-  // recorded would permanently corrupt it (status stuck at "pending" forever,
-  // phantom money in summary). Block the save and surface a clear warning.
-  // Applies to both item and financial transactions.
   const editedTotal = isItem
     ? liveTotal
     : parseFloat(editedTx?.totalAmount) || 0;
@@ -1236,15 +1162,7 @@ export const TransactionDetailModal = ({
 
   const handleSave = async () => {
     if (saveBlockedZeroTotal) return;
-
-    // Build an updates object that contains ONLY the fields the user can
-    // actually edit in this modal. Crucially, paidAmount and paidAmountHistory
-    // are intentionally excluded — updateTransaction fetches a fresh DB row
-    // and those fields must come from there, not from editedTx which was
-    // initialised at modal-open time and would be stale if a payment was
-    // recorded mid-edit.
     let updates;
-
     if (isItem) {
       const newTotal = liveTotal;
       const changes = diffItems(tx.itemsList, editedTx.itemsList);
@@ -1266,7 +1184,6 @@ export const TransactionDetailModal = ({
             },
           ]
         : editedTx.itemListHistory;
-
       updates = {
         itemsList: editedTx.itemsList,
         additionalAmounts: editedTx.additionalAmounts,
@@ -1275,8 +1192,6 @@ export const TransactionDetailModal = ({
         itemListHistory: newHistory,
       };
     } else {
-      // Coerce to number immediately so all downstream arithmetic and DB
-      // writes always receive a numeric value.
       const newTotal = parseFloat(editedTx.totalAmount) || 0;
       const changes = diffFinancial(tx, { ...editedTx, totalAmount: newTotal });
       const newHistory =
@@ -1291,14 +1206,12 @@ export const TransactionDetailModal = ({
               },
             ]
           : editedTx.itemListHistory;
-
       updates = {
         totalAmount: newTotal,
         note: editedTx.note,
         itemListHistory: newHistory,
       };
     }
-
     await onUpdate(tx.id, updates);
     setEditMode(false);
   };
@@ -1306,19 +1219,19 @@ export const TransactionDetailModal = ({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-full max-w-lg p-0 gap-0 flex flex-col h-[90svh] overflow-hidden">
-        {/* ── header ── */}
+        {/* header */}
         <DialogHeader className="px-4 pt-4 pb-3 border-b shrink-0">
           <div className="flex items-center gap-2">
             {isItem ? (
-              <Package className="w-4 h-4 text-blue-600 shrink-0" />
+              <Package className="w-5 h-5 text-blue-600 shrink-0" />
             ) : (
-              <Banknote className="w-4 h-4 text-purple-600 shrink-0" />
+              <Banknote className="w-5 h-5 text-purple-600 shrink-0" />
             )}
             <div className="flex-1 min-w-0">
               <DialogTitle className="text-base leading-tight">
                 {isItem ? "Item" : "Financial"} Transaction
               </DialogTitle>
-              <p className="text-[0.625rem] text-muted-foreground font-mono mt-0.5 break-all">
+              <p className="text-[0.75em] text-muted-foreground font-mono mt-0.5 break-all">
                 {tx.id}
               </p>
             </div>
@@ -1331,9 +1244,9 @@ export const TransactionDetailModal = ({
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-2">
                 {tx.type === "out" ? (
-                  <TrendingUp className="w-4 h-4 text-green-600 shrink-0" />
+                  <TrendingUp className="w-5 h-5 text-green-600 shrink-0" />
                 ) : (
-                  <TrendingDown className="w-4 h-4 text-red-600 shrink-0" />
+                  <TrendingDown className="w-5 h-5 text-red-600 shrink-0" />
                 )}
                 <div>
                   <p className="text-sm font-medium">
@@ -1341,14 +1254,14 @@ export const TransactionDetailModal = ({
                       ? "Sale (we gave / sold)"
                       : "Purchase (we received / bought)"}
                   </p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     {fmtDate(tx.createdAt)}
                   </p>
                 </div>
               </div>
               <Badge
                 variant="outline"
-                className={`shrink-0 text-xs ${
+                className={`shrink-0 text-sm px-2 py-0.5 ${
                   isDeleted
                     ? "border-red-300 text-red-600 dark:border-red-700 dark:text-red-400"
                     : isPending
@@ -1359,13 +1272,13 @@ export const TransactionDetailModal = ({
                 }`}
               >
                 {isDeleted ? (
-                  <Trash2 className="w-3 h-3 mr-1 inline" />
+                  <Trash2 className="w-3.5 h-3.5 mr-1 inline" />
                 ) : isPending ? (
-                  <Clock className="w-3 h-3 mr-1 inline" />
+                  <Clock className="w-3.5 h-3.5 mr-1 inline" />
                 ) : isOverpaid ? (
-                  <AlertTriangle className="w-3 h-3 mr-1 inline" />
+                  <AlertTriangle className="w-3.5 h-3.5 mr-1 inline" />
                 ) : (
-                  <CheckCircle2 className="w-3 h-3 mr-1 inline" />
+                  <CheckCircle2 className="w-3.5 h-3.5 mr-1 inline" />
                 )}
                 {tx.status}
               </Badge>
@@ -1375,7 +1288,7 @@ export const TransactionDetailModal = ({
             {isDeleted && (
               <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 px-3 py-2.5 flex items-start gap-2">
                 <Ban className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
-                <div className="text-xs text-red-700 dark:text-red-400">
+                <div className="text-sm text-red-700 dark:text-red-400">
                   <p className="font-semibold mb-0.5">Transaction deleted</p>
                   <p>
                     This transaction has been soft-deleted. Any settlements it
@@ -1388,19 +1301,17 @@ export const TransactionDetailModal = ({
 
             {/* edit mode banner */}
             {editMode && (
-              <div className="rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-xs text-primary font-medium">
+              <div className="rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm text-primary font-medium">
                 ✏️ Edit mode — make changes below, then tap Save
               </div>
             )}
 
             <Separator />
 
-            {/* ── ITEMS (item tx) ───────────────────────────────────────────── */}
+            {/* ITEMS */}
             {isItem && (
               <div className="space-y-2">
-                <Label className="text-sm font-semibold">Items</Label>
-
-                {/* View mode: existing read-only rows */}
+                <Label className="text-base font-semibold">Items</Label>
                 {!editMode && (
                   <>
                     <div className="border rounded-lg divide-y overflow-hidden">
@@ -1417,15 +1328,13 @@ export const TransactionDetailModal = ({
                         .map((e, i) => (
                           <div
                             key={i}
-                            className="py-2 px-3 flex justify-between gap-2 text-sm min-w-0"
+                            className="py-2.5 px-3 flex justify-between gap-2 text-sm min-w-0"
                           >
                             <span className="text-muted-foreground truncate min-w-0">
                               {e.name}
                             </span>
                             <span
-                              className={`shrink-0 tabular-nums ${
-                                parseFloat(e.amount) < 0 ? "text-red-600" : ""
-                              }`}
+                              className={`shrink-0 tabular-nums ${parseFloat(e.amount) < 0 ? "text-red-600" : ""}`}
                             >
                               {fmtC(parseFloat(e.amount) || 0)}
                             </span>
@@ -1434,7 +1343,7 @@ export const TransactionDetailModal = ({
                     </div>
                     {tx.itemsList?.length > 0 && (
                       <div className="flex justify-between items-center pt-1.5 text-sm">
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-sm text-muted-foreground">
                           {tx.itemsList.length} item
                           {tx.itemsList.length !== 1 ? "s" : ""}
                           {tx.additionalAmounts?.filter((e) => e.name).length >
@@ -1449,8 +1358,6 @@ export const TransactionDetailModal = ({
                     )}
                   </>
                 )}
-
-                {/* Edit mode: 2-tab Add / Cart interface */}
                 {editMode && (
                   <ItemsEditTabPanel
                     editedTx={editedTx}
@@ -1469,10 +1376,10 @@ export const TransactionDetailModal = ({
               </div>
             )}
 
-            {/* ── FINANCIAL AMOUNT (financial tx) ──────────────────────────── */}
+            {/* FINANCIAL AMOUNT */}
             {!isItem && (
               <div className="space-y-2">
-                <Label className="text-sm font-semibold mb-1.5 block">
+                <Label className="text-base font-semibold mb-1.5 block">
                   Amount
                 </Label>
                 {editMode ? (
@@ -1493,15 +1400,14 @@ export const TransactionDetailModal = ({
                         totalAmount: sanitizeNum(e.target.value),
                       }))
                     }
-                    className="text-lg font-semibold [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="text-xl font-semibold h-12 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                 ) : (
-                  <p className="text-2xl font-bold">{fmtC(tx.totalAmount)}</p>
+                  <p className="text-3xl font-bold">{fmtC(tx.totalAmount)}</p>
                 )}
-                {/* Zero-total + prior payment warning (financial) */}
                 {saveBlockedZeroTotal && (
-                  <div className="flex items-start gap-2 rounded-lg border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30 px-3 py-2.5 text-xs text-red-700 dark:text-red-400">
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <div className="flex items-start gap-2 rounded-lg border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30 px-3 py-2.5 text-sm text-red-700 dark:text-red-400">
+                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                     <span>
                       Cannot save: amount is ₹0 but{" "}
                       <strong>{fmtC(editedTx?.paidAmount ?? 0)}</strong> has
@@ -1513,9 +1419,9 @@ export const TransactionDetailModal = ({
               </div>
             )}
 
-            {/* ── NOTE ─────────────────────────────────────────────────────── */}
+            {/* NOTE */}
             <div>
-              <Label className="text-sm font-semibold mb-1 block">Note</Label>
+              <Label className="text-base font-semibold mb-1 block">Note</Label>
               {editMode ? (
                 <Textarea
                   value={editedTx.note ?? ""}
@@ -1534,32 +1440,30 @@ export const TransactionDetailModal = ({
 
             <Separator />
 
-            {/* ── PAYMENT SUMMARY ───────────────────────────────────────────── */}
+            {/* PAYMENT SUMMARY */}
             <div className="space-y-2">
-              <Label className="text-sm font-semibold">Payment</Label>
-
-              {/* amounts grid */}
+              <Label className="text-base font-semibold">Payment</Label>
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="rounded-lg border p-2.5 min-w-0">
-                  <p className="text-xs text-muted-foreground mb-0.5 truncate">
+                  <p className="text-sm text-muted-foreground mb-0.5 truncate">
                     Total
                   </p>
-                  <p className="text-sm font-bold tabular-nums break-all leading-tight">
+                  <p className="text-base font-bold tabular-nums break-all leading-tight">
                     {fmtC(tx.totalAmount)}
                   </p>
                 </div>
                 <div className="rounded-lg border p-2.5 min-w-0">
-                  <p className="text-xs text-muted-foreground mb-0.5 truncate">
+                  <p className="text-sm text-muted-foreground mb-0.5 truncate">
                     Paid
                   </p>
-                  <p className="text-sm font-bold text-green-600 dark:text-green-400 tabular-nums break-all leading-tight">
+                  <p className="text-base font-bold text-green-600 dark:text-green-400 tabular-nums break-all leading-tight">
                     {fmtC(tx.paidAmount)}
                   </p>
                 </div>
                 <div
                   className={`rounded-lg border p-2.5 min-w-0 ${isOverpaid ? "border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30" : ""}`}
                 >
-                  <p className="text-xs text-muted-foreground mb-0.5 truncate">
+                  <p className="text-sm text-muted-foreground mb-0.5 truncate">
                     {isOverpaid
                       ? "Advance"
                       : remaining === 0
@@ -1567,7 +1471,7 @@ export const TransactionDetailModal = ({
                         : "Due"}
                   </p>
                   <p
-                    className={`text-sm font-bold tabular-nums break-all leading-tight ${isOverpaid ? "text-amber-700 dark:text-amber-400" : remaining === 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
+                    className={`text-base font-bold tabular-nums break-all leading-tight ${isOverpaid ? "text-amber-700 dark:text-amber-400" : remaining === 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
                   >
                     {isOverpaid
                       ? `+${fmtC(overpaidAmt)}`
@@ -1578,9 +1482,8 @@ export const TransactionDetailModal = ({
                 </div>
               </div>
 
-              {/* progress bar */}
               {tx.paidAmount > 0 && !isOverpaid && (
-                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                <div className="h-2 bg-muted rounded-full overflow-hidden">
                   <div
                     className="h-full bg-green-500 rounded-full transition-all"
                     style={{ width: `${Math.min(progress, 100)}%` }}
@@ -1588,11 +1491,10 @@ export const TransactionDetailModal = ({
                 </div>
               )}
 
-              {/* overpayment banner */}
               {isOverpaid && (
                 <div className="rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
-                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                  <p className="text-sm text-amber-700 dark:text-amber-400">
                     {overpaidMsg}
                   </p>
                 </div>
@@ -1602,21 +1504,21 @@ export const TransactionDetailModal = ({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="w-full h-9"
+                  className="w-full h-10"
                   onClick={onAddPayment}
                 >
-                  <CreditCard className="w-3.5 h-3.5 mr-1.5" />
+                  <CreditCard className="w-4 h-4 mr-1.5" />
                   Record payment
                 </Button>
               )}
             </div>
 
-            {/* ── PAYMENT HISTORY ───────────────────────────────────────────── */}
+            {/* PAYMENT HISTORY */}
             {tx.paidAmountHistory?.length > 0 && (
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5">
-                  <History className="w-3.5 h-3.5 text-muted-foreground" />
-                  <Label className="text-sm font-semibold">
+                  <History className="w-4 h-4 text-muted-foreground" />
+                  <Label className="text-base font-semibold">
                     Payment history
                   </Label>
                 </div>
@@ -1627,34 +1529,26 @@ export const TransactionDetailModal = ({
                     const isSettlementType = isSettlement || isAdvanceApplied;
                     const amountVal = p.amount ?? 0;
 
-                    // Build a human-readable before→after balance line when
-                    // balanceBefore was stored (all new settlement entries have it).
                     let balanceLine = null;
                     if (isSettlementType && p.balanceBefore !== undefined) {
-                      const before = p.balanceBefore;
-                      const after = p.balanceAfter ?? 0;
+                      const before = p.balanceBefore,
+                        after = p.balanceAfter ?? 0;
                       if (isAdvanceApplied) {
-                        // before is negative (advance), after moves toward 0
-                        const beforeLabel = `Advance ${fmtC(Math.abs(before))}`;
-                        const afterLabel =
-                          Math.abs(after) < 0.01
-                            ? "Fully consumed"
-                            : `Advance ${fmtC(Math.abs(after))} remaining`;
                         balanceLine = {
-                          before: beforeLabel,
-                          after: afterLabel,
+                          before: `Advance ${fmtC(Math.abs(before))}`,
+                          after:
+                            Math.abs(after) < 0.01
+                              ? "Fully consumed"
+                              : `Advance ${fmtC(Math.abs(after))} remaining`,
                           afterOk: Math.abs(after) < 0.01,
                         };
                       } else {
-                        // before is positive (due), after moves toward 0
-                        const beforeLabel = `Due ${fmtC(before)}`;
-                        const afterLabel =
-                          after <= 0.01
-                            ? "Fully settled"
-                            : `${fmtC(after)} still due`;
                         balanceLine = {
-                          before: beforeLabel,
-                          after: afterLabel,
+                          before: `Due ${fmtC(before)}`,
+                          after:
+                            after <= 0.01
+                              ? "Fully settled"
+                              : `${fmtC(after)} still due`,
                           afterOk: after <= 0.01,
                         };
                       }
@@ -1663,14 +1557,9 @@ export const TransactionDetailModal = ({
                     return (
                       <div
                         key={i}
-                        className={`rounded-lg border px-3 py-2 flex items-start justify-between gap-2 min-w-0 overflow-hidden ${
-                          isSettlementType
-                            ? "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30"
-                            : ""
-                        }`}
+                        className={`rounded-lg border px-3 py-2.5 flex items-start justify-between gap-2 min-w-0 overflow-hidden ${isSettlementType ? "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30" : ""}`}
                       >
                         <div className="min-w-0 flex-1 overflow-hidden">
-                          {/* Amount + badge row */}
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <p
                               className={`text-sm font-semibold ${isAdvanceApplied ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"}`}
@@ -1680,20 +1569,18 @@ export const TransactionDetailModal = ({
                                 : fmtC(amountVal)}
                             </p>
                             {isSettlement && (
-                              <span className="text-[0.625rem] font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                              <span className="text-[0.75em] font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
                                 Auto-settled
                               </span>
                             )}
                             {isAdvanceApplied && (
-                              <span className="text-[0.625rem] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                              <span className="text-[0.75em] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
                                 Advance applied
                               </span>
                             )}
                           </div>
-
-                          {/* Before → After balance context */}
                           {balanceLine && (
-                            <div className="flex items-center gap-1 mt-1 text-xs">
+                            <div className="flex items-center gap-1 mt-1 text-sm">
                               <span className="text-muted-foreground">
                                 {balanceLine.before}
                               </span>
@@ -1709,16 +1596,12 @@ export const TransactionDetailModal = ({
                               </span>
                             </div>
                           )}
-
-                          {/* Method / note for non-settlement entries */}
                           {!isSettlementType && (
-                            <p className="text-xs text-muted-foreground mt-0.5 break-words">
+                            <p className="text-sm text-muted-foreground mt-0.5 break-words">
                               {p.method}
                               {p.note ? ` · ${p.note}` : ""}
                             </p>
                           )}
-
-                          {/* Partner transaction IDs — full UUID, clickable */}
                           {isSettlementType && p.partnerIds?.length > 0 && (
                             <div className="mt-1.5 space-y-1 overflow-hidden">
                               {p.partnerIds.map((pid) => {
@@ -1736,7 +1619,7 @@ export const TransactionDetailModal = ({
                                       !partnerDeleted &&
                                       onNavigateToTransaction?.(partnerTx)
                                     }
-                                    className={`flex w-full items-center justify-between gap-1 text-left text-[0.625rem] font-mono px-2 py-1 rounded border transition-colors overflow-hidden ${
+                                    className={`flex w-full items-center justify-between gap-1 text-left text-[0.75em] font-mono px-2 py-1 rounded border transition-colors overflow-hidden ${
                                       partnerDeleted
                                         ? "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/20 text-red-500 dark:text-red-400 cursor-default line-through"
                                         : partnerTx
@@ -1768,7 +1651,7 @@ export const TransactionDetailModal = ({
                             </div>
                           )}
                         </div>
-                        <p className="text-xs text-muted-foreground shrink-0 text-right whitespace-nowrap ml-1">
+                        <p className="text-sm text-muted-foreground shrink-0 text-right whitespace-nowrap ml-1">
                           {fmtDate(p.date)}
                         </p>
                       </div>
@@ -1778,12 +1661,12 @@ export const TransactionDetailModal = ({
               </div>
             )}
 
-            {/* ── CHANGE HISTORY (both item and financial) ──────────────────── */}
+            {/* CHANGE HISTORY */}
             {tx.itemListHistory?.length > 0 && (
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5">
-                  <History className="w-3.5 h-3.5 text-muted-foreground" />
-                  <Label className="text-sm font-semibold">
+                  <History className="w-4 h-4 text-muted-foreground" />
+                  <Label className="text-base font-semibold">
                     Change history
                   </Label>
                 </div>
@@ -1797,10 +1680,9 @@ export const TransactionDetailModal = ({
           </div>
         </div>
 
-        {/* ── bottom action bar ── */}
+        {/* bottom action bar */}
         <div className="border-t px-4 py-3 flex items-center gap-2 bg-background shrink-0">
           {isDeleted ? (
-            // Deleted transactions: read-only, just close
             <Button
               variant="outline"
               size="sm"
@@ -1817,7 +1699,7 @@ export const TransactionDetailModal = ({
                 className="flex-1 gap-1.5"
                 onClick={() => setEditMode(true)}
               >
-                <Edit2 className="w-3.5 h-3.5" />
+                <Edit2 className="w-4 h-4" />
                 Edit
               </Button>
               <Button
@@ -1826,7 +1708,7 @@ export const TransactionDetailModal = ({
                 className="flex-1 gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
                 onClick={() => onDelete(tx.id)}
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                <Trash2 className="w-4 h-4" />
                 Delete
               </Button>
               <Button
@@ -1849,7 +1731,7 @@ export const TransactionDetailModal = ({
                   setEditedTx({ ...transaction });
                 }}
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-4 h-4" />
                 Cancel
               </Button>
               <Button
@@ -1858,7 +1740,7 @@ export const TransactionDetailModal = ({
                 onClick={handleSave}
                 disabled={saveBlockedZeroTotal}
               >
-                <Check className="w-3.5 h-3.5" />
+                <Check className="w-4 h-4" />
                 Save changes
               </Button>
             </>

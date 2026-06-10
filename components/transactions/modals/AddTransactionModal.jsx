@@ -65,12 +65,8 @@ const sanitizeNum = (v) => {
 
 // ─── draft helpers ────────────────────────────────────────────────────────────
 const draftKey = (contactId) => `tx_draft_${contactId}`;
-
 const saveDraft = (contactId, state) => {
   try {
-    // Only save if there's something meaningful beyond the default kind/type
-    // selection — items added, a financial amount, a note, or non-default
-    // kind/type choices all count as real user intent worth preserving.
     const hasContent =
       state.kind !== "item" ||
       state.type !== "out" ||
@@ -82,11 +78,8 @@ const saveDraft = (contactId, state) => {
       draftKey(contactId),
       JSON.stringify({ ...state, savedAt: new Date().toISOString() }),
     );
-  } catch {
-    // ignore storage errors
-  }
+  } catch {}
 };
-
 const loadDraft = (contactId) => {
   try {
     const raw = localStorage.getItem(draftKey(contactId));
@@ -95,40 +88,30 @@ const loadDraft = (contactId) => {
     return null;
   }
 };
-
 const clearDraft = (contactId) => {
   try {
     localStorage.removeItem(draftKey(contactId));
-  } catch {
-    // ignore
-  }
+  } catch {}
 };
-
 const draftSummary = (draft) => {
   if (!draft) return "";
   const parts = [];
-  if (draft.kind && draft.type) {
+  if (draft.kind && draft.type)
     parts.push(
       `${draft.kind === "item" ? "Item" : "Financial"} ${draft.type === "out" ? "Sale" : "Purchase"}`,
     );
-  } else if (draft.kind) {
-    parts.push(draft.kind === "item" ? "Item" : "Financial");
-  } else if (draft.type) {
-    parts.push(draft.type === "out" ? "Sale" : "Purchase");
-  }
+  else if (draft.kind) parts.push(draft.kind === "item" ? "Item" : "Financial");
+  else if (draft.type) parts.push(draft.type === "out" ? "Sale" : "Purchase");
   if (draft.kind === "item" && draft.itemsList?.length > 0) {
     const named = draft.itemsList.filter((it) => it.name?.trim());
-    if (named.length > 0) {
+    if (named.length > 0)
       parts.push(`${named.length} item${named.length !== 1 ? "s" : ""}`);
-    }
   }
-  if (draft.financialTotal) {
-    parts.push(`₹${draft.financialTotal}`);
-  }
+  if (draft.financialTotal) parts.push(`₹${draft.financialTotal}`);
   return parts.join(" · ");
 };
 
-// ─── tokenizer (mirrors priceListUtils exactly) ───────────────────────────────
+// ─── tokenizer ────────────────────────────────────────────────────────────────
 const unitSynonyms = {
   '"': "inch",
   inch: "inch",
@@ -181,7 +164,6 @@ const unitSynonyms = {
   pairs: "pair",
 };
 const unitToken = (w) => unitSynonyms[w.toLowerCase()] ?? null;
-
 const isFraction = (t) => /^\d+\/\d+$/.test(t);
 const isDecimal = (t) => /^\d+\.\d+$/.test(t);
 const isNumeric = (t) => /^\d+$/.test(t);
@@ -200,13 +182,12 @@ const dec2fracs = (d) => {
         const t = b;
         b = a % b;
         a = t;
-      } // gcd
+      }
       out.push(`${num / a}/${den / a}`);
     }
   }
   return out;
 };
-
 const tokenize = (text) => {
   if (!text) return [];
   let s = String(text)
@@ -214,19 +195,16 @@ const tokenize = (text) => {
     .replace(/["'`´]/g, "");
   const phs = [];
   let idx = 0;
-  // reducer  1/2-3/4
   s = s.replace(/(\d+\/\d+)\s*["-]\s*(\d+\/\d+)/g, (_, a, b) => {
     const ph = `__R${idx++}__`;
     phs.push({ ph, val: `${a}-${b}` });
     return ph;
   });
-  // fraction 1/2
   s = s.replace(/(\d+)\s*\/\s*(\d+)/g, (_, a, b) => {
     const ph = `__F${idx++}__`;
     phs.push({ ph, val: `${a}/${b}` });
     return ph;
   });
-  // decimal 1.25
   s = s.replace(/(\d+\.\d+)/g, (m) => {
     const ph = `__D${idx++}__`;
     phs.push({ ph, val: m, decimal: true });
@@ -246,8 +224,6 @@ const tokenize = (text) => {
     })
     .filter(Boolean);
 };
-
-// ─── Levenshtein distance ─────────────────────────────────────────────────────
 const levenshtein = (a, b) => {
   const m = a.length,
     n = b.length;
@@ -262,58 +238,47 @@ const levenshtein = (a, b) => {
           : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
   return dp[m][n];
 };
-
-// ─── token scoring (mirrors matchTokenAgainst) ────────────────────────────────
 const scoreToken = (st, pt, fuzzy = true) => {
   if (!st || !pt) return 0;
   if (pt === st) return 100;
-
-  // decimal ↔ fraction
-  if (isDecimal(st) && isFraction(pt)) {
-    if (Math.abs(parseFloat(st) - frac2dec(pt)) < 0.01) return 100;
-  }
-  if (isFraction(st) && isDecimal(pt)) {
-    if (Math.abs(frac2dec(st) - parseFloat(pt)) < 0.01) return 100;
-  }
+  if (
+    isDecimal(st) &&
+    isFraction(pt) &&
+    Math.abs(parseFloat(st) - frac2dec(pt)) < 0.01
+  )
+    return 100;
+  if (
+    isFraction(st) &&
+    isDecimal(pt) &&
+    Math.abs(frac2dec(st) - parseFloat(pt)) < 0.01
+  )
+    return 100;
   if (isDecimal(st) && dec2fracs(parseFloat(st)).some((f) => pt.includes(f)))
     return 100;
   if (isDecimal(pt) && dec2fracs(parseFloat(pt)).some((f) => st.includes(f)))
     return 100;
-
-  // fraction
   if (isFraction(st) && pt.includes(st)) return 70;
-
-  // numeric — no substring match
   if (isNumeric(st)) return 0;
-
   if (!fuzzy) {
     if (pt.startsWith(st)) return 5;
-    const re = new RegExp(`\\b${st}\\b`, "i");
-    if (re.test(pt)) return 6;
+    if (new RegExp(`\\b${st}\\b`, "i").test(pt)) return 6;
     if (st.length >= 4 && pt.includes(st)) return 3;
     return 0;
   }
-
   if (pt.startsWith(st)) return 5;
-  const re = new RegExp(`\\b${st}\\b`, "i");
-  if (re.test(pt)) return 6;
+  if (new RegExp(`\\b${st}\\b`, "i").test(pt)) return 6;
   if (st.length >= 4 && pt.includes(st)) return 3;
-
-  // Levenshtein fuzzy
-  if (st.length >= 4) {
-    const dist = levenshtein(st, pt);
-    const maxD = Math.min(2, Math.floor(st.length / 3));
-    if (dist <= maxD) return 2;
-  }
+  if (
+    st.length >= 4 &&
+    levenshtein(st, pt) <= Math.min(2, Math.floor(st.length / 3))
+  )
+    return 2;
   return 0;
 };
-
-// ─── two-pass search (exact+substring first, fuzzy fallback) ─────────────────
 const searchItems = (items, query) => {
   if (!query.trim()) return [];
   const tokens = tokenize(query);
   if (!tokens.length) return [];
-
   const score = (item, fuzzy) => {
     const pts = tokenize(item.path);
     let total = 0;
@@ -327,29 +292,21 @@ const searchItems = (items, query) => {
     }
     return total;
   };
-
-  // pass 1: exact + substring only
   let results = items
     .map((it) => {
       const s = score(it, false);
       return s != null ? { ...it, _score: s } : null;
     })
     .filter(Boolean);
-
-  // pass 2: fuzzy fallback
-  if (results.length === 0) {
+  if (results.length === 0)
     results = items
       .map((it) => {
         const s = score(it, true);
         return s != null ? { ...it, _score: s } : null;
       })
       .filter(Boolean);
-  }
-
   return results.sort((a, b) => b._score - a._score);
 };
-
-// ─── flatten price list ───────────────────────────────────────────────────────
 const flattenPriceItems = (data, path = []) => {
   if (!data || typeof data !== "object") return [];
   const out = [];
@@ -375,13 +332,11 @@ const flattenPriceItems = (data, path = []) => {
   return out;
 };
 
-// ─── PriceItemSearch with inline quick-add panel (module-level) ──────────────
-// When a catalog result is clicked it does NOT immediately add to the list.
-// Instead a compact confirm panel appears below the search bar, pre-filled with
-// the item's price/unit, letting the user set qty before adding. This keeps the
-// "Add" tab self-contained — no need to switch to the Cart tab to edit qty.
-// onAddBlank: callback to add a blank item row inline in the Add tab.
-// itemsList: current items for duplicate detection.
+// ─── shared input cls ────────────────────────────────────────────────────────
+const inputCls =
+  "bg-muted border-0 rounded px-2 py-1 text-sm font-mono outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary min-w-0 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
+
+// ─── PriceItemSearch ──────────────────────────────────────────────────────────
 const PriceItemSearch = ({
   onSelect,
   onAddBlank,
@@ -392,8 +347,7 @@ const PriceItemSearch = ({
 }) => {
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
-  // pending: the catalog item the user just tapped — shown in quick-add panel
-  const [pending, setPending] = useState(null); // { name, fullPath, price, unit, pathParts }
+  const [pending, setPending] = useState(null);
   const [pendingQty, setPendingQty] = useState("1");
   const [pendingPrice, setPendingPrice] = useState("");
   const [pendingUnit, setPendingUnit] = useState("");
@@ -422,11 +376,9 @@ const PriceItemSearch = ({
     setPendingUnit(item[unitKey] ?? "");
     setQuery("");
     setFocused(false);
-    // Focus qty input after paint
     setTimeout(() => qtyRef.current?.select(), 60);
   };
 
-  // Check if the item being added is a duplicate (same name + price + unit, ignoring qty)
   const isDuplicate = pending
     ? (itemsList ?? []).some(
         (it) =>
@@ -448,116 +400,107 @@ const PriceItemSearch = ({
     });
     setPending(null);
     setPendingQty("1");
-    // Re-focus search bar so user can immediately add another item
     setTimeout(() => inputRef.current?.focus(), 60);
   };
-
   const cancelPending = () => {
     setPending(null);
     setTimeout(() => inputRef.current?.focus(), 60);
   };
 
-  const inputCls =
-    "bg-muted border-0 rounded px-1.5 py-0.5 text-xs font-mono outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary min-w-0 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
-
   return (
     <div className="space-y-2">
-      {/* Search + blank button on same line */}
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-          <input
-            ref={inputRef}
-            type="text"
-            placeholder={`Search catalog (${priceLabel.toLowerCase()} price)…`}
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              if (pending) setPending(null);
-            }}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setTimeout(() => setFocused(false), 150)}
-            className="w-full pl-9 pr-8 h-8 rounded-md border border-input bg-background text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
-          {query && (
-            <button
-              type="button"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                setQuery("");
+      <div className="relative">
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            <input
+              ref={inputRef}
+              type="text"
+              placeholder={`Search catalog (${priceLabel.toLowerCase()} price)…`}
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                if (pending) setPending(null);
               }}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-          {focused && query.trim() && (
-            <div className="absolute z-[200] top-full mt-1 w-full rounded-md border bg-popover shadow-lg overflow-hidden max-h-64 overflow-y-auto">
-              {results.length === 0 ? (
-                <p className="px-3 py-2 text-sm text-muted-foreground">
-                  No results for "{query}"
-                </p>
-              ) : (
-                results.map((item, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      pickItem(item);
-                    }}
-                    className="w-full px-3 py-2 text-sm hover:bg-accent text-left"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-medium truncate">{item.name}</p>
-                        {item.pathParts.length > 1 && (
-                          <p className="text-xs text-muted-foreground truncate">
-                            {item.pathParts.slice(0, -1).join(" › ")}
-                          </p>
-                        )}
-                      </div>
-                      <p className="font-semibold text-xs shrink-0 text-right">
-                        {fmt(item[priceKey])}
-                        <span className="text-muted-foreground font-normal">
-                          /{item[unitKey]}
-                        </span>
-                      </p>
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-          )}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setTimeout(() => setFocused(false), 150)}
+              className="w-full pl-10 pr-8 h-10 rounded-md border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            {query && (
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setQuery("");
+                }}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onAddBlank}
+            className="shrink-0 h-10 px-3 rounded-md border border-input bg-background text-sm font-medium hover:bg-muted transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
+          >
+            <Plus className="w-4 h-4" />
+            Blank
+          </button>
         </div>
-        {/* Add blank item button — same line as search */}
-        <button
-          type="button"
-          onClick={onAddBlank}
-          className="shrink-0 h-8 px-2.5 rounded-md border border-input bg-background text-xs font-medium hover:bg-muted transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
-          title="Add blank item"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          Blank
-        </button>
+        {focused && query.trim() && (
+          <div className="absolute z-[200] top-full mt-1 left-0 right-0 rounded-md border bg-popover shadow-lg overflow-hidden max-h-64 overflow-y-auto">
+            {results.length === 0 ? (
+              <p className="px-3 py-2 text-sm text-muted-foreground">
+                No results for "{query}"
+              </p>
+            ) : (
+              results.map((item, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pickItem(item);
+                  }}
+                  className="w-full px-3 py-2.5 text-sm hover:bg-accent text-left"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{item.name}</p>
+                      {item.pathParts.length > 1 && (
+                        <p className="text-sm text-muted-foreground truncate">
+                          {item.pathParts.slice(0, -1).join(" › ")}
+                        </p>
+                      )}
+                    </div>
+                    <p className="font-semibold text-sm shrink-0 text-right">
+                      {fmt(item[priceKey])}
+                      <span className="text-muted-foreground font-normal">
+                        /{item[unitKey]}
+                      </span>
+                    </p>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Quick-add confirm panel — appears after selecting a result */}
       {pending && (
-        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
-          {/* Item name + path */}
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
           <div className="min-w-0">
-            <p className="text-xs font-semibold truncate">{pending.name}</p>
+            <p className="text-sm font-semibold truncate">{pending.name}</p>
             {pending.pathParts?.length > 1 && (
-              <p className="text-[0.6875rem] text-muted-foreground truncate">
+              <p className="text-sm text-muted-foreground truncate">
                 {pending.pathParts.slice(0, -1).join(" › ")}
               </p>
             )}
           </div>
-          {/* Inline qty / unit / price row — same sizing as cart ItemRow */}
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
             <div className="flex flex-col gap-0.5">
-              <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+              <span className="text-[0.7em] text-muted-foreground uppercase tracking-wide font-medium">
                 Qty
               </span>
               <input
@@ -570,11 +513,11 @@ const PriceItemSearch = ({
                   if (e.key === "Enter") confirmAdd();
                   if (e.key === "Escape") cancelPending();
                 }}
-                className={`${inputCls} w-14`}
+                className={`${inputCls} w-16`}
               />
             </div>
             <div className="flex flex-col gap-0.5">
-              <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+              <span className="text-[0.7em] text-muted-foreground uppercase tracking-wide font-medium">
                 Unit
               </span>
               <input
@@ -582,14 +525,12 @@ const PriceItemSearch = ({
                 value={pendingUnit}
                 onChange={(e) => setPendingUnit(e.target.value)}
                 placeholder="—"
-                className={`${inputCls} w-14`}
+                className={`${inputCls} w-16`}
               />
             </div>
-            <span className="text-[0.6875rem] text-muted-foreground mt-3">
-              ×
-            </span>
+            <span className="text-sm text-muted-foreground mt-4">×</span>
             <div className="flex flex-col gap-0.5">
-              <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+              <span className="text-[0.7em] text-muted-foreground uppercase tracking-wide font-medium">
                 Price ₹
               </span>
               <input
@@ -597,34 +538,30 @@ const PriceItemSearch = ({
                 min="0"
                 value={pendingPrice}
                 onChange={(e) => setPendingPrice(e.target.value)}
-                className={`${inputCls} w-16`}
+                className={`${inputCls} w-20`}
               />
             </div>
             {parseFloat(pendingQty) > 0 && parseFloat(pendingPrice) > 0 && (
               <>
-                <span className="text-[0.6875rem] text-muted-foreground mt-3">
-                  =
-                </span>
-                <span className="text-xs font-semibold tabular-nums mt-3 text-primary">
+                <span className="text-sm text-muted-foreground mt-4">=</span>
+                <span className="text-sm font-semibold tabular-nums mt-4 text-primary">
                   {fmt(parseFloat(pendingQty) * parseFloat(pendingPrice))}
                 </span>
               </>
             )}
           </div>
-          {/* Duplicate warning */}
           {isDuplicate && (
-            <div className="flex items-center gap-1.5 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-              Already in cart with same price & unit — adding again will create
-              a duplicate row.
+            <div className="flex items-center gap-1.5 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-2 text-sm text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              Already in cart with same price &amp; unit — adding again will
+              create a duplicate row.
             </div>
           )}
-          {/* Action buttons */}
           <div className="flex gap-2">
             <button
               type="button"
               onClick={cancelPending}
-              className="flex-1 h-7 rounded-md border border-input bg-background text-xs font-medium hover:bg-muted transition-colors"
+              className="flex-1 h-9 rounded-md border border-input bg-background text-sm font-medium hover:bg-muted transition-colors"
             >
               Cancel
             </button>
@@ -632,9 +569,9 @@ const PriceItemSearch = ({
               type="button"
               onClick={confirmAdd}
               disabled={!(parseFloat(pendingQty) > 0)}
-              className="flex-1 h-7 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-40 flex items-center justify-center gap-1"
+              className="flex-1 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-40 flex items-center justify-center gap-1"
             >
-              <Plus className="w-3 h-3" />
+              <Plus className="w-3.5 h-3.5" />
               Add to cart
             </button>
           </div>
@@ -644,9 +581,7 @@ const PriceItemSearch = ({
   );
 };
 
-// ─── CollapsibleCartItem — collapsed summary card, expands to editable inputs ──
-// Collapsed: shows item name, full path below, and qty × price = total on right.
-// Expanded: inline editable inputs with ✓ (done) and 🗑 (delete) icon buttons.
+// ─── CollapsibleCartItem ──────────────────────────────────────────────────────
 const CollapsibleCartItem = ({
   item,
   index,
@@ -664,27 +599,24 @@ const CollapsibleCartItem = ({
   );
   const cat = parts.length > 1 ? parts.slice(0, -1).join(" › ") : "";
 
-  const inputCls =
-    "bg-muted border-0 rounded px-1.5 py-0.5 text-xs font-mono outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary min-w-0 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
-
   if (!isExpanded) {
     return (
       <button
         type="button"
         onClick={onToggle}
-        className="w-full flex items-start gap-2 px-3 py-2.5 text-left hover:bg-muted/50 transition-colors border-b last:border-b-0"
+        className="w-full flex items-start gap-2 px-3 py-3 text-left hover:bg-muted/50 transition-colors border-b last:border-b-0"
       >
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium leading-snug truncate">
             {displayName}
           </p>
           {cat && (
-            <p className="text-[0.6875rem] text-muted-foreground truncate mt-0.5">
+            <p className="text-sm text-muted-foreground truncate mt-0.5">
               {cat}
             </p>
           )}
           <div className="flex items-center gap-1 mt-1 flex-wrap">
-            <span className="text-[0.6875rem] text-muted-foreground font-mono">
+            <span className="text-sm text-muted-foreground font-mono">
               {fmtNum(item.quantity)}
               {item.unit ? ` ${item.unit}` : ""} × {fmt(price)}
             </span>
@@ -695,7 +627,7 @@ const CollapsibleCartItem = ({
             {total > 0 ? (
               fmt(total)
             ) : (
-              <span className="text-muted-foreground text-xs">—</span>
+              <span className="text-muted-foreground text-sm">—</span>
             )}
           </p>
         </div>
@@ -703,9 +635,8 @@ const CollapsibleCartItem = ({
     );
   }
 
-  // Expanded edit state
   return (
-    <div className="border-b last:border-b-0 px-3 py-3 bg-primary/5 space-y-2">
+    <div className="border-b last:border-b-0 px-3 py-3 bg-primary/5 space-y-2.5">
       <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0">
           <input
@@ -713,27 +644,24 @@ const CollapsibleCartItem = ({
             value={item.name}
             onChange={(e) => onUpdate(index, "name", e.target.value)}
             placeholder="Item name"
-            className="w-full bg-background border border-input rounded px-2 py-1 text-sm font-medium outline-none focus:ring-1 focus:ring-primary transition-colors"
+            className="w-full bg-background border border-input rounded px-2 py-1.5 text-sm font-medium outline-none focus:ring-1 focus:ring-primary transition-colors"
             autoFocus
           />
-          {/* always rendered to keep DOM stable */}
-          <p className="text-[0.6875rem] text-muted-foreground truncate px-1 min-h-[1rem] mt-0.5">
+          <p className="text-sm text-muted-foreground truncate px-1 min-h-[1.2em] mt-0.5">
             {cat}
           </p>
         </div>
-        {/* Delete icon — top right, alone so it can't be accidentally tapped alongside Done */}
         <button
           type="button"
           onClick={() => onRemove(index)}
-          className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors shrink-0 mt-0.5"
-          title="Delete item"
+          className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors shrink-0 mt-0.5"
         >
-          <Trash2 className="w-3.5 h-3.5" />
+          <Trash2 className="w-4 h-4" />
         </button>
       </div>
-      <div className="flex items-center gap-1.5 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap">
         <div className="flex flex-col gap-0.5">
-          <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+          <span className="text-[0.7em] text-muted-foreground uppercase tracking-wide font-medium">
             Qty
           </span>
           <input
@@ -741,11 +669,11 @@ const CollapsibleCartItem = ({
             value={item.quantity}
             onChange={(e) => onUpdate(index, "quantity", e.target.value)}
             placeholder="qty"
-            className={`${inputCls} w-14`}
+            className={`${inputCls} w-16`}
           />
         </div>
         <div className="flex flex-col gap-0.5">
-          <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+          <span className="text-[0.7em] text-muted-foreground uppercase tracking-wide font-medium">
             Unit
           </span>
           <input
@@ -753,12 +681,12 @@ const CollapsibleCartItem = ({
             value={item.unit || ""}
             onChange={(e) => onUpdate(index, "unit", e.target.value)}
             placeholder="—"
-            className={`${inputCls} w-14`}
+            className={`${inputCls} w-16`}
           />
         </div>
-        <span className="text-[0.6875rem] text-muted-foreground mt-3">×</span>
+        <span className="text-sm text-muted-foreground mt-4">×</span>
         <div className="flex flex-col gap-0.5">
-          <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+          <span className="text-[0.7em] text-muted-foreground uppercase tracking-wide font-medium">
             Price ₹
           </span>
           <input
@@ -766,63 +694,57 @@ const CollapsibleCartItem = ({
             value={item.price}
             onChange={(e) => onUpdate(index, "price", e.target.value)}
             placeholder="₹0"
-            className={`${inputCls} w-16`}
+            className={`${inputCls} w-20`}
           />
         </div>
         {qty > 0 && price > 0 && (
           <>
-            <span className="text-[0.6875rem] text-muted-foreground mt-3">
-              =
-            </span>
-            <span className="text-xs font-semibold tabular-nums mt-3 text-primary">
+            <span className="text-sm text-muted-foreground mt-4">=</span>
+            <span className="text-sm font-semibold tabular-nums mt-4 text-primary">
               {fmt(total)}
             </span>
           </>
         )}
       </div>
-      {/* Done button at the bottom — well separated from Delete above */}
       <button
         type="button"
         onClick={onToggle}
-        className="w-full h-7 flex items-center justify-center gap-1 rounded-md bg-primary/10 hover:bg-primary/20 text-primary text-xs font-medium transition-colors"
-        title="Done editing"
+        className="w-full h-8 flex items-center justify-center gap-1 rounded-md bg-primary/10 hover:bg-primary/20 text-primary text-sm font-medium transition-colors"
       >
-        <Check className="w-3.5 h-3.5" />
+        <Check className="w-4 h-4" />
         Done
       </button>
     </div>
   );
 };
 
-// ─── ItemDisplayRow — read-only, used in Review ───────────────────────────────
+// ─── ItemDisplayRow ───────────────────────────────────────────────────────────
 const ItemDisplayRow = ({ item, isLast }) => {
-  const qty = parseFloat(item.quantity) || 0;
-  const price = parseFloat(item.price) || 0;
-  const total = qty * price;
+  const qty = parseFloat(item.quantity) || 0,
+    price = parseFloat(item.price) || 0,
+    total = qty * price;
   const displayName = item.name ? item.name.split(" › ").pop() : "";
   const hasPath = item.name && item.name.includes(" › ");
   return (
     <div
-      className={`flex items-start gap-2 py-2.5 overflow-hidden ${!isLast ? "border-b" : ""}`}
+      className={`flex items-start gap-2 py-3 overflow-hidden ${!isLast ? "border-b" : ""}`}
     >
       <div className="flex-1 overflow-hidden">
         <p className="text-sm font-medium leading-snug break-all">
           {displayName}
         </p>
         {hasPath && (
-          <p className="text-[0.6875rem] text-muted-foreground break-all mt-0.5">
+          <p className="text-sm text-muted-foreground break-all mt-0.5">
             {item.name.split(" › ").slice(0, -1).join(" › ")}
           </p>
         )}
         <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-          <span className="inline-flex items-center text-[0.6875rem] bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
+          <span className="inline-flex items-center text-sm bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
             {fmtNum(item.quantity)}
             {item.unit ? ` ${item.unit}` : ""}
           </span>
-          <span className="text-[0.6875rem] text-muted-foreground shrink-0">
-            ×
-          </span>
-          <span className="inline-flex items-center text-[0.6875rem] bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
+          <span className="text-sm text-muted-foreground shrink-0">×</span>
+          <span className="inline-flex items-center text-sm bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
             {fmt(price)}
             {item.unit ? `/${item.unit}` : ""}
           </span>
@@ -837,9 +759,7 @@ const ItemDisplayRow = ({ item, isLast }) => {
   );
 };
 
-// ─── ItemsTabPanel — 2-tab Add / Cart interface (module-level) ───────────────
-// Tab 1 "Add":  search + "Blank" button. No item list shown here.
-// Tab 2 "Cart": collapsible card list — tap a card to expand & edit in-place.
+// ─── ItemsTabPanel ────────────────────────────────────────────────────────────
 const ItemsTabPanel = ({
   itemsList,
   itemsTotal,
@@ -857,14 +777,10 @@ const ItemsTabPanel = ({
   const blankNameRef = useRef(null);
   const namedCount = itemsList.filter((it) => it.name?.trim()).length;
 
-  const inputCls =
-    "bg-muted border-0 rounded px-1.5 py-0.5 text-xs font-mono outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary min-w-0 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
-
   const handleAddBlank = () => {
     setBlankPending({ name: "", qty: "1", price: "", unit: "" });
     setTimeout(() => blankNameRef.current?.focus(), 60);
   };
-
   const confirmBlank = () => {
     if (!blankPending) return;
     addItemFromSearch({
@@ -875,21 +791,15 @@ const ItemsTabPanel = ({
     });
     setBlankPending(null);
   };
-
   const cancelBlank = () => setBlankPending(null);
-
   const blankQty = parseFloat(blankPending?.qty) || 0;
   const blankPrice = parseFloat(blankPending?.price) || 0;
-
-  // Add item from search — stay on Add tab so user can keep adding
   const handleAddFromSearch = (item) => {
     addItemFromSearch(item);
-    // Don't switch to cart — user stays on Add tab to continue adding
   };
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Tab bar */}
       <div className="flex gap-1 p-1 rounded-lg bg-muted shrink-0">
         {[
           { id: "add", label: "Add items" },
@@ -902,18 +812,13 @@ const ItemsTabPanel = ({
             key={id}
             type="button"
             onClick={() => setActiveTab(id)}
-            className={`flex-1 h-7 rounded-md text-xs font-medium transition-all ${
-              activeTab === id
-                ? "bg-background shadow-sm text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
+            className={`flex-1 h-8 rounded-md text-sm font-medium transition-all ${activeTab === id ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
           >
             {label}
           </button>
         ))}
       </div>
 
-      {/* ── Add tab ── */}
       {activeTab === "add" && (
         <div className="space-y-2">
           <PriceItemSearch
@@ -925,10 +830,9 @@ const ItemsTabPanel = ({
             itemsList={itemsList}
           />
 
-          {/* Blank item inline panel */}
           {blankPending && (
-            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
-              <p className="text-[0.6875rem] text-muted-foreground font-medium">
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
+              <p className="text-sm text-muted-foreground font-medium">
                 New blank item
               </p>
               <input
@@ -939,11 +843,11 @@ const ItemsTabPanel = ({
                   setBlankPending((p) => ({ ...p, name: e.target.value }))
                 }
                 placeholder="Item name"
-                className="w-full bg-muted border-0 rounded px-2 py-1 text-xs font-medium outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary transition-colors"
+                className="w-full bg-muted border-0 rounded px-2 py-1.5 text-sm font-medium outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary transition-colors"
               />
-              <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+                  <span className="text-[0.7em] text-muted-foreground uppercase tracking-wide font-medium">
                     Qty
                   </span>
                   <input
@@ -957,11 +861,11 @@ const ItemsTabPanel = ({
                       if (e.key === "Enter") confirmBlank();
                       if (e.key === "Escape") cancelBlank();
                     }}
-                    className={`${inputCls} w-14`}
+                    className={`${inputCls} w-16`}
                   />
                 </div>
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+                  <span className="text-[0.7em] text-muted-foreground uppercase tracking-wide font-medium">
                     Unit
                   </span>
                   <input
@@ -971,14 +875,12 @@ const ItemsTabPanel = ({
                       setBlankPending((p) => ({ ...p, unit: e.target.value }))
                     }
                     placeholder="—"
-                    className={`${inputCls} w-14`}
+                    className={`${inputCls} w-16`}
                   />
                 </div>
-                <span className="text-[0.6875rem] text-muted-foreground mt-3">
-                  ×
-                </span>
+                <span className="text-sm text-muted-foreground mt-4">×</span>
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+                  <span className="text-[0.7em] text-muted-foreground uppercase tracking-wide font-medium">
                     Price ₹
                   </span>
                   <input
@@ -988,15 +890,15 @@ const ItemsTabPanel = ({
                     onChange={(e) =>
                       setBlankPending((p) => ({ ...p, price: e.target.value }))
                     }
-                    className={`${inputCls} w-16`}
+                    className={`${inputCls} w-20`}
                   />
                 </div>
                 {blankQty > 0 && blankPrice > 0 && (
                   <>
-                    <span className="text-[0.6875rem] text-muted-foreground mt-3">
+                    <span className="text-sm text-muted-foreground mt-4">
                       =
                     </span>
-                    <span className="text-xs font-semibold tabular-nums mt-3 text-primary">
+                    <span className="text-sm font-semibold tabular-nums mt-4 text-primary">
                       {fmt(blankQty * blankPrice)}
                     </span>
                   </>
@@ -1006,7 +908,7 @@ const ItemsTabPanel = ({
                 <button
                   type="button"
                   onClick={cancelBlank}
-                  className="flex-1 h-7 rounded-md border border-input bg-background text-xs font-medium hover:bg-muted transition-colors"
+                  className="flex-1 h-9 rounded-md border border-input bg-background text-sm font-medium hover:bg-muted transition-colors"
                 >
                   Cancel
                 </button>
@@ -1014,23 +916,21 @@ const ItemsTabPanel = ({
                   type="button"
                   onClick={() => {
                     confirmBlank();
-                    // Stay on Add tab so user can keep adding more items
                   }}
-                  className="flex-1 h-7 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-1"
+                  className="flex-1 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-1"
                 >
-                  <Plus className="w-3 h-3" />
+                  <Plus className="w-3.5 h-3.5" />
                   Add to cart
                 </button>
               </div>
             </div>
           )}
 
-          {/* Show cart count hint if items exist */}
           {namedCount > 0 && !blankPending && (
             <button
               type="button"
               onClick={() => setActiveTab("cart")}
-              className="w-full text-xs text-center text-muted-foreground hover:text-foreground py-1.5 transition-colors"
+              className="w-full text-sm text-center text-muted-foreground hover:text-foreground py-1.5 transition-colors"
             >
               {namedCount} item{namedCount !== 1 ? "s" : ""} in cart ·{" "}
               <span className="text-primary underline">View Cart →</span>
@@ -1039,7 +939,6 @@ const ItemsTabPanel = ({
         </div>
       )}
 
-      {/* ── Cart tab ── */}
       {activeTab === "cart" && (
         <div className="flex flex-col gap-2">
           {itemsList.length === 0 ? (
@@ -1048,17 +947,14 @@ const ItemsTabPanel = ({
               <button
                 type="button"
                 onClick={() => setActiveTab("add")}
-                className="text-xs text-primary hover:underline"
+                className="text-sm text-primary hover:underline"
               >
                 Go to Add tab to search catalog
               </button>
             </div>
           ) : (
             <>
-              <div
-                className="border rounded-lg overflow-hidden"
-                style={{ minHeight: "10rem" }}
-              >
+              <div className="border rounded-lg overflow-hidden">
                 {itemsList.map((item, i) => (
                   <CollapsibleCartItem
                     key={i}
@@ -1076,7 +972,7 @@ const ItemsTabPanel = ({
                   />
                 ))}
               </div>
-              <div className="flex items-center justify-between text-xs px-0.5">
+              <div className="flex items-center justify-between text-sm px-0.5">
                 <span className="text-muted-foreground">
                   {namedCount} item{namedCount !== 1 ? "s" : ""}
                 </span>
@@ -1109,13 +1005,8 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
   const { priceData, sellPriceMode } = usePriceList();
   const contactId = contact?.id;
 
-  // ── draft prompt state ────────────────────────────────────────────────────
-  // null   = not checked yet / no draft found
-  // object = draft loaded, showing restore prompt
   const [pendingDraft, setPendingDraft] = useState(null);
   const [showDraftPrompt, setShowDraftPrompt] = useState(false);
-
-  // ── form state ────────────────────────────────────────────────────────────
   const [step, setStep] = useState(0);
   const [kind, setKind] = useState("item");
   const [type, setType] = useState("out");
@@ -1129,7 +1020,6 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
   });
   const [financialTotal, setFinancialTotal] = useState("");
 
-  // ── check for a saved draft when the modal opens ──────────────────────────
   useEffect(() => {
     if (!open || !contactId) return;
     const draft = loadDraft(contactId);
@@ -1139,9 +1029,6 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
     }
   }, [open, contactId]);
 
-  // ── auto-save draft on every meaningful change while modal is open ────────
-  // We intentionally do NOT save when the modal is closed (that's handled
-  // by handleClose — which either clears on submit or saves on dismiss).
   const formStateRef = useRef({});
   useEffect(() => {
     formStateRef.current = {
@@ -1160,7 +1047,6 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
     () => flattenPriceItems(priceData),
     [priceData],
   );
-
   const steps =
     kind === "item"
       ? STEPS_ITEM
@@ -1185,8 +1071,6 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
   const paidNow = parseFloat(initialPayment.amount) || 0;
   const isOverpaid = paidNow > totalAmount && totalAmount > 0;
   const remaining = totalAmount - paidNow;
-
-  // overpayment framing
   const overpaidMsg =
     type === "out"
       ? `Customer is paying ${fmt(paidNow - totalAmount)} extra — they'll have a credit with us`
@@ -1204,16 +1088,12 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
     );
     setFinancialTotal(s.financialTotal ?? "");
   };
-
   const reset = () => {
     applyState(blankState());
   };
 
   const handleClose = (v) => {
     if (!v) {
-      // Closing without submitting — save whatever is in the form as a draft,
-      // but only if there's actual content beyond the default kind/type selection
-      // (avoids saving blank dismissals where the user opened and immediately closed).
       const current = formStateRef.current;
       const hasContent =
         current.kind !== "item" ||
@@ -1221,9 +1101,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
         (current.itemsList ?? []).length > 0 ||
         current.financialTotal !== "" ||
         current.note !== "";
-      if (hasContent && contactId) {
-        saveDraft(contactId, current);
-      }
+      if (hasContent && contactId) saveDraft(contactId, current);
       reset();
     }
     onOpenChange(v);
@@ -1266,19 +1144,15 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
             ? "complete"
             : "pending",
     });
-    // Success — clear draft and reset form
     if (contactId) clearDraft(contactId);
     reset();
   };
 
   const handleRestoreDraft = () => {
-    if (pendingDraft) {
-      applyState(pendingDraft);
-    }
+    if (pendingDraft) applyState(pendingDraft);
     setShowDraftPrompt(false);
     setPendingDraft(null);
   };
-
   const handleDiscardDraft = () => {
     if (contactId) clearDraft(contactId);
     setShowDraftPrompt(false);
@@ -1290,14 +1164,11 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
     if (stepName === "Type") return kind !== null && type !== null;
     if (stepName === "Items") return itemsList.some((it) => it.name.trim());
     if (stepName === "Details") return parseFloat(financialTotal) > 0;
-    // Block the Payment and Review steps if items total to zero — that tx
-    // would be permanently stuck as "pending" with nothing to ever settle.
     if ((stepName === "Extras" || stepName === "Payment") && kind === "item")
       return totalAmount > 0;
     return true;
   };
 
-  // ── item mutators — useCallback so identity is stable ────────────────────
   const updateItem = useCallback((i, field, value) => {
     setItemsList((prev) => {
       const next = [...prev];
@@ -1316,14 +1187,12 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
       ...prev,
       {
         name: item.name,
-        quantity: "1",
+        quantity: String(item.quantity ?? "1"),
         price: String(item.price),
         unit: item.unit || "",
       },
     ]);
   }, []);
-
-  // extras mutators
   const updateExtra = useCallback((i, f, v) => {
     setAdditionalAmounts((prev) => {
       const next = [...prev];
@@ -1345,23 +1214,23 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
               {step > 0 && kind && type && (
                 <span className="flex items-center gap-1.5 ml-1">
                   {kind === "item" ? (
-                    <Package className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                    <Package className="w-4 h-4 text-blue-500 shrink-0" />
                   ) : (
-                    <Banknote className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                    <Banknote className="w-4 h-4 text-purple-500 shrink-0" />
                   )}
                   {type === "out" ? (
-                    <TrendingUp className="w-3.5 h-3.5 text-green-600 shrink-0" />
+                    <TrendingUp className="w-4 h-4 text-green-600 shrink-0" />
                   ) : (
-                    <TrendingDown className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                    <TrendingDown className="w-4 h-4 text-red-500 shrink-0" />
                   )}
-                  <span className="text-xs font-normal text-muted-foreground">
+                  <span className="text-sm font-normal text-muted-foreground">
                     {kind === "item" ? "Item" : "Financial"}{" "}
                     {type === "out" ? "Sale" : "Purchase"}
                   </span>
                 </span>
               )}
               {kind && !showDraftPrompt && (
-                <span className="ml-auto mr-7 text-xs font-normal text-muted-foreground tabular-nums">
+                <span className="ml-auto mr-7 text-sm font-normal text-muted-foreground tabular-nums">
                   {step + 1}/{steps.length}
                 </span>
               )}
@@ -1371,29 +1240,29 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
 
         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
           <div className="px-4 pt-2 pb-3 flex flex-col gap-3">
-            {/* ── Draft restore prompt ─────────────────────────────────────────── */}
+            {/* Draft restore prompt */}
             {showDraftPrompt && pendingDraft && (
               <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 p-3 space-y-2.5">
                 <div className="flex items-start gap-2">
-                  <FileEdit className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <FileEdit className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
                       Unsaved draft found
                     </p>
                     {draftSummary(pendingDraft) && (
-                      <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5 truncate">
+                      <p className="text-sm text-amber-700 dark:text-amber-400 mt-0.5 truncate">
                         {draftSummary(pendingDraft)}
                       </p>
                     )}
                     {pendingDraft.savedAt && (
-                      <p className="text-[0.625rem] text-amber-600/70 dark:text-amber-500/70 mt-0.5">
+                      <p className="text-[0.75em] text-amber-600/70 dark:text-amber-500/70 mt-0.5">
                         Saved{" "}
                         {(() => {
                           try {
-                            const d = new Date(pendingDraft.savedAt);
-                            const now = new Date();
-                            const diffMs = now - d;
-                            const diffMins = Math.floor(diffMs / 60000);
+                            const d = new Date(pendingDraft.savedAt),
+                              now = new Date(),
+                              diffMs = now - d,
+                              diffMins = Math.floor(diffMs / 60000);
                             if (diffMins < 1) return "just now";
                             if (diffMins < 60)
                               return `${diffMins} min${diffMins !== 1 ? "s" : ""} ago`;
@@ -1413,32 +1282,31 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="flex-1 text-xs border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40"
+                    className="flex-1 text-sm border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40"
                     onClick={handleDiscardDraft}
                   >
-                    <Trash2 className="w-3 h-3 mr-1" />
+                    <Trash2 className="w-3.5 h-3.5 mr-1" />
                     Discard
                   </Button>
                   <Button
                     size="sm"
-                    className="flex-1 text-xs bg-amber-600 hover:bg-amber-700 dark:bg-amber-700 dark:hover:bg-amber-600 text-white border-0"
+                    className="flex-1 text-sm bg-amber-600 hover:bg-amber-700 dark:bg-amber-700 dark:hover:bg-amber-600 text-white border-0"
                     onClick={handleRestoreDraft}
                   >
-                    <FileEdit className="w-3 h-3 mr-1" />
+                    <FileEdit className="w-3.5 h-3.5 mr-1" />
                     Resume draft
                   </Button>
                 </div>
               </div>
             )}
 
-            {/* Hide form steps while draft prompt is showing */}
             {!showDraftPrompt && (
               <>
-                {/* ── TYPE ──────────────────────────────────────────────────────────── */}
+                {/* TYPE */}
                 {stepName === "Type" && (
                   <div className="space-y-5">
                     <div className="space-y-2">
-                      <Label className="text-sm font-medium">Kind</Label>
+                      <Label className="text-base font-medium">Kind</Label>
                       <div className="grid grid-cols-2 gap-3">
                         {[
                           {
@@ -1460,9 +1328,9 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                             onClick={() => setKind(value)}
                             className={`rounded-lg border-2 p-4 text-left transition-all ${kind === value ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
                           >
-                            <Icon className="w-5 h-5 mb-2 text-primary" />
-                            <p className="font-semibold text-sm">{label}</p>
-                            <p className="text-xs text-muted-foreground mt-0.5">
+                            <Icon className="w-6 h-6 mb-2 text-primary" />
+                            <p className="font-semibold text-base">{label}</p>
+                            <p className="text-sm text-muted-foreground mt-0.5">
                               {desc}
                             </p>
                           </button>
@@ -1470,7 +1338,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <Label className="text-sm font-medium">Direction</Label>
+                      <Label className="text-base font-medium">Direction</Label>
                       <div className="grid grid-cols-2 gap-3">
                         {[
                           {
@@ -1494,9 +1362,9 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                             onClick={() => setType(value)}
                             className={`rounded-lg border-2 p-4 text-left transition-all ${type === value ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
                           >
-                            <Icon className={`w-5 h-5 mb-2 ${color}`} />
-                            <p className="font-semibold text-sm">{label}</p>
-                            <p className="text-xs text-muted-foreground mt-0.5">
+                            <Icon className={`w-6 h-6 mb-2 ${color}`} />
+                            <p className="font-semibold text-base">{label}</p>
+                            <p className="text-sm text-muted-foreground mt-0.5">
                               {desc}
                             </p>
                           </button>
@@ -1506,7 +1374,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                   </div>
                 )}
 
-                {/* ── ITEMS ─────────────────────────────────────────────────────────── */}
+                {/* ITEMS */}
                 {stepName === "Items" && (
                   <ItemsTabPanel
                     itemsList={itemsList}
@@ -1521,15 +1389,15 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                   />
                 )}
 
-                {/* ── EXTRAS ────────────────────────────────────────────────────────── */}
+                {/* EXTRAS */}
                 {stepName === "Extras" && (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <div>
-                        <Label className="text-sm font-medium">
+                        <Label className="text-base font-medium">
                           Additional charges / discounts
                         </Label>
-                        <p className="text-xs text-muted-foreground mt-0.5">
+                        <p className="text-sm text-muted-foreground mt-0.5">
                           Use negative amount for discount
                         </p>
                       </div>
@@ -1545,9 +1413,8 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                         Add
                       </Button>
                     </div>
-
                     {additionalAmounts.length === 0 ? (
-                      <p className="text-xs text-center text-muted-foreground py-4 border rounded-lg">
+                      <p className="text-sm text-center text-muted-foreground py-4 border rounded-lg">
                         No extras — skip or add one
                       </p>
                     ) : (
@@ -1577,7 +1444,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                             </div>
                             <div className="grid grid-cols-2 gap-2">
                               <div>
-                                <Label className="text-xs text-muted-foreground mb-0.5 block">
+                                <Label className="text-sm text-muted-foreground mb-0.5 block">
                                   Amount (₹)
                                 </Label>
                                 <Input
@@ -1599,7 +1466,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                                 />
                               </div>
                               <div>
-                                <Label className="text-xs text-muted-foreground mb-0.5 block">
+                                <Label className="text-sm text-muted-foreground mb-0.5 block">
                                   Note
                                 </Label>
                                 <Input
@@ -1615,8 +1482,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                         ))}
                       </div>
                     )}
-
-                    <div className="pt-2 border-t space-y-1 text-sm">
+                    <div className="pt-2 border-t space-y-1.5 text-sm">
                       <div className="flex justify-between text-muted-foreground">
                         <span>Items</span>
                         <span>{fmt(itemsTotal)}</span>
@@ -1630,9 +1496,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                           >
                             <span className="truncate min-w-0">{e.name}</span>
                             <span
-                              className={`shrink-0 tabular-nums ${
-                                parseFloat(e.amount) < 0 ? "text-red-600" : ""
-                              }`}
+                              className={`shrink-0 tabular-nums ${parseFloat(e.amount) < 0 ? "text-red-600" : ""}`}
                             >
                               {parseFloat(e.amount) < 0 ? "" : "+"}
                               {fmt(parseFloat(e.amount) || 0)}
@@ -1644,15 +1508,14 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                         <span>{fmt(totalAmount)}</span>
                       </div>
                       {totalAmount === 0 && (
-                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                        <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
                           Total is ₹0 — set a price on at least one item to
                           continue.
                         </p>
                       )}
                     </div>
-
                     <div>
-                      <Label className="text-xs text-muted-foreground mb-1 block">
+                      <Label className="text-sm text-muted-foreground mb-1 block">
                         Note (optional)
                       </Label>
                       <Textarea
@@ -1665,11 +1528,11 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                   </div>
                 )}
 
-                {/* ── FINANCIAL DETAILS ─────────────────────────────────────────────── */}
+                {/* FINANCIAL DETAILS */}
                 {stepName === "Details" && (
                   <div className="space-y-4">
                     <div>
-                      <Label className="text-sm font-medium mb-1 block">
+                      <Label className="text-base font-medium mb-1 block">
                         Amount (₹)
                       </Label>
                       <Input
@@ -1682,12 +1545,12 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                         onBlur={(e) =>
                           setFinancialTotal(sanitizeNum(e.target.value))
                         }
-                        className="text-lg [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        className="text-xl h-12 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         autoFocus
                       />
                     </div>
                     <div>
-                      <Label className="text-sm font-medium mb-1 block">
+                      <Label className="text-base font-medium mb-1 block">
                         Note
                       </Label>
                       <Textarea
@@ -1700,21 +1563,20 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                   </div>
                 )}
 
-                {/* ── PAYMENT ───────────────────────────────────────────────────────── */}
+                {/* PAYMENT */}
                 {stepName === "Payment" && (
                   <div className="space-y-4">
-                    <div className="rounded-lg border bg-muted/40 p-3 text-center">
-                      <p className="text-xs text-muted-foreground">
+                    <div className="rounded-lg border bg-muted/40 p-4 text-center">
+                      <p className="text-sm text-muted-foreground">
                         Total amount
                       </p>
-                      <p className="text-2xl font-bold">{fmt(totalAmount)}</p>
+                      <p className="text-3xl font-bold">{fmt(totalAmount)}</p>
                     </div>
-
                     <div>
-                      <Label className="text-sm font-medium mb-1 block">
+                      <Label className="text-base font-medium mb-1 block">
                         Paid now (₹)
                       </Label>
-                      <p className="text-xs text-muted-foreground mb-2">
+                      <p className="text-sm text-muted-foreground mb-2">
                         Leave 0 if nothing paid yet. Overpayment is allowed.
                       </p>
                       <Input
@@ -1735,20 +1597,19 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                             amount: sanitizeNum(e.target.value),
                           }))
                         }
-                        className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        className="h-12 text-lg [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       />
                       {isOverpaid && (
-                        <div className="flex gap-2 mt-2 rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-                          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        <div className="flex gap-2 mt-2 rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-950/30 px-3 py-2.5 text-sm text-amber-700 dark:text-amber-400">
+                          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                           {overpaidMsg}
                         </div>
                       )}
                     </div>
-
                     {paidNow > 0 && (
                       <>
                         <div>
-                          <Label className="text-sm font-medium mb-1 block">
+                          <Label className="text-base font-medium mb-1 block">
                             Method
                           </Label>
                           <Select
@@ -1757,7 +1618,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                               setInitialPayment((p) => ({ ...p, method: v }))
                             }
                           >
-                            <SelectTrigger>
+                            <SelectTrigger className="h-10">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -1770,7 +1631,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                           </Select>
                         </div>
                         <div>
-                          <Label className="text-sm font-medium mb-1 block">
+                          <Label className="text-base font-medium mb-1 block">
                             Payment note (optional)
                           </Label>
                           <Input
@@ -1782,13 +1643,13 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                                 note: e.target.value,
                               }))
                             }
+                            className="h-10"
                           />
                         </div>
                       </>
                     )}
-
                     {totalAmount > 0 && (
-                      <div className="rounded-lg border p-3 space-y-1 text-sm">
+                      <div className="rounded-lg border p-3 space-y-1.5 text-sm">
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Total</span>
                           <span className="font-medium">
@@ -1816,7 +1677,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                           >
                             {fmt(Math.abs(remaining))}
                             {remaining < 0 && (
-                              <span className="ml-1 text-xs font-normal">
+                              <span className="ml-1 text-sm font-normal">
                                 (advance)
                               </span>
                             )}
@@ -1827,20 +1688,20 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                   </div>
                 )}
 
-                {/* ── REVIEW ────────────────────────────────────────────────────────── */}
+                {/* REVIEW */}
                 {stepName === "Review" && (
                   <div className="space-y-3">
                     <div className="rounded-lg border p-4 space-y-3">
                       <div className="flex items-center gap-2">
                         {kind === "item" ? (
-                          <Package className="w-4 h-4 text-blue-600" />
+                          <Package className="w-5 h-5 text-blue-600" />
                         ) : (
-                          <Banknote className="w-4 h-4 text-purple-600" />
+                          <Banknote className="w-5 h-5 text-purple-600" />
                         )}
-                        <span className="font-semibold capitalize">
+                        <span className="font-semibold text-base capitalize">
                           {kind} {type === "out" ? "Sale" : "Purchase"}
                         </span>
-                        <Badge variant="outline" className="text-xs ml-auto">
+                        <Badge variant="outline" className="text-sm ml-auto">
                           {paidNow > totalAmount && totalAmount > 0
                             ? "Overpaid"
                             : paidNow >= totalAmount && totalAmount > 0
@@ -1848,16 +1709,15 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                               : "Pending"}
                         </Badge>
                       </div>
-
                       {kind === "item" &&
                         itemsList.filter((it) => it.name.trim()).length > 0 && (
                           <div className="border rounded-lg divide-y overflow-hidden">
                             {itemsList
                               .filter((it) => it.name.trim())
                               .map((it, i) => {
-                                const qty = parseFloat(it.quantity) || 0;
-                                const price = parseFloat(it.price) || 0;
-                                const total = qty * price;
+                                const qty = parseFloat(it.quantity) || 0,
+                                  price = parseFloat(it.price) || 0,
+                                  total = qty * price;
                                 const parts = it.name
                                   ? it.name.split(" › ")
                                   : [""];
@@ -1870,19 +1730,19 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                                 return (
                                   <div
                                     key={i}
-                                    className="flex items-start gap-2 px-3 py-2.5"
+                                    className="flex items-start gap-2 px-3 py-3"
                                   >
                                     <div className="flex-1 min-w-0">
                                       <p className="text-sm font-medium leading-snug truncate">
                                         {displayName}
                                       </p>
                                       {cat && (
-                                        <p className="text-[0.6875rem] text-muted-foreground truncate mt-0.5">
+                                        <p className="text-sm text-muted-foreground truncate mt-0.5">
                                           {cat}
                                         </p>
                                       )}
                                       <div className="flex items-center gap-1 mt-1">
-                                        <span className="text-[0.6875rem] text-muted-foreground font-mono">
+                                        <span className="text-sm text-muted-foreground font-mono">
                                           {fmtNum(it.quantity)}
                                           {it.unit ? ` ${it.unit}` : ""} ×{" "}
                                           {fmt(price)}
@@ -1894,7 +1754,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                                         {total > 0 ? (
                                           fmt(total)
                                         ) : (
-                                          <span className="text-muted-foreground text-xs">
+                                          <span className="text-muted-foreground text-sm">
                                             —
                                           </span>
                                         )}
@@ -1908,17 +1768,13 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                               .map((e, i) => (
                                 <div
                                   key={i}
-                                  className="py-2 px-3 flex justify-between gap-2 text-sm min-w-0"
+                                  className="py-2.5 px-3 flex justify-between gap-2 text-sm min-w-0"
                                 >
                                   <span className="text-muted-foreground truncate min-w-0">
                                     {e.name}
                                   </span>
                                   <span
-                                    className={`shrink-0 tabular-nums ${
-                                      parseFloat(e.amount) < 0
-                                        ? "text-red-600"
-                                        : ""
-                                    }`}
+                                    className={`shrink-0 tabular-nums ${parseFloat(e.amount) < 0 ? "text-red-600" : ""}`}
                                   >
                                     {fmt(parseFloat(e.amount) || 0)}
                                   </span>
@@ -1926,17 +1782,15 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                               ))}
                           </div>
                         )}
-
                       {note && (
                         <div>
-                          <p className="text-xs text-muted-foreground uppercase font-medium">
+                          <p className="text-sm text-muted-foreground uppercase font-medium">
                             Note
                           </p>
                           <p className="text-sm">{note}</p>
                         </div>
                       )}
-
-                      <div className="border-t pt-3 space-y-1">
+                      <div className="border-t pt-3 space-y-1.5">
                         <div className="flex justify-between font-semibold">
                           <span>Total</span>
                           <span>{fmt(totalAmount)}</span>
@@ -1964,7 +1818,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                               >
                                 {fmt(Math.abs(remaining))}
                                 {remaining < 0 && (
-                                  <span className="ml-1 text-xs font-normal">
+                                  <span className="ml-1 text-sm font-normal">
                                     (advance)
                                   </span>
                                 )}
@@ -1978,27 +1832,22 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                           </p>
                         )}
                       </div>
-
                       {isOverpaid && (
-                        <div className="flex gap-2 rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-                          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        <div className="flex gap-2 rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-950/30 px-3 py-2.5 text-sm text-amber-700 dark:text-amber-400">
+                          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                           {overpaidMsg}
                         </div>
                       )}
                     </div>
                   </div>
                 )}
-
-                {/* nav — moved outside scroll area below */}
               </>
             )}
-
-            {/* When showing draft prompt, add bottom spacer */}
             {showDraftPrompt && <div className="h-2" />}
           </div>
         </div>
 
-        {/* ── Fixed bottom nav bar ── */}
+        {/* Fixed bottom nav */}
         <div className="border-t px-4 py-3 bg-background shrink-0">
           {!showDraftPrompt ? (
             <div className="flex gap-2">
