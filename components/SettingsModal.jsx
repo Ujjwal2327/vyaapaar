@@ -113,7 +113,10 @@ const SettingsModal = ({
 
   // Determine current page context
   const isCatalogPage = pathname?.includes("/catalog");
-  const isPeoplePage = pathname?.includes("/contacts");
+  const isPeoplePage = !!(
+    pathname &&
+    (pathname === "/contacts" || pathname.endsWith("/contacts"))
+  );
 
   // Load settings based on context
   useEffect(() => {
