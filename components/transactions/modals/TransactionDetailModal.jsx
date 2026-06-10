@@ -321,11 +321,24 @@ const diffFinancial = (before, after) => {
   return lines;
 };
 
-// ─── CatalogSearch (module-level, stable) ────────────────────────────────────
-const CatalogSearch = ({ onSelect, txType, sellPriceMode, allPriceItems }) => {
+// ─── CatalogSearch with inline quick-add panel (module-level, stable) ────────
+const CatalogSearch = ({
+  onSelect,
+  onAddBlank,
+  txType,
+  sellPriceMode,
+  allPriceItems,
+  itemsList,
+}) => {
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
+  const [pending, setPending] = useState(null);
+  const [pendingQty, setPendingQty] = useState("1");
+  const [pendingPrice, setPendingPrice] = useState("");
+  const [pendingUnit, setPendingUnit] = useState("");
   const ref = useRef(null);
+  const qtyRef = useRef(null);
+
   const pk =
     txType === "in"
       ? "cost"
@@ -333,79 +346,515 @@ const CatalogSearch = ({ onSelect, txType, sellPriceMode, allPriceItems }) => {
         ? "bulkSell"
         : "retailSell";
   const uk = txType === "in" ? "costUnit" : "sellUnit";
+
   const results = useMemo(
     () => searchItems(allPriceItems, query).slice(0, 10),
     [allPriceItems, query],
   );
+
+  const pickItem = (item) => {
+    setPending(item);
+    setPendingQty("1");
+    setPendingPrice(String(item[pk] ?? 0));
+    setPendingUnit(item[uk] ?? "");
+    setQuery("");
+    setFocused(false);
+    setTimeout(() => qtyRef.current?.select(), 60);
+  };
+
+  // Duplicate detection: same name + price + unit already in cart
+  const isDuplicate = pending
+    ? (itemsList ?? []).some(
+        (it) =>
+          it.name === pending.fullPath &&
+          String(it.price) === pendingPrice &&
+          (it.unit || "") === (pendingUnit || ""),
+      )
+    : false;
+
+  const confirmAdd = () => {
+    if (!pending) return;
+    const qty = parseFloat(pendingQty);
+    if (!qty || qty <= 0) return;
+    onSelect({
+      name: pending.fullPath,
+      quantity: String(qty),
+      price: pendingPrice,
+      unit: pendingUnit,
+    });
+    setPending(null);
+    setTimeout(() => ref.current?.focus(), 60);
+  };
+
+  const cancelPending = () => {
+    setPending(null);
+    setTimeout(() => ref.current?.focus(), 60);
+  };
+
+  const inputCls =
+    "bg-muted border-0 rounded px-1.5 py-0.5 text-xs font-mono outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary min-w-0 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
+
   return (
-    <div className="relative">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-        <input
-          ref={ref}
-          type="text"
-          placeholder="Search catalog…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setTimeout(() => setFocused(false), 150)}
-          className="w-full pl-9 pr-8 h-8 rounded-md border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        />
-        {query && (
+    <div className="space-y-2">
+      {/* Search + blank button on same line */}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            ref={ref}
+            type="text"
+            placeholder="Search catalog…"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              if (pending) setPending(null);
+            }}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setTimeout(() => setFocused(false), 150)}
+            className="w-full pl-9 pr-8 h-8 rounded-md border border-input bg-background text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          {query && (
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setQuery("");
+              }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {focused && query.trim() && (
+            <div className="absolute z-[200] top-full mt-1 w-full rounded-md border bg-popover shadow-lg overflow-hidden max-h-64 overflow-y-auto">
+              {results.length === 0 ? (
+                <p className="px-3 py-2 text-sm text-muted-foreground">
+                  No results for "{query}"
+                </p>
+              ) : (
+                results.map((item, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      pickItem(item);
+                    }}
+                    className="w-full px-3 py-2 text-sm hover:bg-accent text-left"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{item.name}</p>
+                        {item.pathParts.length > 1 && (
+                          <p className="text-xs text-muted-foreground truncate">
+                            {item.pathParts.slice(0, -1).join(" › ")}
+                          </p>
+                        )}
+                      </div>
+                      <p className="font-semibold text-xs shrink-0">
+                        {fmtC(item[pk])}
+                        <span className="text-muted-foreground font-normal">
+                          /{item[uk]}
+                        </span>
+                      </p>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+        {onAddBlank && (
           <button
             type="button"
-            onMouseDown={(e) => {
-              e.preventDefault();
-              setQuery("");
-            }}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            onClick={onAddBlank}
+            className="shrink-0 h-8 px-2.5 rounded-md border border-input bg-background text-xs font-medium hover:bg-muted transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
+            title="Add blank item"
           >
-            <X className="w-3.5 h-3.5" />
+            <Plus className="w-3.5 h-3.5" />
+            Blank
           </button>
         )}
       </div>
-      {focused && query.trim() && (
-        <div className="absolute z-[200] top-full mt-1 w-full rounded-md border bg-popover shadow-lg overflow-hidden max-h-64 overflow-y-auto">
-          {results.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-muted-foreground">
-              No results for "{query}"
-            </p>
-          ) : (
-            results.map((item, i) => (
-              <button
-                key={i}
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  onSelect({
-                    name: item.fullPath,
-                    quantity: "1",
-                    price: String(item[pk] ?? 0),
-                    unit: item[uk],
-                  });
-                  setQuery("");
-                  ref.current?.blur();
+
+      {/* Quick-add confirm panel */}
+      {pending && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2.5">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold truncate">{pending.name}</p>
+            {pending.pathParts?.length > 1 && (
+              <p className="text-[0.6875rem] text-muted-foreground truncate">
+                {pending.pathParts.slice(0, -1).join(" › ")}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+                Qty
+              </span>
+              <input
+                ref={qtyRef}
+                type="number"
+                min="0"
+                value={pendingQty}
+                onChange={(e) => setPendingQty(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") confirmAdd();
+                  if (e.key === "Escape") cancelPending();
                 }}
-                className="w-full px-3 py-2 text-sm hover:bg-accent text-left"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-medium truncate">{item.name}</p>
-                    {item.pathParts.length > 1 && (
-                      <p className="text-xs text-muted-foreground truncate">
-                        {item.pathParts.slice(0, -1).join(" › ")}
-                      </p>
-                    )}
-                  </div>
-                  <p className="font-semibold text-xs shrink-0">
-                    {fmtC(item[pk])}
-                    <span className="text-muted-foreground font-normal">
-                      /{item[uk]}
-                    </span>
-                  </p>
+                className={`${inputCls} w-14`}
+              />
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+                Unit
+              </span>
+              <input
+                type="text"
+                value={pendingUnit}
+                onChange={(e) => setPendingUnit(e.target.value)}
+                placeholder="—"
+                className={`${inputCls} w-14`}
+              />
+            </div>
+            <span className="text-[0.6875rem] text-muted-foreground mt-3">
+              ×
+            </span>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+                Price ₹
+              </span>
+              <input
+                type="number"
+                min="0"
+                value={pendingPrice}
+                onChange={(e) => setPendingPrice(e.target.value)}
+                className={`${inputCls} w-16`}
+              />
+            </div>
+            {parseFloat(pendingQty) > 0 && parseFloat(pendingPrice) > 0 && (
+              <>
+                <span className="text-[0.6875rem] text-muted-foreground mt-3">
+                  =
+                </span>
+                <span className="text-xs font-semibold tabular-nums mt-3 text-primary">
+                  {fmtC(parseFloat(pendingQty) * parseFloat(pendingPrice))}
+                </span>
+              </>
+            )}
+          </div>
+          {isDuplicate && (
+            <div className="flex items-center gap-1.5 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              Already in cart with same price & unit — adding again will create
+              a duplicate row.
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={cancelPending}
+              className="flex-1 h-7 rounded-md border border-input bg-background text-xs font-medium hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirmAdd}
+              disabled={!(parseFloat(pendingQty) > 0)}
+              className="flex-1 h-7 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-40 flex items-center justify-center gap-1"
+            >
+              <Plus className="w-3 h-3" />
+              Add
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── ItemsEditTabPanel — 2-tab edit interface for detail modal ────────────────
+const ItemsEditTabPanel = ({
+  editedTx,
+  updateItem,
+  removeItem,
+  addItem,
+  addFromCatalog,
+  txType,
+  sellPriceMode,
+  allPriceItems,
+  liveTotal,
+  liveRemaining,
+  saveBlockedZeroTotal,
+}) => {
+  const [activeTab, setActiveTab] = useState("cart");
+  const [expandedIndex, setExpandedIndex] = useState(null);
+  const [blankPending, setBlankPending] = useState(null);
+  const blankNameRef = useRef(null);
+  const itemsList = editedTx?.itemsList ?? [];
+  const namedCount = itemsList.filter((it) => it.name?.trim()).length;
+
+  const inputCls =
+    "bg-muted border-0 rounded px-1.5 py-0.5 text-xs font-mono outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary min-w-0 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
+
+  const handleAddBlank = () => {
+    setBlankPending({ name: "", qty: "1", price: "", unit: "" });
+    setTimeout(() => blankNameRef.current?.focus(), 60);
+  };
+
+  const confirmBlank = () => {
+    if (!blankPending) return;
+    addFromCatalog({
+      name: blankPending.name,
+      quantity: blankPending.qty,
+      price: blankPending.price,
+      unit: blankPending.unit,
+    });
+    setBlankPending(null);
+  };
+
+  const cancelBlank = () => setBlankPending(null);
+
+  const blankQty = parseFloat(blankPending?.qty) || 0;
+  const blankPrice = parseFloat(blankPending?.price) || 0;
+
+  // Add item from catalog — stay on Add tab so user can keep adding
+  const handleAddFromCatalog = (item) => {
+    addFromCatalog(item);
+    // Don't switch to cart — user stays on Add tab to continue adding
+  };
+
+  return (
+    <div className="space-y-2">
+      {/* Tab bar */}
+      <div className="flex gap-1 p-1 rounded-lg bg-muted">
+        {[
+          { id: "add", label: "Add items" },
+          {
+            id: "cart",
+            label: namedCount > 0 ? `Cart (${namedCount})` : "Cart",
+          },
+        ].map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setActiveTab(id)}
+            className={`flex-1 h-7 rounded-md text-xs font-medium transition-all ${
+              activeTab === id
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Add tab ── */}
+      {activeTab === "add" && (
+        <div className="space-y-2">
+          <CatalogSearch
+            onSelect={handleAddFromCatalog}
+            onAddBlank={handleAddBlank}
+            txType={txType}
+            sellPriceMode={sellPriceMode}
+            allPriceItems={allPriceItems}
+            itemsList={itemsList}
+          />
+
+          {/* Blank item inline panel */}
+          {blankPending && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
+              <p className="text-[0.6875rem] text-muted-foreground font-medium">
+                New blank item
+              </p>
+              <input
+                ref={blankNameRef}
+                type="text"
+                value={blankPending.name}
+                onChange={(e) =>
+                  setBlankPending((p) => ({ ...p, name: e.target.value }))
+                }
+                placeholder="Item name"
+                className="w-full bg-muted border-0 rounded px-2 py-1 text-xs font-medium outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary transition-colors"
+              />
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+                    Qty
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={blankPending.qty}
+                    onChange={(e) =>
+                      setBlankPending((p) => ({ ...p, qty: e.target.value }))
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") confirmBlank();
+                      if (e.key === "Escape") cancelBlank();
+                    }}
+                    className={`${inputCls} w-14`}
+                  />
                 </div>
-              </button>
-            ))
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+                    Unit
+                  </span>
+                  <input
+                    type="text"
+                    value={blankPending.unit}
+                    onChange={(e) =>
+                      setBlankPending((p) => ({ ...p, unit: e.target.value }))
+                    }
+                    placeholder="—"
+                    className={`${inputCls} w-14`}
+                  />
+                </div>
+                <span className="text-[0.6875rem] text-muted-foreground mt-3">
+                  ×
+                </span>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+                    Price ₹
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={blankPending.price}
+                    onChange={(e) =>
+                      setBlankPending((p) => ({ ...p, price: e.target.value }))
+                    }
+                    className={`${inputCls} w-16`}
+                  />
+                </div>
+                {blankQty > 0 && blankPrice > 0 && (
+                  <>
+                    <span className="text-[0.6875rem] text-muted-foreground mt-3">
+                      =
+                    </span>
+                    <span className="text-xs font-semibold tabular-nums mt-3 text-primary">
+                      {fmtC(blankQty * blankPrice)}
+                    </span>
+                  </>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={cancelBlank}
+                  className="flex-1 h-7 rounded-md border border-input bg-background text-xs font-medium hover:bg-muted transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    confirmBlank();
+                    // Stay on Add tab so user can keep adding more items
+                  }}
+                  className="flex-1 h-7 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-1"
+                >
+                  <Plus className="w-3 h-3" />
+                  Add to cart
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Show cart count hint if items exist */}
+          {namedCount > 0 && !blankPending && (
+            <button
+              type="button"
+              onClick={() => setActiveTab("cart")}
+              className="w-full text-xs text-center text-muted-foreground hover:text-foreground py-1.5 transition-colors"
+            >
+              {namedCount} item{namedCount !== 1 ? "s" : ""} in cart ·{" "}
+              <span className="text-primary underline">View Cart →</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Cart tab ── */}
+      {activeTab === "cart" && (
+        <div className="space-y-2">
+          <div
+            className="border rounded-lg overflow-hidden"
+            style={{ minHeight: "8rem" }}
+          >
+            {itemsList.length === 0 ? (
+              <div className="py-6 text-center space-y-1">
+                <p className="text-xs text-muted-foreground">No items yet</p>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("add")}
+                  className="text-xs text-primary hover:underline"
+                >
+                  Go to Add tab to search catalog
+                </button>
+              </div>
+            ) : (
+              itemsList.map((item, i) => (
+                <CollapsibleCartItemDetail
+                  key={i}
+                  item={item}
+                  index={i}
+                  onUpdate={updateItem}
+                  onRemove={(idx) => {
+                    removeItem(idx);
+                    setExpandedIndex(null);
+                  }}
+                  isExpanded={expandedIndex === i}
+                  onToggle={() =>
+                    setExpandedIndex(expandedIndex === i ? null : i)
+                  }
+                />
+              ))
+            )}
+          </div>
+
+          {/* Live totals */}
+          <div className="rounded-lg border bg-muted/40 p-3 space-y-1 text-sm">
+            <div className="flex justify-between font-semibold">
+              <span>Revised total</span>
+              <span>{fmtC(liveTotal)}</span>
+            </div>
+            <div className="flex justify-between text-green-600 dark:text-green-400">
+              <span>Paid</span>
+              <span>{fmtC(editedTx?.paidAmount ?? 0)}</span>
+            </div>
+            <div
+              className={`flex justify-between font-semibold border-t pt-1 ${liveRemaining < 0 ? "text-blue-600 dark:text-blue-400" : "text-amber-600"}`}
+            >
+              <span>
+                {liveRemaining < 0
+                  ? txType === "out"
+                    ? "Customer credit"
+                    : "Supplier owes us"
+                  : "Remaining"}
+              </span>
+              <span>
+                {fmtC(Math.abs(liveRemaining))}
+                {liveRemaining < 0 && (
+                  <span className="ml-1 text-xs font-normal">(advance)</span>
+                )}
+              </span>
+            </div>
+          </div>
+
+          {saveBlockedZeroTotal && (
+            <div className="flex items-start gap-2 rounded-lg border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30 px-3 py-2.5 text-xs text-red-700 dark:text-red-400">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <span>
+                Cannot save: total is ₹0 but{" "}
+                <strong>{fmtC(editedTx?.paidAmount ?? 0)}</strong> has already
+                been paid. Add at least one item with a price, or delete this
+                transaction and start fresh.
+              </span>
+            </div>
           )}
         </div>
       )}
@@ -413,36 +862,97 @@ const CatalogSearch = ({ onSelect, txType, sellPriceMode, allPriceItems }) => {
   );
 };
 
-// ─── ItemEditRow (module-level) ───────────────────────────────────────────────
-const ItemEditRow = ({ item, index, onUpdate, onRemove, isLast }) => {
-  const qty = parseFloat(item.quantity) || 0,
-    price = parseFloat(item.price) || 0;
+// ─── CollapsibleCartItem — collapsed card, expands to inline editable inputs ──
+// Shared by both Add and Detail modals for consistent cart UX.
+// Collapsed: name, full path below, qty×price and total on right.
+// Expanded: editable inputs + ✓ done + 🗑 delete.
+const CollapsibleCartItemDetail = ({
+  item,
+  index,
+  onUpdate,
+  onRemove,
+  isExpanded,
+  onToggle,
+}) => {
+  const qty = parseFloat(item.quantity) || 0;
+  const price = parseFloat(item.price) || 0;
   const total = qty * price;
-  const cat =
-    item.name && item.name.includes(" › ")
-      ? item.name.split(" › ").slice(0, -1).join(" › ")
-      : "";
+  const parts = item.name ? item.name.split(" › ") : [""];
+  const displayName = parts[parts.length - 1] || (
+    <span className="italic text-muted-foreground">Unnamed</span>
+  );
+  const cat = parts.length > 1 ? parts.slice(0, -1).join(" › ") : "";
 
   const inputCls =
     "bg-muted border-0 rounded px-1.5 py-0.5 text-xs font-mono outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary min-w-0 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
 
+  if (!isExpanded) {
+    return (
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-start gap-2 px-3 py-2.5 text-left hover:bg-muted/50 transition-colors border-b last:border-b-0"
+      >
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium leading-snug truncate">
+            {displayName}
+          </p>
+          {cat && (
+            <p className="text-[0.6875rem] text-muted-foreground truncate mt-0.5">
+              {cat}
+            </p>
+          )}
+          <div className="flex items-center gap-1 mt-1">
+            <span className="text-[0.6875rem] text-muted-foreground font-mono">
+              {fmtNum(item.quantity)}
+              {item.unit ? ` ${item.unit}` : ""} × {fmtC(price)}
+            </span>
+          </div>
+        </div>
+        <div className="shrink-0 text-right pt-0.5">
+          <p className="text-sm font-semibold tabular-nums whitespace-nowrap">
+            {total > 0 ? (
+              fmtC(total)
+            ) : (
+              <span className="text-muted-foreground text-xs">—</span>
+            )}
+          </p>
+        </div>
+      </button>
+    );
+  }
+
   return (
-    <div
-      className={`flex items-start gap-3 py-2.5 overflow-hidden ${!isLast ? "border-b" : ""}`}
-    >
-      <div className="flex-1 overflow-hidden">
-        <input
-          type="text"
-          value={item.name}
-          onChange={(e) => onUpdate(index, "name", e.target.value)}
-          placeholder="Item name"
-          className="w-full bg-muted border-0 rounded px-2 py-1 text-sm font-medium outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary transition-colors"
-        />
-        {/* always rendered so DOM structure stays stable — prevents sibling inputs losing focus */}
-        <p className="text-[0.6875rem] text-muted-foreground break-all px-1 min-h-[1rem]">
-          {cat}
-        </p>
-        <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+    <div className="border-b last:border-b-0 px-3 py-3 bg-primary/5 space-y-2">
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <input
+            type="text"
+            value={item.name}
+            onChange={(e) => onUpdate(index, "name", e.target.value)}
+            placeholder="Item name"
+            className="w-full bg-background border border-input rounded px-2 py-1 text-sm font-medium outline-none focus:ring-1 focus:ring-primary transition-colors"
+            autoFocus
+          />
+          <p className="text-[0.6875rem] text-muted-foreground truncate px-1 min-h-[1rem] mt-0.5">
+            {cat}
+          </p>
+        </div>
+        {/* Delete icon — alone at top right, separated from Done below */}
+        <button
+          type="button"
+          onClick={() => onRemove(index)}
+          className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors shrink-0 mt-0.5"
+          title="Delete item"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+            Qty
+          </span>
           <input
             type="number"
             value={item.quantity}
@@ -450,14 +960,24 @@ const ItemEditRow = ({ item, index, onUpdate, onRemove, isLast }) => {
             placeholder="qty"
             className={`${inputCls} w-14`}
           />
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+            Unit
+          </span>
           <input
             type="text"
             value={item.unit || ""}
             onChange={(e) => onUpdate(index, "unit", e.target.value)}
-            placeholder="unit"
+            placeholder="—"
             className={`${inputCls} w-14`}
           />
-          <span className="text-[0.6875rem] text-muted-foreground">×</span>
+        </div>
+        <span className="text-[0.6875rem] text-muted-foreground mt-3">×</span>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+            Price ₹
+          </span>
           <input
             type="number"
             value={item.price}
@@ -465,28 +985,33 @@ const ItemEditRow = ({ item, index, onUpdate, onRemove, isLast }) => {
             placeholder="₹0"
             className={`${inputCls} w-16`}
           />
-          {total > 0 && (
-            <>
-              <span className="text-[0.6875rem] text-muted-foreground">=</span>
-              <span className="text-[0.6875rem] font-semibold tabular-nums">
-                {fmtC(total)}
-              </span>
-            </>
-          )}
         </div>
+        {qty > 0 && price > 0 && (
+          <>
+            <span className="text-[0.6875rem] text-muted-foreground mt-3">
+              =
+            </span>
+            <span className="text-xs font-semibold tabular-nums mt-3 text-primary">
+              {fmtC(total)}
+            </span>
+          </>
+        )}
       </div>
+      {/* Done button at the bottom — well separated from Delete above */}
       <button
         type="button"
-        onClick={() => onRemove(index)}
-        className="shrink-0 mt-1 w-6 h-6 flex items-center justify-center rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors"
+        onClick={onToggle}
+        className="w-full h-7 flex items-center justify-center gap-1 rounded-md bg-primary/10 hover:bg-primary/20 text-primary text-xs font-medium transition-colors"
+        title="Done editing"
       >
-        <Trash2 className="w-3.5 h-3.5" />
+        <Check className="w-3.5 h-3.5" />
+        Done
       </button>
     </div>
   );
 };
 
-// ─── ItemViewRow (module-level) ───────────────────────────────────────────────
+// ─── ItemViewRow — rich read-only card, used in view mode ────────────────────
 const ItemViewRow = ({ item, index, isLast }) => {
   const qty = parseFloat(item.quantity) || 0,
     price = parseFloat(item.price) || 0;
@@ -496,36 +1021,33 @@ const ItemViewRow = ({ item, index, isLast }) => {
   const cat = parts.slice(0, -1).join(" › ");
   return (
     <div
-      className={`flex items-start gap-2 py-2.5 overflow-hidden ${!isLast ? "border-b" : ""}`}
+      className={`flex items-start gap-2 px-3 py-2.5 overflow-hidden ${!isLast ? "border-b" : ""}`}
     >
       <div className="flex-1 overflow-hidden">
-        <p className="text-sm font-medium leading-snug break-all">
+        <p className="text-sm font-medium leading-snug truncate">
           {name || (
             <span className="italic text-muted-foreground">Unnamed</span>
           )}
         </p>
         {cat && (
-          <p className="text-[0.6875rem] text-muted-foreground mt-0.5 break-all">
+          <p className="text-[0.6875rem] text-muted-foreground truncate mt-0.5">
             {cat}
           </p>
         )}
-        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-          <span className="inline-flex items-center gap-1 text-[0.6875rem] bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
+        <div className="flex items-center gap-1 mt-1">
+          <span className="text-[0.6875rem] text-muted-foreground font-mono">
             {fmtNum(item.quantity)}
-            {item.unit ? ` ${item.unit}` : ""}
-          </span>
-          <span className="text-[0.6875rem] text-muted-foreground shrink-0">
-            ×
-          </span>
-          <span className="inline-flex items-center gap-1 text-[0.6875rem] bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
-            {fmtC(price)}
-            {item.unit ? `/${item.unit}` : ""}
+            {item.unit ? ` ${item.unit}` : ""} × {fmtC(price)}
           </span>
         </div>
       </div>
       <div className="shrink-0 text-right pt-0.5">
         <p className="text-sm font-semibold tabular-nums whitespace-nowrap">
-          {fmtC(total)}
+          {total > 0 ? (
+            fmtC(total)
+          ) : (
+            <span className="text-muted-foreground text-xs">—</span>
+          )}
         </p>
       </div>
     </div>
@@ -876,144 +1398,73 @@ export const TransactionDetailModal = ({
             {/* ── ITEMS (item tx) ───────────────────────────────────────────── */}
             {isItem && (
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm font-semibold">Items</Label>
-                  {editMode && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={addItem}
-                    >
-                      <Plus className="w-3 h-3 mr-1" />
-                      Add
-                    </Button>
-                  )}
-                </div>
+                <Label className="text-sm font-semibold">Items</Label>
 
-                <div className="border rounded-lg px-3 divide-y overflow-hidden">
-                  {editMode ? (
-                    (editedTx.itemsList ?? []).length === 0 ? (
-                      <p className="text-xs text-muted-foreground py-3 text-center">
-                        No items yet
-                      </p>
-                    ) : (
-                      (editedTx.itemsList ?? []).map((item, i) => (
-                        <ItemEditRow
+                {/* View mode: existing read-only rows */}
+                {!editMode && (
+                  <>
+                    <div className="border rounded-lg divide-y overflow-hidden">
+                      {(tx.itemsList ?? []).map((it, i) => (
+                        <ItemViewRow
                           key={i}
-                          item={item}
+                          item={it}
                           index={i}
-                          onUpdate={updateItem}
-                          onRemove={removeItem}
-                          isLast={i === (editedTx.itemsList ?? []).length - 1}
+                          isLast={i === (tx.itemsList ?? []).length - 1}
                         />
-                      ))
-                    )
-                  ) : (
-                    (tx.itemsList ?? []).map((it, i) => (
-                      <ItemViewRow
-                        key={i}
-                        item={it}
-                        index={i}
-                        isLast={i === (tx.itemsList ?? []).length - 1}
-                      />
-                    ))
-                  )}
-                  {!editMode &&
-                    tx.additionalAmounts
-                      ?.filter((e) => e.name)
-                      .map((e, i) => (
-                        <div
-                          key={i}
-                          className="py-2 flex justify-between gap-2 text-sm min-w-0"
-                        >
-                          <span className="text-muted-foreground truncate min-w-0">
-                            {e.name}
-                          </span>
-                          <span
-                            className={`shrink-0 tabular-nums ${
-                              parseFloat(e.amount) < 0 ? "text-red-600" : ""
-                            }`}
-                          >
-                            {fmtC(parseFloat(e.amount) || 0)}
-                          </span>
-                        </div>
                       ))}
-                </div>
-
-                {!editMode && tx.itemsList?.length > 0 && (
-                  <div className="flex justify-between items-center pt-1.5 text-sm">
-                    <span className="text-xs text-muted-foreground">
-                      {tx.itemsList.length} item
-                      {tx.itemsList.length !== 1 ? "s" : ""}
-                      {tx.additionalAmounts?.filter((e) => e.name).length > 0
-                        ? ` + ${tx.additionalAmounts.filter((e) => e.name).length} extra`
-                        : ""}
-                    </span>
-                    <span className="font-semibold tabular-nums">
-                      {fmtC(tx.totalAmount)}
-                    </span>
-                  </div>
+                      {tx.additionalAmounts
+                        ?.filter((e) => e.name)
+                        .map((e, i) => (
+                          <div
+                            key={i}
+                            className="py-2 px-3 flex justify-between gap-2 text-sm min-w-0"
+                          >
+                            <span className="text-muted-foreground truncate min-w-0">
+                              {e.name}
+                            </span>
+                            <span
+                              className={`shrink-0 tabular-nums ${
+                                parseFloat(e.amount) < 0 ? "text-red-600" : ""
+                              }`}
+                            >
+                              {fmtC(parseFloat(e.amount) || 0)}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                    {tx.itemsList?.length > 0 && (
+                      <div className="flex justify-between items-center pt-1.5 text-sm">
+                        <span className="text-xs text-muted-foreground">
+                          {tx.itemsList.length} item
+                          {tx.itemsList.length !== 1 ? "s" : ""}
+                          {tx.additionalAmounts?.filter((e) => e.name).length >
+                          0
+                            ? ` + ${tx.additionalAmounts.filter((e) => e.name).length} extra`
+                            : ""}
+                        </span>
+                        <span className="font-semibold tabular-nums">
+                          {fmtC(tx.totalAmount)}
+                        </span>
+                      </div>
+                    )}
+                  </>
                 )}
 
+                {/* Edit mode: 2-tab Add / Cart interface */}
                 {editMode && (
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">
-                      Search catalog to add
-                    </Label>
-                    <CatalogSearch
-                      onSelect={addFromCatalog}
-                      txType={tx.type}
-                      sellPriceMode={sellPriceMode}
-                      allPriceItems={allPriceItems}
-                    />
-                  </div>
-                )}
-
-                {/* live totals while editing */}
-                {editMode && (
-                  <div className="rounded-lg border bg-muted/40 p-3 space-y-1 text-sm">
-                    <div className="flex justify-between font-semibold">
-                      <span>Revised total</span>
-                      <span>{fmtC(liveTotal)}</span>
-                    </div>
-                    <div className="flex justify-between text-green-600 dark:text-green-400">
-                      <span>Paid</span>
-                      <span>{fmtC(editedTx.paidAmount ?? 0)}</span>
-                    </div>
-                    <div
-                      className={`flex justify-between font-semibold border-t pt-1 ${liveRemaining < 0 ? "text-blue-600 dark:text-blue-400" : "text-amber-600"}`}
-                    >
-                      <span>
-                        {liveRemaining < 0
-                          ? tx.type === "out"
-                            ? "Customer credit"
-                            : "Supplier owes us"
-                          : "Remaining"}
-                      </span>
-                      <span>
-                        {fmtC(Math.abs(liveRemaining))}
-                        {liveRemaining < 0 && (
-                          <span className="ml-1 text-xs font-normal">
-                            (advance)
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Zero-total + prior payment warning */}
-                {saveBlockedZeroTotal && (
-                  <div className="flex items-start gap-2 rounded-lg border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30 px-3 py-2.5 text-xs text-red-700 dark:text-red-400">
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                    <span>
-                      Cannot save: total is ₹0 but{" "}
-                      <strong>{fmtC(editedTx?.paidAmount ?? 0)}</strong> has
-                      already been paid. Add at least one item with a price, or
-                      delete this transaction and start fresh.
-                    </span>
-                  </div>
+                  <ItemsEditTabPanel
+                    editedTx={editedTx}
+                    updateItem={updateItem}
+                    removeItem={removeItem}
+                    addItem={addItem}
+                    addFromCatalog={addFromCatalog}
+                    txType={tx.type}
+                    sellPriceMode={sellPriceMode}
+                    allPriceItems={allPriceItems}
+                    liveTotal={liveTotal}
+                    liveRemaining={liveRemaining}
+                    saveBlockedZeroTotal={saveBlockedZeroTotal}
+                  />
                 )}
               </div>
             )}

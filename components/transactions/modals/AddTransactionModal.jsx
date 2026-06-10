@@ -375,16 +375,30 @@ const flattenPriceItems = (data, path = []) => {
   return out;
 };
 
-// ─── PriceItemSearch — stable identity (module-level) ────────────────────────
+// ─── PriceItemSearch with inline quick-add panel (module-level) ──────────────
+// When a catalog result is clicked it does NOT immediately add to the list.
+// Instead a compact confirm panel appears below the search bar, pre-filled with
+// the item's price/unit, letting the user set qty before adding. This keeps the
+// "Add" tab self-contained — no need to switch to the Cart tab to edit qty.
+// onAddBlank: callback to add a blank item row inline in the Add tab.
+// itemsList: current items for duplicate detection.
 const PriceItemSearch = ({
   onSelect,
+  onAddBlank,
   txType,
   sellPriceMode,
   allPriceItems,
+  itemsList,
 }) => {
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
+  // pending: the catalog item the user just tapped — shown in quick-add panel
+  const [pending, setPending] = useState(null); // { name, fullPath, price, unit, pathParts }
+  const [pendingQty, setPendingQty] = useState("1");
+  const [pendingPrice, setPendingPrice] = useState("");
+  const [pendingUnit, setPendingUnit] = useState("");
   const inputRef = useRef(null);
+  const qtyRef = useRef(null);
 
   const priceKey =
     txType === "in"
@@ -401,111 +415,327 @@ const PriceItemSearch = ({
     [allPriceItems, query],
   );
 
+  const pickItem = (item) => {
+    setPending(item);
+    setPendingQty("1");
+    setPendingPrice(String(item[priceKey] ?? 0));
+    setPendingUnit(item[unitKey] ?? "");
+    setQuery("");
+    setFocused(false);
+    // Focus qty input after paint
+    setTimeout(() => qtyRef.current?.select(), 60);
+  };
+
+  // Check if the item being added is a duplicate (same name + price + unit, ignoring qty)
+  const isDuplicate = pending
+    ? (itemsList ?? []).some(
+        (it) =>
+          it.name === pending.fullPath &&
+          String(it.price) === pendingPrice &&
+          (it.unit || "") === (pendingUnit || ""),
+      )
+    : false;
+
+  const confirmAdd = () => {
+    if (!pending) return;
+    const qty = parseFloat(pendingQty);
+    if (!qty || qty <= 0) return;
+    onSelect({
+      name: pending.fullPath,
+      quantity: String(qty),
+      price: pendingPrice,
+      unit: pendingUnit,
+    });
+    setPending(null);
+    setPendingQty("1");
+    // Re-focus search bar so user can immediately add another item
+    setTimeout(() => inputRef.current?.focus(), 60);
+  };
+
+  const cancelPending = () => {
+    setPending(null);
+    setTimeout(() => inputRef.current?.focus(), 60);
+  };
+
+  const inputCls =
+    "bg-muted border-0 rounded px-1.5 py-0.5 text-xs font-mono outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary min-w-0 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
+
   return (
-    <div className="relative">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-        <input
-          ref={inputRef}
-          type="text"
-          placeholder={`Search catalog (${priceLabel.toLowerCase()} price)…`}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setTimeout(() => setFocused(false), 150)}
-          className="w-full pl-9 pr-8 h-9 rounded-md border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        />
-        {query && (
-          <button
-            type="button"
-            onMouseDown={(e) => {
-              e.preventDefault();
-              setQuery("");
+    <div className="space-y-2">
+      {/* Search + blank button on same line */}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder={`Search catalog (${priceLabel.toLowerCase()} price)…`}
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              if (pending) setPending(null);
             }}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        )}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setTimeout(() => setFocused(false), 150)}
+            className="w-full pl-9 pr-8 h-8 rounded-md border border-input bg-background text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          {query && (
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setQuery("");
+              }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {focused && query.trim() && (
+            <div className="absolute z-[200] top-full mt-1 w-full rounded-md border bg-popover shadow-lg overflow-hidden max-h-64 overflow-y-auto">
+              {results.length === 0 ? (
+                <p className="px-3 py-2 text-sm text-muted-foreground">
+                  No results for "{query}"
+                </p>
+              ) : (
+                results.map((item, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      pickItem(item);
+                    }}
+                    className="w-full px-3 py-2 text-sm hover:bg-accent text-left"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{item.name}</p>
+                        {item.pathParts.length > 1 && (
+                          <p className="text-xs text-muted-foreground truncate">
+                            {item.pathParts.slice(0, -1).join(" › ")}
+                          </p>
+                        )}
+                      </div>
+                      <p className="font-semibold text-xs shrink-0 text-right">
+                        {fmt(item[priceKey])}
+                        <span className="text-muted-foreground font-normal">
+                          /{item[unitKey]}
+                        </span>
+                      </p>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+        {/* Add blank item button — same line as search */}
+        <button
+          type="button"
+          onClick={onAddBlank}
+          className="shrink-0 h-8 px-2.5 rounded-md border border-input bg-background text-xs font-medium hover:bg-muted transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
+          title="Add blank item"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          Blank
+        </button>
       </div>
 
-      {focused && query.trim() && (
-        <div className="absolute z-[200] top-full mt-1 w-full rounded-md border bg-popover shadow-lg overflow-hidden max-h-72 overflow-y-auto">
-          {results.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-muted-foreground">
-              No results for "{query}"
-            </p>
-          ) : (
-            results.map((item, i) => (
-              <button
-                key={i}
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  onSelect({
-                    name: item.fullPath,
-                    quantity: "1",
-                    price: String(item[priceKey] ?? 0),
-                    unit: item[unitKey],
-                  });
-                  setQuery("");
-                  inputRef.current?.blur();
+      {/* Quick-add confirm panel — appears after selecting a result */}
+      {pending && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
+          {/* Item name + path */}
+          <div className="min-w-0">
+            <p className="text-xs font-semibold truncate">{pending.name}</p>
+            {pending.pathParts?.length > 1 && (
+              <p className="text-[0.6875rem] text-muted-foreground truncate">
+                {pending.pathParts.slice(0, -1).join(" › ")}
+              </p>
+            )}
+          </div>
+          {/* Inline qty / unit / price row — same sizing as cart ItemRow */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+                Qty
+              </span>
+              <input
+                ref={qtyRef}
+                type="number"
+                min="0"
+                value={pendingQty}
+                onChange={(e) => setPendingQty(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") confirmAdd();
+                  if (e.key === "Escape") cancelPending();
                 }}
-                className="w-full px-3 py-2 text-sm hover:bg-accent text-left"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-medium truncate">{item.name}</p>
-                    {item.pathParts.length > 1 && (
-                      <p className="text-xs text-muted-foreground truncate">
-                        {item.pathParts.slice(0, -1).join(" › ")}
-                      </p>
-                    )}
-                  </div>
-                  <p className="font-semibold text-xs shrink-0 text-right">
-                    {fmt(item[priceKey])}
-                    <span className="text-muted-foreground font-normal">
-                      /{item[unitKey]}
-                    </span>
-                  </p>
-                </div>
-              </button>
-            ))
+                className={`${inputCls} w-14`}
+              />
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+                Unit
+              </span>
+              <input
+                type="text"
+                value={pendingUnit}
+                onChange={(e) => setPendingUnit(e.target.value)}
+                placeholder="—"
+                className={`${inputCls} w-14`}
+              />
+            </div>
+            <span className="text-[0.6875rem] text-muted-foreground mt-3">
+              ×
+            </span>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+                Price ₹
+              </span>
+              <input
+                type="number"
+                min="0"
+                value={pendingPrice}
+                onChange={(e) => setPendingPrice(e.target.value)}
+                className={`${inputCls} w-16`}
+              />
+            </div>
+            {parseFloat(pendingQty) > 0 && parseFloat(pendingPrice) > 0 && (
+              <>
+                <span className="text-[0.6875rem] text-muted-foreground mt-3">
+                  =
+                </span>
+                <span className="text-xs font-semibold tabular-nums mt-3 text-primary">
+                  {fmt(parseFloat(pendingQty) * parseFloat(pendingPrice))}
+                </span>
+              </>
+            )}
+          </div>
+          {/* Duplicate warning */}
+          {isDuplicate && (
+            <div className="flex items-center gap-1.5 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              Already in cart with same price & unit — adding again will create
+              a duplicate row.
+            </div>
           )}
+          {/* Action buttons */}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={cancelPending}
+              className="flex-1 h-7 rounded-md border border-input bg-background text-xs font-medium hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirmAdd}
+              disabled={!(parseFloat(pendingQty) > 0)}
+              className="flex-1 h-7 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-40 flex items-center justify-center gap-1"
+            >
+              <Plus className="w-3 h-3" />
+              Add to cart
+            </button>
+          </div>
         </div>
       )}
     </div>
   );
 };
 
-// ─── ItemRow — always-visible compact inputs (module-level) ──────────────────
-const ItemRow = ({ item, index, onUpdate, onRemove }) => {
+// ─── CollapsibleCartItem — collapsed summary card, expands to editable inputs ──
+// Collapsed: shows item name, full path below, and qty × price = total on right.
+// Expanded: inline editable inputs with ✓ (done) and 🗑 (delete) icon buttons.
+const CollapsibleCartItem = ({
+  item,
+  index,
+  onUpdate,
+  onRemove,
+  isExpanded,
+  onToggle,
+}) => {
   const qty = parseFloat(item.quantity) || 0;
   const price = parseFloat(item.price) || 0;
   const total = qty * price;
-  const cat =
-    item.name && item.name.includes(" › ")
-      ? item.name.split(" › ").slice(0, -1).join(" › ")
-      : "";
+  const parts = item.name ? item.name.split(" › ") : [""];
+  const displayName = parts[parts.length - 1] || (
+    <span className="italic text-muted-foreground">Unnamed</span>
+  );
+  const cat = parts.length > 1 ? parts.slice(0, -1).join(" › ") : "";
 
   const inputCls =
     "bg-muted border-0 rounded px-1.5 py-0.5 text-xs font-mono outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary min-w-0 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
 
+  if (!isExpanded) {
+    return (
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-start gap-2 px-3 py-2.5 text-left hover:bg-muted/50 transition-colors border-b last:border-b-0"
+      >
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium leading-snug truncate">
+            {displayName}
+          </p>
+          {cat && (
+            <p className="text-[0.6875rem] text-muted-foreground truncate mt-0.5">
+              {cat}
+            </p>
+          )}
+          <div className="flex items-center gap-1 mt-1 flex-wrap">
+            <span className="text-[0.6875rem] text-muted-foreground font-mono">
+              {fmtNum(item.quantity)}
+              {item.unit ? ` ${item.unit}` : ""} × {fmt(price)}
+            </span>
+          </div>
+        </div>
+        <div className="shrink-0 text-right pt-0.5">
+          <p className="text-sm font-semibold tabular-nums whitespace-nowrap">
+            {total > 0 ? (
+              fmt(total)
+            ) : (
+              <span className="text-muted-foreground text-xs">—</span>
+            )}
+          </p>
+        </div>
+      </button>
+    );
+  }
+
+  // Expanded edit state
   return (
-    <div className="flex items-start gap-3 py-2.5 border-b last:border-b-0 overflow-hidden">
-      <div className="flex-1 overflow-hidden">
-        <input
-          type="text"
-          value={item.name}
-          onChange={(e) => onUpdate(index, "name", e.target.value)}
-          placeholder="Item name"
-          className="w-full bg-muted border-0 rounded px-2 py-1 text-sm font-medium outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary transition-colors"
-        />
-        {/* always rendered so DOM structure stays stable — prevents sibling inputs losing focus */}
-        <p className="text-[0.6875rem] text-muted-foreground truncate px-1 min-h-[1rem]">
-          {cat}
-        </p>
-        <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+    <div className="border-b last:border-b-0 px-3 py-3 bg-primary/5 space-y-2">
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <input
+            type="text"
+            value={item.name}
+            onChange={(e) => onUpdate(index, "name", e.target.value)}
+            placeholder="Item name"
+            className="w-full bg-background border border-input rounded px-2 py-1 text-sm font-medium outline-none focus:ring-1 focus:ring-primary transition-colors"
+            autoFocus
+          />
+          {/* always rendered to keep DOM stable */}
+          <p className="text-[0.6875rem] text-muted-foreground truncate px-1 min-h-[1rem] mt-0.5">
+            {cat}
+          </p>
+        </div>
+        {/* Delete icon — top right, alone so it can't be accidentally tapped alongside Done */}
+        <button
+          type="button"
+          onClick={() => onRemove(index)}
+          className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors shrink-0 mt-0.5"
+          title="Delete item"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+            Qty
+          </span>
           <input
             type="number"
             value={item.quantity}
@@ -513,14 +743,24 @@ const ItemRow = ({ item, index, onUpdate, onRemove }) => {
             placeholder="qty"
             className={`${inputCls} w-14`}
           />
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+            Unit
+          </span>
           <input
             type="text"
             value={item.unit || ""}
             onChange={(e) => onUpdate(index, "unit", e.target.value)}
-            placeholder="unit"
+            placeholder="—"
             className={`${inputCls} w-14`}
           />
-          <span className="text-[0.6875rem] text-muted-foreground">×</span>
+        </div>
+        <span className="text-[0.6875rem] text-muted-foreground mt-3">×</span>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+            Price ₹
+          </span>
           <input
             type="number"
             value={item.price}
@@ -528,22 +768,27 @@ const ItemRow = ({ item, index, onUpdate, onRemove }) => {
             placeholder="₹0"
             className={`${inputCls} w-16`}
           />
-          {total > 0 && (
-            <>
-              <span className="text-[0.6875rem] text-muted-foreground">=</span>
-              <span className="text-[0.6875rem] font-semibold tabular-nums">
-                {fmt(total)}
-              </span>
-            </>
-          )}
         </div>
+        {qty > 0 && price > 0 && (
+          <>
+            <span className="text-[0.6875rem] text-muted-foreground mt-3">
+              =
+            </span>
+            <span className="text-xs font-semibold tabular-nums mt-3 text-primary">
+              {fmt(total)}
+            </span>
+          </>
+        )}
       </div>
+      {/* Done button at the bottom — well separated from Delete above */}
       <button
         type="button"
-        onClick={() => onRemove(index)}
-        className="shrink-0 mt-1 w-6 h-6 flex items-center justify-center rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors"
+        onClick={onToggle}
+        className="w-full h-7 flex items-center justify-center gap-1 rounded-md bg-primary/10 hover:bg-primary/20 text-primary text-xs font-medium transition-colors"
+        title="Done editing"
       >
-        <Trash2 className="w-3.5 h-3.5" />
+        <Check className="w-3.5 h-3.5" />
+        Done
       </button>
     </div>
   );
@@ -588,6 +833,261 @@ const ItemDisplayRow = ({ item, isLast }) => {
           {fmt(total)}
         </p>
       </div>
+    </div>
+  );
+};
+
+// ─── ItemsTabPanel — 2-tab Add / Cart interface (module-level) ───────────────
+// Tab 1 "Add":  search + "Blank" button. No item list shown here.
+// Tab 2 "Cart": collapsible card list — tap a card to expand & edit in-place.
+const ItemsTabPanel = ({
+  itemsList,
+  itemsTotal,
+  updateItem,
+  removeItem,
+  addBlankItem,
+  addItemFromSearch,
+  type,
+  sellPriceMode,
+  allPriceItems,
+}) => {
+  const [activeTab, setActiveTab] = useState("add");
+  const [expandedIndex, setExpandedIndex] = useState(null);
+  const [blankPending, setBlankPending] = useState(null);
+  const blankNameRef = useRef(null);
+  const namedCount = itemsList.filter((it) => it.name?.trim()).length;
+
+  const inputCls =
+    "bg-muted border-0 rounded px-1.5 py-0.5 text-xs font-mono outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary min-w-0 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
+
+  const handleAddBlank = () => {
+    setBlankPending({ name: "", qty: "1", price: "", unit: "" });
+    setTimeout(() => blankNameRef.current?.focus(), 60);
+  };
+
+  const confirmBlank = () => {
+    if (!blankPending) return;
+    addItemFromSearch({
+      name: blankPending.name,
+      quantity: blankPending.qty,
+      price: blankPending.price,
+      unit: blankPending.unit,
+    });
+    setBlankPending(null);
+  };
+
+  const cancelBlank = () => setBlankPending(null);
+
+  const blankQty = parseFloat(blankPending?.qty) || 0;
+  const blankPrice = parseFloat(blankPending?.price) || 0;
+
+  // Add item from search — stay on Add tab so user can keep adding
+  const handleAddFromSearch = (item) => {
+    addItemFromSearch(item);
+    // Don't switch to cart — user stays on Add tab to continue adding
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Tab bar */}
+      <div className="flex gap-1 p-1 rounded-lg bg-muted shrink-0">
+        {[
+          { id: "add", label: "Add items" },
+          {
+            id: "cart",
+            label: namedCount > 0 ? `Cart (${namedCount})` : "Cart",
+          },
+        ].map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setActiveTab(id)}
+            className={`flex-1 h-7 rounded-md text-xs font-medium transition-all ${
+              activeTab === id
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Add tab ── */}
+      {activeTab === "add" && (
+        <div className="space-y-2">
+          <PriceItemSearch
+            onSelect={handleAddFromSearch}
+            onAddBlank={handleAddBlank}
+            txType={type}
+            sellPriceMode={sellPriceMode}
+            allPriceItems={allPriceItems}
+            itemsList={itemsList}
+          />
+
+          {/* Blank item inline panel */}
+          {blankPending && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
+              <p className="text-[0.6875rem] text-muted-foreground font-medium">
+                New blank item
+              </p>
+              <input
+                ref={blankNameRef}
+                type="text"
+                value={blankPending.name}
+                onChange={(e) =>
+                  setBlankPending((p) => ({ ...p, name: e.target.value }))
+                }
+                placeholder="Item name"
+                className="w-full bg-muted border-0 rounded px-2 py-1 text-xs font-medium outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary transition-colors"
+              />
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+                    Qty
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={blankPending.qty}
+                    onChange={(e) =>
+                      setBlankPending((p) => ({ ...p, qty: e.target.value }))
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") confirmBlank();
+                      if (e.key === "Escape") cancelBlank();
+                    }}
+                    className={`${inputCls} w-14`}
+                  />
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+                    Unit
+                  </span>
+                  <input
+                    type="text"
+                    value={blankPending.unit}
+                    onChange={(e) =>
+                      setBlankPending((p) => ({ ...p, unit: e.target.value }))
+                    }
+                    placeholder="—"
+                    className={`${inputCls} w-14`}
+                  />
+                </div>
+                <span className="text-[0.6875rem] text-muted-foreground mt-3">
+                  ×
+                </span>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[0.6rem] text-muted-foreground uppercase tracking-wide font-medium">
+                    Price ₹
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={blankPending.price}
+                    onChange={(e) =>
+                      setBlankPending((p) => ({ ...p, price: e.target.value }))
+                    }
+                    className={`${inputCls} w-16`}
+                  />
+                </div>
+                {blankQty > 0 && blankPrice > 0 && (
+                  <>
+                    <span className="text-[0.6875rem] text-muted-foreground mt-3">
+                      =
+                    </span>
+                    <span className="text-xs font-semibold tabular-nums mt-3 text-primary">
+                      {fmt(blankQty * blankPrice)}
+                    </span>
+                  </>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={cancelBlank}
+                  className="flex-1 h-7 rounded-md border border-input bg-background text-xs font-medium hover:bg-muted transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    confirmBlank();
+                    // Stay on Add tab so user can keep adding more items
+                  }}
+                  className="flex-1 h-7 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-1"
+                >
+                  <Plus className="w-3 h-3" />
+                  Add to cart
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Show cart count hint if items exist */}
+          {namedCount > 0 && !blankPending && (
+            <button
+              type="button"
+              onClick={() => setActiveTab("cart")}
+              className="w-full text-xs text-center text-muted-foreground hover:text-foreground py-1.5 transition-colors"
+            >
+              {namedCount} item{namedCount !== 1 ? "s" : ""} in cart ·{" "}
+              <span className="text-primary underline">View Cart →</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Cart tab ── */}
+      {activeTab === "cart" && (
+        <div className="flex flex-col gap-2">
+          {itemsList.length === 0 ? (
+            <div className="rounded-lg border border-dashed py-8 text-center space-y-1">
+              <p className="text-sm text-muted-foreground">No items yet</p>
+              <button
+                type="button"
+                onClick={() => setActiveTab("add")}
+                className="text-xs text-primary hover:underline"
+              >
+                Go to Add tab to search catalog
+              </button>
+            </div>
+          ) : (
+            <>
+              <div
+                className="border rounded-lg overflow-hidden"
+                style={{ minHeight: "10rem" }}
+              >
+                {itemsList.map((item, i) => (
+                  <CollapsibleCartItem
+                    key={i}
+                    item={item}
+                    index={i}
+                    onUpdate={updateItem}
+                    onRemove={(idx) => {
+                      removeItem(idx);
+                      setExpandedIndex(null);
+                    }}
+                    isExpanded={expandedIndex === i}
+                    onToggle={() =>
+                      setExpandedIndex(expandedIndex === i ? null : i)
+                    }
+                  />
+                ))}
+              </div>
+              <div className="flex items-center justify-between text-xs px-0.5">
+                <span className="text-muted-foreground">
+                  {namedCount} item{namedCount !== 1 ? "s" : ""}
+                </span>
+                <span className="font-semibold tabular-nums">
+                  {fmt(itemsTotal)}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 };
@@ -860,12 +1360,17 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                   </span>
                 </span>
               )}
+              {kind && !showDraftPrompt && (
+                <span className="ml-auto mr-7 text-xs font-normal text-muted-foreground tabular-nums">
+                  {step + 1}/{steps.length}
+                </span>
+              )}
             </DialogTitle>
           </DialogHeader>
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
-          <div className="px-4 py-3 flex flex-col gap-3">
+          <div className="px-4 pt-2 pb-3 flex flex-col gap-3">
             {/* ── Draft restore prompt ─────────────────────────────────────────── */}
             {showDraftPrompt && pendingDraft && (
               <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 p-3 space-y-2.5">
@@ -923,25 +1428,6 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                     Resume draft
                   </Button>
                 </div>
-              </div>
-            )}
-
-            {/* progress */}
-            {kind && !showDraftPrompt && (
-              <div className="flex items-center gap-1 pb-1">
-                {steps.map((s, i) => (
-                  <div
-                    key={s}
-                    className="flex-1 h-1 rounded-full transition-colors"
-                    style={{
-                      background:
-                        i <= step ? "hsl(var(--primary))" : "hsl(var(--muted))",
-                    }}
-                  />
-                ))}
-                <span className="text-xs text-muted-foreground ml-2 whitespace-nowrap">
-                  {step + 1}/{steps.length}
-                </span>
               </div>
             )}
 
@@ -1022,71 +1508,17 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
 
                 {/* ── ITEMS ─────────────────────────────────────────────────────────── */}
                 {stepName === "Items" && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-sm font-medium">Items</Label>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={addBlankItem}
-                      >
-                        <Plus className="w-3.5 h-3.5 mr-1" />
-                        Add blank
-                      </Button>
-                    </div>
-
-                    {itemsList.length === 0 ? (
-                      <p className="text-xs text-center text-muted-foreground py-4 border rounded-lg">
-                        Search the catalog below or add a blank item
-                      </p>
-                    ) : (
-                      <div className="border rounded-lg px-3 max-h-56 overflow-y-auto overflow-x-hidden divide-y">
-                        {itemsList.map((item, i) => (
-                          <ItemRow
-                            key={i}
-                            item={item}
-                            index={i}
-                            onUpdate={updateItem}
-                            onRemove={removeItem}
-                          />
-                        ))}
-                      </div>
-                    )}
-
-                    {itemsList.length > 0 && (
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">
-                          {itemsList.filter((it) => it.name.trim()).length} item
-                          {itemsList.filter((it) => it.name.trim()).length !== 1
-                            ? "s"
-                            : ""}
-                        </span>
-                        <span className="font-semibold tabular-nums">
-                          Total: {fmt(itemsTotal)}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* search at bottom */}
-                    <div className="pt-1 border-t space-y-1">
-                      <Label className="text-xs text-muted-foreground">
-                        Search catalog (
-                        {type === "in"
-                          ? "cost"
-                          : sellPriceMode === "bulk"
-                            ? "bulk"
-                            : "retail"}{" "}
-                        price)
-                      </Label>
-                      <PriceItemSearch
-                        onSelect={addItemFromSearch}
-                        txType={type}
-                        sellPriceMode={sellPriceMode}
-                        allPriceItems={allPriceItems}
-                      />
-                    </div>
-                  </div>
+                  <ItemsTabPanel
+                    itemsList={itemsList}
+                    itemsTotal={itemsTotal}
+                    updateItem={updateItem}
+                    removeItem={removeItem}
+                    addBlankItem={addBlankItem}
+                    addItemFromSearch={addItemFromSearch}
+                    type={type}
+                    sellPriceMode={sellPriceMode}
+                    allPriceItems={allPriceItems}
+                  />
                 )}
 
                 {/* ── EXTRAS ────────────────────────────────────────────────────────── */}
@@ -1419,27 +1851,64 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
 
                       {kind === "item" &&
                         itemsList.filter((it) => it.name.trim()).length > 0 && (
-                          <div className="border rounded-lg px-3 divide-y overflow-hidden">
+                          <div className="border rounded-lg divide-y overflow-hidden">
                             {itemsList
                               .filter((it) => it.name.trim())
-                              .map((it, i, arr) => (
-                                <ItemDisplayRow
-                                  key={i}
-                                  item={it}
-                                  isLast={
-                                    i === arr.length - 1 &&
-                                    additionalAmounts.filter((e) =>
-                                      e.name.trim(),
-                                    ).length === 0
-                                  }
-                                />
-                              ))}
+                              .map((it, i) => {
+                                const qty = parseFloat(it.quantity) || 0;
+                                const price = parseFloat(it.price) || 0;
+                                const total = qty * price;
+                                const parts = it.name
+                                  ? it.name.split(" › ")
+                                  : [""];
+                                const displayName =
+                                  parts[parts.length - 1] || "Unnamed";
+                                const cat =
+                                  parts.length > 1
+                                    ? parts.slice(0, -1).join(" › ")
+                                    : "";
+                                return (
+                                  <div
+                                    key={i}
+                                    className="flex items-start gap-2 px-3 py-2.5"
+                                  >
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium leading-snug truncate">
+                                        {displayName}
+                                      </p>
+                                      {cat && (
+                                        <p className="text-[0.6875rem] text-muted-foreground truncate mt-0.5">
+                                          {cat}
+                                        </p>
+                                      )}
+                                      <div className="flex items-center gap-1 mt-1">
+                                        <span className="text-[0.6875rem] text-muted-foreground font-mono">
+                                          {fmtNum(it.quantity)}
+                                          {it.unit ? ` ${it.unit}` : ""} ×{" "}
+                                          {fmt(price)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div className="shrink-0 text-right pt-0.5">
+                                      <p className="text-sm font-semibold tabular-nums whitespace-nowrap">
+                                        {total > 0 ? (
+                                          fmt(total)
+                                        ) : (
+                                          <span className="text-muted-foreground text-xs">
+                                            —
+                                          </span>
+                                        )}
+                                      </p>
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             {additionalAmounts
                               .filter((e) => e.name.trim())
                               .map((e, i) => (
                                 <div
                                   key={i}
-                                  className="py-2 flex justify-between gap-2 text-sm min-w-0"
+                                  className="py-2 px-3 flex justify-between gap-2 text-sm min-w-0"
                                 >
                                   <span className="text-muted-foreground truncate min-w-0">
                                     {e.name}
