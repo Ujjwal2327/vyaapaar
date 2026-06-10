@@ -440,7 +440,7 @@ const ItemEditRow = ({ item, index, onUpdate, onRemove, isLast }) => {
           className="w-full bg-muted border-0 rounded px-2 py-1 text-sm font-medium outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary transition-colors"
         />
         {/* always rendered so DOM structure stays stable — prevents sibling inputs losing focus */}
-        <p className="text-[11px] text-muted-foreground break-all px-1 min-h-[1rem]">
+        <p className="text-[0.6875rem] text-muted-foreground break-all px-1 min-h-[1rem]">
           {cat}
         </p>
         <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
@@ -458,7 +458,7 @@ const ItemEditRow = ({ item, index, onUpdate, onRemove, isLast }) => {
             placeholder="unit"
             className={`${inputCls} w-14`}
           />
-          <span className="text-[11px] text-muted-foreground">×</span>
+          <span className="text-[0.6875rem] text-muted-foreground">×</span>
           <input
             type="number"
             value={item.price}
@@ -468,8 +468,8 @@ const ItemEditRow = ({ item, index, onUpdate, onRemove, isLast }) => {
           />
           {total > 0 && (
             <>
-              <span className="text-[11px] text-muted-foreground">=</span>
-              <span className="text-[11px] font-semibold tabular-nums">
+              <span className="text-[0.6875rem] text-muted-foreground">=</span>
+              <span className="text-[0.6875rem] font-semibold tabular-nums">
                 {fmtC(total)}
               </span>
             </>
@@ -506,17 +506,19 @@ const ItemViewRow = ({ item, index, isLast }) => {
           )}
         </p>
         {cat && (
-          <p className="text-[11px] text-muted-foreground mt-0.5 break-all">
+          <p className="text-[0.6875rem] text-muted-foreground mt-0.5 break-all">
             {cat}
           </p>
         )}
         <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-          <span className="inline-flex items-center gap-1 text-[11px] bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
+          <span className="inline-flex items-center gap-1 text-[0.6875rem] bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
             {fmtNum(item.quantity)}
             {item.unit ? ` ${item.unit}` : ""}
           </span>
-          <span className="text-[11px] text-muted-foreground shrink-0">×</span>
-          <span className="inline-flex items-center gap-1 text-[11px] bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
+          <span className="text-[0.6875rem] text-muted-foreground shrink-0">
+            ×
+          </span>
+          <span className="inline-flex items-center gap-1 text-[0.6875rem] bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
             {fmtC(price)}
             {item.unit ? `/${item.unit}` : ""}
           </span>
@@ -795,7 +797,7 @@ export const TransactionDetailModal = ({
               <DialogTitle className="text-base leading-tight">
                 {isItem ? "Item" : "Financial"} Transaction
               </DialogTitle>
-              <p className="text-[10px] text-muted-foreground font-mono mt-0.5 break-all">
+              <p className="text-[0.625rem] text-muted-foreground font-mono mt-0.5 break-all">
                 {tx.id}
               </p>
             </div>
@@ -1228,12 +1230,12 @@ export const TransactionDetailModal = ({
                                 : fmtC(amountVal)}
                             </p>
                             {isSettlement && (
-                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                              <span className="text-[0.625rem] font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
                                 Auto-settled
                               </span>
                             )}
                             {isAdvanceApplied && (
-                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                              <span className="text-[0.625rem] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
                                 Advance applied
                               </span>
                             )}
@@ -1284,7 +1286,7 @@ export const TransactionDetailModal = ({
                                       !partnerDeleted &&
                                       onNavigateToTransaction?.(partnerTx)
                                     }
-                                    className={`flex w-full items-center justify-between gap-1 text-left text-[10px] font-mono px-2 py-1 rounded border transition-colors overflow-hidden ${
+                                    className={`flex w-full items-center justify-between gap-1 text-left text-[0.625rem] font-mono px-2 py-1 rounded border transition-colors overflow-hidden ${
                                       partnerDeleted
                                         ? "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/20 text-red-500 dark:text-red-400 cursor-default line-through"
                                         : partnerTx

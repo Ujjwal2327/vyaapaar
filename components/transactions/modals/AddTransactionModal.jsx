@@ -502,7 +502,7 @@ const ItemRow = ({ item, index, onUpdate, onRemove }) => {
           className="w-full bg-muted border-0 rounded px-2 py-1 text-sm font-medium outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary transition-colors"
         />
         {/* always rendered so DOM structure stays stable — prevents sibling inputs losing focus */}
-        <p className="text-[11px] text-muted-foreground truncate px-1 min-h-[1rem]">
+        <p className="text-[0.6875rem] text-muted-foreground truncate px-1 min-h-[1rem]">
           {cat}
         </p>
         <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
@@ -520,7 +520,7 @@ const ItemRow = ({ item, index, onUpdate, onRemove }) => {
             placeholder="unit"
             className={`${inputCls} w-14`}
           />
-          <span className="text-[11px] text-muted-foreground">×</span>
+          <span className="text-[0.6875rem] text-muted-foreground">×</span>
           <input
             type="number"
             value={item.price}
@@ -530,8 +530,8 @@ const ItemRow = ({ item, index, onUpdate, onRemove }) => {
           />
           {total > 0 && (
             <>
-              <span className="text-[11px] text-muted-foreground">=</span>
-              <span className="text-[11px] font-semibold tabular-nums">
+              <span className="text-[0.6875rem] text-muted-foreground">=</span>
+              <span className="text-[0.6875rem] font-semibold tabular-nums">
                 {fmt(total)}
               </span>
             </>
@@ -565,17 +565,19 @@ const ItemDisplayRow = ({ item, isLast }) => {
           {displayName}
         </p>
         {hasPath && (
-          <p className="text-[11px] text-muted-foreground break-all mt-0.5">
+          <p className="text-[0.6875rem] text-muted-foreground break-all mt-0.5">
             {item.name.split(" › ").slice(0, -1).join(" › ")}
           </p>
         )}
         <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-          <span className="inline-flex items-center text-[11px] bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
+          <span className="inline-flex items-center text-[0.6875rem] bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
             {fmtNum(item.quantity)}
             {item.unit ? ` ${item.unit}` : ""}
           </span>
-          <span className="text-[11px] text-muted-foreground shrink-0">×</span>
-          <span className="inline-flex items-center text-[11px] bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
+          <span className="text-[0.6875rem] text-muted-foreground shrink-0">
+            ×
+          </span>
+          <span className="inline-flex items-center text-[0.6875rem] bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
             {fmt(price)}
             {item.unit ? `/${item.unit}` : ""}
           </span>
@@ -875,7 +877,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                   </p>
                 )}
                 {pendingDraft.savedAt && (
-                  <p className="text-[10px] text-amber-600/70 dark:text-amber-500/70 mt-0.5">
+                  <p className="text-[0.625rem] text-amber-600/70 dark:text-amber-500/70 mt-0.5">
                     Saved{" "}
                     {(() => {
                       try {
@@ -944,7 +946,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
           <>
             {/* ── TYPE ──────────────────────────────────────────────────────────── */}
             {stepName === "Type" && (
-              <div className="space-y-5 min-h-[220px]">
+              <div className="space-y-5 min-h-[13.75rem]">
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">Kind</Label>
                   <div className="grid grid-cols-2 gap-3">
@@ -1016,7 +1018,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
 
             {/* ── ITEMS ─────────────────────────────────────────────────────────── */}
             {stepName === "Items" && (
-              <div className="space-y-3 min-h-[220px]">
+              <div className="space-y-3 min-h-[13.75rem]">
                 <div className="flex items-center justify-between">
                   <Label className="text-sm font-medium">Items</Label>
                   <Button
@@ -1085,7 +1087,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
 
             {/* ── EXTRAS ────────────────────────────────────────────────────────── */}
             {stepName === "Extras" && (
-              <div className="space-y-3 min-h-[220px]">
+              <div className="space-y-3 min-h-[13.75rem]">
                 <div className="flex items-center justify-between">
                   <div>
                     <Label className="text-sm font-medium">
@@ -1226,7 +1228,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
 
             {/* ── FINANCIAL DETAILS ─────────────────────────────────────────────── */}
             {stepName === "Details" && (
-              <div className="space-y-4 min-h-[220px]">
+              <div className="space-y-4 min-h-[13.75rem]">
                 <div>
                   <Label className="text-sm font-medium mb-1 block">
                     Amount (₹)
@@ -1259,7 +1261,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
 
             {/* ── PAYMENT ───────────────────────────────────────────────────────── */}
             {stepName === "Payment" && (
-              <div className="space-y-4 min-h-[220px]">
+              <div className="space-y-4 min-h-[13.75rem]">
                 <div className="rounded-lg border bg-muted/40 p-3 text-center">
                   <p className="text-xs text-muted-foreground">Total amount</p>
                   <p className="text-2xl font-bold">{fmt(totalAmount)}</p>
@@ -1380,7 +1382,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
 
             {/* ── REVIEW ────────────────────────────────────────────────────────── */}
             {stepName === "Review" && (
-              <div className="space-y-3 min-h-[220px]">
+              <div className="space-y-3 min-h-[13.75rem]">
                 <div className="rounded-lg border p-4 space-y-3">
                   <div className="flex items-center gap-2">
                     {kind === "item" ? (

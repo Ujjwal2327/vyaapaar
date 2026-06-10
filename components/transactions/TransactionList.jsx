@@ -84,7 +84,7 @@ const StatusDropdown = ({ statusFilters, setStatusFilters, counts }) => {
 
       {/* Dropdown panel */}
       {open && (
-        <div className="absolute top-full mt-1 z-50 w-full min-w-[140px] rounded-md border bg-popover shadow-md overflow-hidden">
+        <div className="absolute top-full mt-1 z-50 w-full min-w-[8.75rem] rounded-md border bg-popover shadow-md overflow-hidden">
           {STATUS_OPTIONS.map(({ value, label, dot }) => {
             const count = counts[value];
             if (value === "deleted" && count === 0) return null;

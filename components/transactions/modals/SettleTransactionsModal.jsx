@@ -334,7 +334,7 @@ export const SettleTransactionsModal = ({
                           {info.label}
                         </p>
                         {isAdvance && (
-                          <Badge className="text-[10px] px-1.5 py-0 h-4 bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300 border-0 ml-1">
+                          <Badge className="text-[0.625rem] px-1.5 py-0 h-4 bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300 border-0 ml-1">
                             Advance
                           </Badge>
                         )}
@@ -388,11 +388,11 @@ export const SettleTransactionsModal = ({
                                   </p>
                                 </div>
                                 <div className="flex items-center gap-2 mt-0.5">
-                                  <p className="text-[10px] text-muted-foreground font-mono">
+                                  <p className="text-[0.625rem] text-muted-foreground font-mono">
                                     ID: {tx.id.slice(0, 16)}…
                                   </p>
                                   {isAdvance && (
-                                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                                    <span className="text-[0.625rem] text-amber-600 dark:text-amber-400 font-medium">
                                       advance
                                     </span>
                                   )}

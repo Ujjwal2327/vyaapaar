@@ -500,7 +500,7 @@ const SettingsModal = ({
           </div>
         )}
 
-        <ScrollArea className="flex-1 max-h-[calc(90vh-200px)]">
+        <ScrollArea className="flex-1 max-h-[calc(90vh-12.5rem)]">
           <div className="space-y-3">
             {/* User Profile Accordion */}
             <Accordion title="User Profile" defaultOpen={false}>
@@ -517,7 +517,7 @@ const SettingsModal = ({
               <div className="space-y-5">
                 {/* Theme Toggle */}
                 <div className="space-y-2">
-                  <Label className="text-[16px]">Theme</Label>
+                  <Label className="text-base">Theme</Label>
                   <Button
                     onClick={() => {
                       setTheme(theme === "light" ? "dark" : "light");
@@ -547,7 +547,7 @@ const SettingsModal = ({
                 {/* Font Size Slider */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <Label className="text-[16px]">Font Size</Label>
+                    <Label className="text-base">Font Size</Label>
                     <span className="text-xs text-muted-foreground">
                       {fontSize}%
                     </span>
@@ -581,7 +581,7 @@ const SettingsModal = ({
                 {isCatalogPage && (
                   <div className="flex items-center justify-between">
                     <div className="space-y-1">
-                      <Label className="text-[16px]">
+                      <Label className="text-base">
                         Show Cost Prices & Profits
                       </Label>
                       <p className="text-xs text-muted-foreground">
@@ -677,7 +677,7 @@ const SettingsModal = ({
                 <div className="space-y-4">
                   {/* Add New Category */}
                   <div className="space-y-2">
-                    <Label className="text-[16px]">Add New Category</Label>
+                    <Label className="text-base">Add New Category</Label>
                     <div className="flex gap-2">
                       <Input
                         placeholder="Category name (e.g., Electrician)"
@@ -699,7 +699,7 @@ const SettingsModal = ({
 
                   {/* Existing Categories - Improved UI */}
                   <div className="space-y-2">
-                    <Label className="text-[16px]">Existing Categories</Label>
+                    <Label className="text-base">Existing Categories</Label>
                     <div className="space-y-2">
                       {sortCategories(contactCategories).map((category) => {
                         const count = getCategoryCount(category.id);

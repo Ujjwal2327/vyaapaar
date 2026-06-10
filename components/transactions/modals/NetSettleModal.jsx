@@ -170,7 +170,7 @@ export const NetSettleModal = ({
                 </p>
               </div>
               <Badge
-                className={`shrink-0 text-[10px] px-1.5 py-0 h-4 border-0 ml-auto ${
+                className={`shrink-0 text-[0.625rem] px-1.5 py-0 h-4 border-0 ml-auto ${
                   balancingDirection === "in"
                     ? "bg-green-100 text-green-700 dark:bg-green-900/60 dark:text-green-300"
                     : "bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300"
@@ -231,7 +231,7 @@ export const NetSettleModal = ({
                         {previewName}
                       </span>
                       {item.isAdvance && (
-                        <Badge className="text-[9px] px-1 py-0 h-3.5 bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300 border-0 shrink-0">
+                        <Badge className="text-[0.5625rem] px-1 py-0 h-3.5 bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300 border-0 shrink-0">
                           advance
                         </Badge>
                       )}
