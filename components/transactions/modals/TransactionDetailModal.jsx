@@ -37,6 +37,7 @@ import {
   AlertTriangle,
   Search,
   Ban,
+  ChevronDown,
 } from "lucide-react";
 import { format } from "date-fns";
 import { usePriceList } from "@/hooks/usePriceList";
@@ -1037,6 +1038,38 @@ const ChangeHistoryEntry = ({ entry }) => (
   </div>
 );
 
+// ─── ChangeHistorySection ─────────────────────────────────────────────────────
+const ChangeHistorySection = ({ history }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-1.5 text-left group"
+      >
+        <History className="w-4 h-4 text-muted-foreground shrink-0" />
+        <Label className="text-base font-semibold cursor-pointer group-hover:text-foreground transition-colors">
+          Change history
+        </Label>
+        <span className="text-sm text-muted-foreground ml-1">
+          ({history.length})
+        </span>
+        <ChevronDown
+          className={`w-4 h-4 text-muted-foreground ml-auto transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div className="space-y-2">
+          {history.map((h, i) => (
+            <ChangeHistoryEntry key={i} entry={h} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── main modal ───────────────────────────────────────────────────────────────
 export const TransactionDetailModal = ({
   open,
@@ -1296,13 +1329,6 @@ export const TransactionDetailModal = ({
                     This record is kept for audit purposes only.
                   </p>
                 </div>
-              </div>
-            )}
-
-            {/* edit mode banner */}
-            {editMode && (
-              <div className="rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm text-primary font-medium">
-                ✏️ Edit mode — make changes below, then tap Save
               </div>
             )}
 
@@ -1661,21 +1687,62 @@ export const TransactionDetailModal = ({
               </div>
             )}
 
-            {/* CHANGE HISTORY */}
+            {/* LIVE DIFF PREVIEW — shown in edit mode when there are unsaved changes */}
+            {editMode &&
+              (() => {
+                const pendingChanges = isItem
+                  ? [
+                      ...diffItems(tx.itemsList, editedTx.itemsList),
+                      ...(tx.note !== editedTx.note
+                        ? [
+                            {
+                              type: "changed",
+                              text: `Note: "${tx.note || ""}" → "${editedTx.note || ""}"`,
+                            },
+                          ]
+                        : []),
+                      ...(Math.abs(liveTotal - (tx.totalAmount ?? 0)) > 0.001
+                        ? [
+                            {
+                              type: "changed",
+                              text: `Total: ${fmtC(tx.totalAmount)} → ${fmtC(liveTotal)}`,
+                            },
+                          ]
+                        : []),
+                    ]
+                  : diffFinancial(tx, {
+                      ...editedTx,
+                      totalAmount: parseFloat(editedTx.totalAmount) || 0,
+                    });
+
+                if (pendingChanges.length === 0) return null;
+                return (
+                  <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-3 py-2.5 space-y-1.5">
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                      <Edit2 className="w-3.5 h-3.5 shrink-0" />
+                      Unsaved changes
+                    </p>
+                    {pendingChanges.map((c, i) => (
+                      <p
+                        key={i}
+                        className={`text-sm break-all ${
+                          c.type === "added"
+                            ? "text-green-700 dark:text-green-400"
+                            : c.type === "removed"
+                              ? "text-red-700 dark:text-red-400"
+                              : "text-amber-700 dark:text-amber-400"
+                        }`}
+                      >
+                        {typeof c === "string" ? c : c.text}
+                      </p>
+                    ))}
+                  </div>
+                );
+              })()}
+
+            {/* CHANGE HISTORY — collapsed behind a toggle */}
             {tx.itemListHistory?.length > 0 && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <History className="w-4 h-4 text-muted-foreground" />
-                  <Label className="text-base font-semibold">
-                    Change history
-                  </Label>
-                </div>
-                <div className="space-y-2">
-                  {tx.itemListHistory.map((h, i) => (
-                    <ChangeHistoryEntry key={i} entry={h} />
-                  ))}
-                </div>
-              </div>
+              <ChangeHistorySection history={tx.itemListHistory} />
             )}
           </div>
         </div>

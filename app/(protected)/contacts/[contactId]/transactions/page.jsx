@@ -226,8 +226,6 @@ export default function TransactionsPage() {
     try {
       await updateTransaction(txId, updates);
       toast.success("Transaction updated", { id: loadingToast });
-      setShowDetailModal(false);
-      setSelectedTxId(null);
     } catch (e) {
       toast.error(getErrorMessage(e), { id: loadingToast });
     }
