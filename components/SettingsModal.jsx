@@ -106,7 +106,6 @@ const SettingsModal = ({
   const [initialContactCategories, setInitialContactCategories] = useState(
     DEFAULT_CONTACT_CATEGORIES,
   );
-  const [totalContacts, setTotalContacts] = useState(0);
   const [editingCategoryId, setEditingCategoryId] = useState(null);
   const [editingCategoryLabel, setEditingCategoryLabel] = useState("");
   const [newCategoryLabel, setNewCategoryLabel] = useState("");
@@ -175,9 +174,12 @@ const SettingsModal = ({
   };
 
   const loadPeopleSettings = async () => {
+    // Only load categories from DB; totalContacts is derived from the peopleData
+    // prop passed in by PeopleContainer (which always reflects the live contacts
+    // table), so we don't query the stale people.data JSON-blob column.
     const { data, error } = await supabase
       .from("people")
-      .select("categories, data")
+      .select("categories")
       .eq("user_id", user.id)
       .single();
 
@@ -185,9 +187,6 @@ const SettingsModal = ({
       if (data.categories) {
         setContactCategories(data.categories);
         setInitialContactCategories(data.categories);
-      }
-      if (data.data) {
-        setTotalContacts(data.data.length);
       }
     }
   };
@@ -414,21 +413,31 @@ const SettingsModal = ({
       action: {
         label: "Merge",
         onClick: () => {
+          const updatedCategories = contactCategories.filter(
+            (cat) => cat.id !== fromCategoryId,
+          );
+
+          // Pass the categories BEFORE removing the source category so
+          // PeopleContainer.handleCategoriesUpdate receives the full list
+          // and can migrate contacts from fromCategoryId → toCategoryId.
           if (onCategoriesUpdate) {
             onCategoriesUpdate(contactCategories, fromCategoryId, toCategoryId);
           }
 
-          setContactCategories(
-            contactCategories.filter((cat) => cat.id !== fromCategoryId),
-          );
+          setContactCategories(updatedCategories);
+
+          // Sync the baseline so handleCloseDialog sees no diff and won't
+          // fire saveCategoriestoDb on close — which would call
+          // onCategoriesUpdate again WITHOUT the migration args, leaving
+          // PeopleContainer's availableCategories stale.
+          setInitialContactCategories(updatedCategories);
+
           toast.success("Categories merged successfully");
         },
       },
       duration: 10000,
     });
   };
-
-  console.log(contactCategories);
 
   const filteredUnitCategories = getFilteredCategories();
 
@@ -479,7 +488,9 @@ const SettingsModal = ({
                 <div className="flex items-center gap-3 p-3 bg-linear-to-br from-primary/10 to-primary/5 rounded-lg border">
                   <Users className="w-8 h-8 text-primary" />
                   <div>
-                    <p className="text-2xl font-bold">{totalContacts}</p>
+                    <p className="text-2xl font-bold">
+                      {peopleData?.length ?? 0}
+                    </p>
                     <p className="text-sm text-muted-foreground">
                       Total Contacts
                     </p>

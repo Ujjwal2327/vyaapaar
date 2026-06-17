@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   Trash2,
+  Link2,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -20,12 +21,17 @@ const fmt = (n) =>
     maximumFractionDigits: 0,
   }).format(n ?? 0);
 
-export const TransactionCard = ({ transaction: tx, onClick }) => {
+export const TransactionCard = ({
+  transaction: tx,
+  onClick,
+  peopleData = [],
+}) => {
   const isItem = tx.kind === "item";
   const isOut = tx.type === "out";
   const isPending = tx.status === "pending";
   const isOverpaid = tx.status === "overpaid";
   const isDeleted = tx.status === "deleted";
+  const isLinked = tx._role === "linked";
   const remaining = (tx.totalAmount ?? 0) - (tx.paidAmount ?? 0);
   const progress =
     tx.totalAmount > 0
@@ -45,7 +51,6 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
     ? `Customer overpaid ${fmt(Math.abs(remaining))}`
     : `We overpaid ${fmt(Math.abs(remaining))}`;
 
-  // item preview: show last path segment only for brevity
   const itemsPreview =
     isItem && tx.itemsList?.length > 0
       ? tx.itemsList
@@ -56,13 +61,27 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
         (tx.itemsList.length > 2 ? ` +${tx.itemsList.length - 2}` : "")
       : null;
 
+  // Resolve linked contact names for display
+  const linkedContactNames = isLinked
+    ? [] // if we're viewing FROM a linked contact, show the primary contact
+    : (tx.linkedContactIds ?? [])
+        .map((id) => peopleData.find((p) => p.id === id)?.name)
+        .filter(Boolean);
+
+  // If viewing as linked contact, resolve the primary contact name
+  const primaryContactName = isLinked
+    ? peopleData.find((p) => p.id === tx.contactId)?.name
+    : null;
+
   return (
     <div
       onClick={onClick}
       className={`bg-card rounded-xl border p-4 sm:p-5 cursor-pointer transition-colors ${
         isDeleted
           ? "opacity-60 border-dashed hover:bg-muted/20 active:bg-muted/30"
-          : "hover:bg-muted/40 active:bg-muted/60"
+          : isLinked
+            ? "border-dashed border-purple-200 dark:border-purple-800 hover:bg-purple-50/40 dark:hover:bg-purple-950/20 active:bg-purple-50/60"
+            : "hover:bg-muted/40 active:bg-muted/60"
       }`}
     >
       <div className="flex items-start gap-3">
@@ -116,7 +135,15 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
                     Overpaid
                   </Badge>
                 )}
+                {/* Linked / Referenced badge */}
+                {isLinked && (
+                  <Badge className="text-sm px-2 py-0.5 bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 border-0 flex items-center gap-1">
+                    <Link2 className="w-3 h-3" />
+                    Referenced
+                  </Badge>
+                )}
               </div>
+
               {itemsPreview && (
                 <p className="text-sm text-muted-foreground mt-0.5 truncate">
                   {itemsPreview}
@@ -125,6 +152,22 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
               {!itemsPreview && tx.note && (
                 <p className="text-sm text-muted-foreground mt-0.5 truncate">
                   {tx.note}
+                </p>
+              )}
+
+              {/* Show primary contact name when viewed as linked */}
+              {isLinked && primaryContactName && (
+                <p className="text-sm text-purple-600 dark:text-purple-400 mt-0.5 flex items-center gap-1">
+                  <Link2 className="w-3 h-3 shrink-0" />
+                  Primary: {primaryContactName}
+                </p>
+              )}
+
+              {/* Show linked contact names when viewed as primary */}
+              {!isLinked && linkedContactNames.length > 0 && (
+                <p className="text-sm text-purple-600 dark:text-purple-400 mt-0.5 flex items-center gap-1 truncate">
+                  <Link2 className="w-3 h-3 shrink-0" />
+                  Also: {linkedContactNames.join(", ")}
                 </p>
               )}
             </div>
@@ -136,21 +179,26 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
               >
                 {fmt(tx.totalAmount)}
               </p>
-              {!isDeleted && isPending && remaining > 0 && (
+              {!isDeleted && isPending && remaining > 0 && !isLinked && (
                 <p className="text-sm text-amber-600 dark:text-amber-400 tabular-nums">
                   Due {fmt(remaining)}
                 </p>
               )}
-              {!isDeleted && isOverpaid && (
+              {!isDeleted && isOverpaid && !isLinked && (
                 <p className="text-sm text-blue-600 dark:text-blue-400 tabular-nums">
                   +{fmt(Math.abs(remaining))} adv.
+                </p>
+              )}
+              {isLinked && (
+                <p className="text-sm text-muted-foreground tabular-nums">
+                  ref only
                 </p>
               )}
             </div>
           </div>
 
-          {/* progress bar — hide for deleted */}
-          {!isDeleted && tx.paidAmount > 0 && remaining > 0 && (
+          {/* progress bar — hide for deleted and linked */}
+          {!isDeleted && !isLinked && tx.paidAmount > 0 && remaining > 0 && (
             <div className="mb-2">
               <div className="h-2 bg-muted rounded-full overflow-hidden">
                 <div
@@ -164,8 +212,8 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
             </div>
           )}
 
-          {/* overpayment note — hide for deleted */}
-          {!isDeleted && isOverpaid && (
+          {/* overpayment note — hide for deleted and linked */}
+          {!isDeleted && !isLinked && isOverpaid && (
             <div className="flex items-start gap-1.5 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-2.5 py-1.5 mb-2">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600" />
               <p className="text-sm text-amber-700 dark:text-amber-400 break-words min-w-0">
@@ -180,6 +228,11 @@ export const TransactionCard = ({ transaction: tx, onClick }) => {
               <span className="flex items-center gap-1 text-sm text-red-500 dark:text-red-400">
                 <Trash2 className="w-4 h-4" />
                 Deleted
+              </span>
+            ) : isLinked ? (
+              <span className="flex items-center gap-1 text-sm text-purple-600 dark:text-purple-400">
+                <Link2 className="w-4 h-4" />
+                Reference only
               </span>
             ) : isPending ? (
               <span className="flex items-center gap-1 text-sm text-amber-600 dark:text-amber-400">

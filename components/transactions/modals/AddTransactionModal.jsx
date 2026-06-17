@@ -1,7 +1,7 @@
 /* eslint-disable react/no-unescaped-entities */
 "use client";
 
-import { useState, useCallback, useRef, useMemo, useEffect } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect, memo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -34,6 +34,8 @@ import {
   AlertTriangle,
   X,
   FileEdit,
+  Link2,
+  User,
 } from "lucide-react";
 import { usePriceList } from "@/hooks/usePriceList";
 
@@ -332,9 +334,189 @@ const flattenPriceItems = (data, path = []) => {
   return out;
 };
 
-// ─── shared input cls ────────────────────────────────────────────────────────
 const inputCls =
   "bg-muted border-0 rounded px-2 py-1 text-sm font-mono outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary min-w-0 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
+
+// ─── LinkedContactsPicker ─────────────────────────────────────────────────────
+// Memo'd so parent modal re-renders don't remount this component mid-interaction.
+const LinkedContactsPicker = memo(function LinkedContactsPicker({
+  linkedContactIds,
+  setLinkedContactIds,
+  peopleData,
+  currentContactId,
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const inputRef = useRef(null);
+  const blurTimerRef = useRef(null);
+
+  useEffect(() => () => clearTimeout(blurTimerRef.current), []);
+
+  // Include linkedContactIds in deps so the list immediately re-filters
+  // after a contact is added (no stale dropdown showing already-added contact).
+  // memo() ensures this re-render stays local to the picker only.
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase().trim();
+    const excluded = new Set([currentContactId, ...linkedContactIds]);
+    return peopleData
+      .filter(
+        (p) =>
+          !excluded.has(p.id) && (q === "" || p.name.toLowerCase().includes(q)),
+      )
+      .slice(0, 8);
+  }, [peopleData, query, currentContactId, linkedContactIds]);
+
+  const addContact = useCallback(
+    (person) => {
+      setLinkedContactIds((prev) => {
+        // Hard duplicate guard at write time
+        if (prev.includes(person.id)) return prev;
+        return [...prev, person.id];
+      });
+      setQuery("");
+      setHoveredId(null);
+      // Keep open=true so dropdown stays showing remaining contacts immediately.
+      // Don't refocus — user can click another contact directly from the list.
+    },
+    [setLinkedContactIds],
+  );
+
+  const removeContact = useCallback(
+    (id) => {
+      setLinkedContactIds((prev) => prev.filter((x) => x !== id));
+    },
+    [setLinkedContactIds],
+  );
+
+  const linkedPeople = useMemo(
+    () =>
+      linkedContactIds
+        .map((id) => peopleData.find((p) => p.id === id))
+        .filter(Boolean),
+    [linkedContactIds, peopleData],
+  );
+
+  const handleFocus = useCallback(() => {
+    clearTimeout(blurTimerRef.current);
+    setOpen(true);
+  }, []);
+
+  const handleBlur = useCallback(() => {
+    blurTimerRef.current = setTimeout(() => {
+      setOpen(false);
+    }, 150);
+  }, []);
+
+  return (
+    <div className="space-y-2">
+      <Label className="text-base font-medium flex items-center gap-1.5">
+        <Link2 className="w-4 h-4 text-purple-500" />
+        Also involves{" "}
+        <span className="text-muted-foreground font-normal text-sm">
+          (optional)
+        </span>
+      </Label>
+      <p className="text-sm text-muted-foreground -mt-1">
+        Add contacts referenced in this transaction but not financially
+        responsible (e.g. a plumber buying on behalf of a customer).
+      </p>
+
+      {/* Selected chips — no tooltip, just name + remove */}
+      {linkedPeople.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {linkedPeople.map((p) => (
+            <span
+              key={p.id}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 text-sm font-medium"
+            >
+              <User className="w-3 h-3 shrink-0" />
+              {p.name}
+              <button
+                type="button"
+                onClick={() => removeContact(p.id)}
+                className="ml-0.5 hover:text-purple-900 dark:hover:text-purple-100 transition-colors"
+                title="Remove"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Search input */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+        <input
+          ref={inputRef}
+          type="text"
+          placeholder="Search contacts to link…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          className="w-full pl-10 pr-8 h-10 rounded-md border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+        {query && (
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setQuery("");
+              inputRef.current?.focus();
+            }}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+        {open && (
+          <div className="absolute z-[200] top-full mt-1 left-0 right-0 rounded-md border bg-popover shadow-lg overflow-hidden">
+            {filtered.length === 0 ? (
+              <p className="px-3 py-2.5 text-sm text-muted-foreground">
+                {query
+                  ? `No contacts matching "${query}"`
+                  : "All contacts already added"}
+              </p>
+            ) : (
+              <div className="max-h-48 overflow-y-auto">
+                {filtered.map((p) => {
+                  const phone =
+                    (p.phones ?? []).find((ph) => ph?.trim()) ?? null;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        addContact(p);
+                      }}
+                      className="w-full px-3 py-2.5 text-sm hover:bg-accent active:bg-accent text-left flex items-start gap-2 transition-colors"
+                    >
+                      <User className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{p.name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          <span className="capitalize">{p.category}</span>
+                          {phone && <span> · {phone}</span>}
+                        </p>
+                        {p.address && (
+                          <p className="text-sm text-muted-foreground truncate">
+                            {p.address}
+                          </p>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
 
 // ─── PriceItemSearch ──────────────────────────────────────────────────────────
 const PriceItemSearch = ({
@@ -487,7 +669,6 @@ const PriceItemSearch = ({
           </div>
         )}
       </div>
-
       {pending && (
         <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
           <div className="min-w-0">
@@ -718,47 +899,6 @@ const CollapsibleCartItem = ({
   );
 };
 
-// ─── ItemDisplayRow ───────────────────────────────────────────────────────────
-const ItemDisplayRow = ({ item, isLast }) => {
-  const qty = parseFloat(item.quantity) || 0,
-    price = parseFloat(item.price) || 0,
-    total = qty * price;
-  const displayName = item.name ? item.name.split(" › ").pop() : "";
-  const hasPath = item.name && item.name.includes(" › ");
-  return (
-    <div
-      className={`flex items-start gap-2 py-3 overflow-hidden ${!isLast ? "border-b" : ""}`}
-    >
-      <div className="flex-1 overflow-hidden">
-        <p className="text-sm font-medium leading-snug break-all">
-          {displayName}
-        </p>
-        {hasPath && (
-          <p className="text-sm text-muted-foreground break-all mt-0.5">
-            {item.name.split(" › ").slice(0, -1).join(" › ")}
-          </p>
-        )}
-        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-          <span className="inline-flex items-center text-sm bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
-            {fmtNum(item.quantity)}
-            {item.unit ? ` ${item.unit}` : ""}
-          </span>
-          <span className="text-sm text-muted-foreground shrink-0">×</span>
-          <span className="inline-flex items-center text-sm bg-muted rounded px-1.5 py-0.5 text-muted-foreground font-mono">
-            {fmt(price)}
-            {item.unit ? `/${item.unit}` : ""}
-          </span>
-        </div>
-      </div>
-      <div className="shrink-0 text-right pt-0.5">
-        <p className="text-sm font-semibold tabular-nums whitespace-nowrap">
-          {fmt(total)}
-        </p>
-      </div>
-    </div>
-  );
-};
-
 // ─── ItemsTabPanel ────────────────────────────────────────────────────────────
 const ItemsTabPanel = ({
   itemsList,
@@ -794,9 +934,6 @@ const ItemsTabPanel = ({
   const cancelBlank = () => setBlankPending(null);
   const blankQty = parseFloat(blankPending?.qty) || 0;
   const blankPrice = parseFloat(blankPending?.price) || 0;
-  const handleAddFromSearch = (item) => {
-    addItemFromSearch(item);
-  };
 
   return (
     <div className="flex flex-col gap-3">
@@ -818,18 +955,16 @@ const ItemsTabPanel = ({
           </button>
         ))}
       </div>
-
       {activeTab === "add" && (
         <div className="space-y-2">
           <PriceItemSearch
-            onSelect={handleAddFromSearch}
+            onSelect={addItemFromSearch}
             onAddBlank={handleAddBlank}
             txType={type}
             sellPriceMode={sellPriceMode}
             allPriceItems={allPriceItems}
             itemsList={itemsList}
           />
-
           {blankPending && (
             <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
               <p className="text-sm text-muted-foreground font-medium">
@@ -914,9 +1049,7 @@ const ItemsTabPanel = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    confirmBlank();
-                  }}
+                  onClick={confirmBlank}
                   className="flex-1 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-1"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -925,7 +1058,6 @@ const ItemsTabPanel = ({
               </div>
             </div>
           )}
-
           {namedCount > 0 && !blankPending && (
             <button
               type="button"
@@ -938,7 +1070,6 @@ const ItemsTabPanel = ({
           )}
         </div>
       )}
-
       {activeTab === "cart" && (
         <div className="flex flex-col gap-2">
           {itemsList.length === 0 ? (
@@ -998,10 +1129,18 @@ const blankState = () => ({
   note: "",
   initialPayment: { amount: "", note: "", method: "cash" },
   financialTotal: "",
+  linkedContactIds: [],
 });
 
 // ─── main modal ───────────────────────────────────────────────────────────────
-export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
+export const AddTransactionModal = ({
+  open,
+  onOpenChange,
+  contact,
+  onAdd,
+  peopleData = [],
+  currentContactId,
+}) => {
   const { priceData, sellPriceMode } = usePriceList();
   const contactId = contact?.id;
 
@@ -1019,6 +1158,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
     method: "cash",
   });
   const [financialTotal, setFinancialTotal] = useState("");
+  const [linkedContactIds, setLinkedContactIds] = useState([]);
 
   useEffect(() => {
     if (!open || !contactId) return;
@@ -1030,18 +1170,17 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
   }, [open, contactId]);
 
   const formStateRef = useRef({});
-  useEffect(() => {
-    formStateRef.current = {
-      step,
-      kind,
-      type,
-      itemsList,
-      additionalAmounts,
-      note,
-      initialPayment,
-      financialTotal,
-    };
-  });
+  formStateRef.current = {
+    step,
+    kind,
+    type,
+    itemsList,
+    additionalAmounts,
+    note,
+    initialPayment,
+    financialTotal,
+    linkedContactIds,
+  };
 
   const allPriceItems = useMemo(
     () => flattenPriceItems(priceData),
@@ -1087,10 +1226,9 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
       s.initialPayment ?? { amount: "", note: "", method: "cash" },
     );
     setFinancialTotal(s.financialTotal ?? "");
+    setLinkedContactIds(s.linkedContactIds ?? []);
   };
-  const reset = () => {
-    applyState(blankState());
-  };
+  const reset = () => applyState(blankState());
 
   const handleClose = (v) => {
     if (!v) {
@@ -1137,6 +1275,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
       paidAmountHistory: history,
       itemListHistory: [],
       note,
+      linkedContactIds,
       status:
         paidNow > totalAmount && totalAmount > 0
           ? "overpaid"
@@ -1203,6 +1342,11 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
   const removeExtra = useCallback((i) => {
     setAdditionalAmounts((prev) => prev.filter((_, j) => j !== i));
   }, []);
+
+  // Linked contact names for review
+  const linkedPeople = linkedContactIds
+    .map((id) => peopleData.find((p) => p.id === id))
+    .filter(Boolean);
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -1371,6 +1515,16 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                         ))}
                       </div>
                     </div>
+
+                    {/* Linked contacts picker — on the Type step */}
+                    {peopleData.length > 1 && (
+                      <LinkedContactsPicker
+                        linkedContactIds={linkedContactIds}
+                        setLinkedContactIds={setLinkedContactIds}
+                        peopleData={peopleData}
+                        currentContactId={currentContactId ?? contactId}
+                      />
+                    )}
                   </div>
                 )}
 
@@ -1709,6 +1863,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                               : "Pending"}
                         </Badge>
                       </div>
+
                       {kind === "item" &&
                         itemsList.filter((it) => it.name.trim()).length > 0 && (
                           <div className="border rounded-lg divide-y overflow-hidden">
@@ -1782,6 +1937,7 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                               ))}
                           </div>
                         )}
+
                       {note && (
                         <div>
                           <p className="text-sm text-muted-foreground uppercase font-medium">
@@ -1790,6 +1946,27 @@ export const AddTransactionModal = ({ open, onOpenChange, contact, onAdd }) => {
                           <p className="text-sm">{note}</p>
                         </div>
                       )}
+
+                      {/* Linked contacts in review */}
+                      {linkedPeople.length > 0 && (
+                        <div className="rounded-md border border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/30 px-3 py-2.5">
+                          <p className="text-sm font-medium text-purple-700 dark:text-purple-300 flex items-center gap-1.5 mb-1.5">
+                            <Link2 className="w-3.5 h-3.5" />
+                            Also involves
+                          </p>
+                          <div className="flex flex-wrap gap-1">
+                            {linkedPeople.map((p) => (
+                              <span
+                                key={p.id}
+                                className="text-sm text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/40 px-2 py-0.5 rounded-full"
+                              >
+                                {p.name}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       <div className="border-t pt-3 space-y-1.5">
                         <div className="flex justify-between font-semibold">
                           <span>Total</span>

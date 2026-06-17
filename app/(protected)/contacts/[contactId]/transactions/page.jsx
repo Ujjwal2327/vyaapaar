@@ -36,15 +36,11 @@ const CATEGORY_COLORS = {
   other: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200",
 };
 
-// FIX #7: Key filters per-contact so changing filter state on one contact
-// does not bleed through to other contacts. The old single key meant that
-// setting "show deleted" on contact A would leave contact B also filtered to
-// deleted-only on the next visit.
 const filtersStorageKey = (contactId) => `tx_list_filters_${contactId}`;
 
-// Default: show all active statuses (exclude deleted)
 const DEFAULT_STATUS_FILTERS = new Set(["pending", "complete", "overpaid"]);
 const DEFAULT_KIND_FILTER = "all";
+const DEFAULT_ROLE_FILTER = "primary";
 
 const loadFiltersFromStorage = (contactId) => {
   try {
@@ -58,19 +54,26 @@ const loadFiltersFromStorage = (contactId) => {
           ? parsed.statusFilters
           : ["pending", "complete", "overpaid"],
       ),
+      roleFilter: parsed.roleFilter ?? DEFAULT_ROLE_FILTER,
     };
   } catch {
     return null;
   }
 };
 
-const saveFiltersToStorage = (contactId, kindFilter, statusFilters) => {
+const saveFiltersToStorage = (
+  contactId,
+  kindFilter,
+  statusFilters,
+  roleFilter,
+) => {
   try {
     localStorage.setItem(
       filtersStorageKey(contactId),
       JSON.stringify({
         kindFilter,
         statusFilters: Array.from(statusFilters),
+        roleFilter,
       }),
     );
   } catch {
@@ -111,9 +114,6 @@ export default function TransactionsPage() {
   const [showNetSettleModal, setShowNetSettleModal] = useState(false);
   const [selectedTxId, setSelectedTxId] = useState(null);
 
-  // Derive the live transaction object from the hook's transactions array so
-  // that any updates (settle, payment, edit) are reflected immediately without
-  // a manual page refresh.
   const selectedTx = useMemo(
     () =>
       selectedTxId
@@ -122,7 +122,6 @@ export default function TransactionsPage() {
     [selectedTxId, transactions],
   );
 
-  // Load filter state from localStorage on first render, fall back to defaults.
   const [kindFilter, setKindFilterRaw] = useState(() => {
     const saved = loadFiltersFromStorage(contactId);
     return saved?.kindFilter ?? DEFAULT_KIND_FILTER;
@@ -131,23 +130,34 @@ export default function TransactionsPage() {
     const saved = loadFiltersFromStorage(contactId);
     return saved?.statusFilters ?? DEFAULT_STATUS_FILTERS;
   });
+  const [roleFilter, setRoleFilterRaw] = useState(() => {
+    const saved = loadFiltersFromStorage(contactId);
+    return saved?.roleFilter ?? DEFAULT_ROLE_FILTER;
+  });
 
-  // Keep refs in sync so the setters can read the sibling value without
-  // scheduling a spurious nested setState.
   const kindFilterRef = useRef(kindFilter);
   const statusFiltersRef = useRef(statusFilters);
+  const roleFilterRef = useRef(roleFilter);
+
   useEffect(() => {
     kindFilterRef.current = kindFilter;
   }, [kindFilter]);
   useEffect(() => {
     statusFiltersRef.current = statusFilters;
   }, [statusFilters]);
+  useEffect(() => {
+    roleFilterRef.current = roleFilter;
+  }, [roleFilter]);
 
-  // Wrap setters to persist to localStorage on every change.
   const setKindFilter = useCallback(
     (value) => {
       setKindFilterRaw(value);
-      saveFiltersToStorage(contactId, value, statusFiltersRef.current);
+      saveFiltersToStorage(
+        contactId,
+        value,
+        statusFiltersRef.current,
+        roleFilterRef.current,
+      );
     },
     [contactId],
   );
@@ -156,9 +166,27 @@ export default function TransactionsPage() {
     (updater) => {
       setStatusFiltersRaw((prev) => {
         const next = typeof updater === "function" ? updater(prev) : updater;
-        saveFiltersToStorage(contactId, kindFilterRef.current, next);
+        saveFiltersToStorage(
+          contactId,
+          kindFilterRef.current,
+          next,
+          roleFilterRef.current,
+        );
         return next;
       });
+    },
+    [contactId],
+  );
+
+  const setRoleFilter = useCallback(
+    (value) => {
+      setRoleFilterRaw(value);
+      saveFiltersToStorage(
+        contactId,
+        kindFilterRef.current,
+        statusFiltersRef.current,
+        value,
+      );
     },
     [contactId],
   );
@@ -170,15 +198,16 @@ export default function TransactionsPage() {
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter((tx) => {
+      // Role filter
+      if (roleFilter === "primary" && tx._role === "linked") return false;
+      if (roleFilter === "linked" && tx._role !== "linked") return false;
+
       const matchKind = kindFilter === "all" || tx.kind === kindFilter;
       const matchStatus = statusFilters.has(tx.status);
       return matchKind && matchStatus;
     });
-  }, [transactions, kindFilter, statusFilters]);
+  }, [transactions, kindFilter, statusFilters, roleFilter]);
 
-  // Must be declared here (before any early returns) so the hook call order
-  // is stable across every render. Moving it after an early return caused
-  // "rendered more hooks than during the previous render" errors.
   const isPaymentInFlight = useRef(false);
 
   if (!isHydrated || isDataLoading || txLoading)
@@ -261,10 +290,6 @@ export default function TransactionsPage() {
     try {
       await addPayment(selectedTx.id, payment);
       toast.success("Payment recorded", { id: loadingToast });
-      // Close only the payment modal. Its onOpenChange will re-open the detail
-      // modal so the user returns to the updated transaction view. Do NOT call
-      // setShowDetailModal(false) here — that would race with onOpenChange's
-      // setShowDetailModal(true) and the detail modal would never re-open.
       setShowPaymentModal(false);
     } catch (e) {
       toast.error(getErrorMessage(e), { id: loadingToast });
@@ -281,8 +306,6 @@ export default function TransactionsPage() {
       return result;
     } catch (e) {
       toast.error(getErrorMessage(e), { id: loadingToast });
-      // Re-throw so SettleTransactionsModal.handleConfirm knows the operation
-      // failed and keeps the modal open for the user to retry.
       throw e;
     }
   };
@@ -300,27 +323,21 @@ export default function TransactionsPage() {
     }
   };
 
-  // Whether auto-settle is possible: need at least one pending sale + one pending purchase.
-  // Deleted transactions are excluded. Pending transactions must have remaining > 0
-  // (a stuck zero-total tx has status "pending" but nothing to offset).
-  const activeTxs = transactions.filter((t) => t.status !== "deleted");
+  // Settle/NetSettle only considers PRIMARY transactions
+  const primaryTxs = transactions.filter((t) => t._role !== "linked");
+  const activeTxs = primaryTxs.filter((t) => t.status !== "deleted");
   const pendingTxs = activeTxs.filter(
     (t) =>
       t.status === "pending" && (t.totalAmount ?? 0) - (t.paidAmount ?? 0) > 0,
   );
   const overpaidTxs = activeTxs.filter((t) => t.status === "overpaid");
-  // Show Settle button when there's at least one receivable source AND one payable source:
-  //   receivable: pending sale OR overpaid purchase (supplier owes us back)
-  //   payable:    pending purchase OR overpaid sale (we owe customer back)
+
   const canAutoSettle =
     (pendingTxs.some((t) => t.type === "out") ||
       overpaidTxs.some((t) => t.type === "in")) &&
     (pendingTxs.some((t) => t.type === "in") ||
       overpaidTxs.some((t) => t.type === "out"));
 
-  // Show Net Settle button when there IS a non-zero net balance but canAutoSettle
-  // is false — meaning all pending/overpaid txs are on one side only. One click
-  // records the net cash payment and settles everything automatically.
   const netBalance = summary.toReceive - summary.toGive;
   const hasAnyActive = pendingTxs.length > 0 || overpaidTxs.length > 0;
   const canNetSettle =
@@ -423,7 +440,7 @@ export default function TransactionsPage() {
       </div>
 
       <div className="max-w-4xl mx-auto p-2 space-y-4">
-        {/* Summary Cards */}
+        {/* Summary Cards — always based on primary transactions only */}
         <TransactionSummary summary={summary} />
 
         {/* Filters + List */}
@@ -434,10 +451,13 @@ export default function TransactionsPage() {
           setKindFilter={setKindFilter}
           statusFilters={statusFilters}
           setStatusFilters={setStatusFilters}
+          roleFilter={roleFilter}
+          setRoleFilter={setRoleFilter}
           onSelectTransaction={(tx) => {
             setSelectedTxId(tx.id);
             setShowDetailModal(true);
           }}
+          peopleData={peopleData}
         />
       </div>
 
@@ -447,6 +467,8 @@ export default function TransactionsPage() {
         onOpenChange={setShowAddModal}
         contact={contact}
         onAdd={handleAddTransaction}
+        peopleData={peopleData}
+        currentContactId={contactId}
       />
 
       <TransactionDetailModal
@@ -462,6 +484,7 @@ export default function TransactionsPage() {
         onUpdate={handleUpdateTransaction}
         onDelete={handleDeleteTransaction}
         onAddPayment={() => setShowPaymentModal(true)}
+        peopleData={peopleData}
       />
 
       <AddPaymentModal
@@ -479,7 +502,7 @@ export default function TransactionsPage() {
       <SettleTransactionsModal
         open={showSettleModal}
         onOpenChange={setShowSettleModal}
-        transactions={transactions}
+        transactions={primaryTxs}
         computeSettlementPreview={computeSettlementPreview}
         onSettle={handleSettle}
       />
@@ -487,7 +510,7 @@ export default function TransactionsPage() {
       <NetSettleModal
         open={showNetSettleModal}
         onOpenChange={setShowNetSettleModal}
-        transactions={transactions}
+        transactions={primaryTxs}
         summary={summary}
         onNetSettle={handleNetSettle}
       />

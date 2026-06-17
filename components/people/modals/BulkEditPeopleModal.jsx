@@ -138,8 +138,23 @@ const textToPeople = (text, categoryId, existingPeopleData) => {
   const people = [];
   const errors = [];
 
-  // Create a map of existing people by name for quick lookup
+  // BUG FIX: Previously the map only indexed contacts whose category matched
+  // categoryId.  When a contact was moved to a different category via bulk edit,
+  // the lookup failed, a new ID was generated, and the original contact was
+  // queued for deletion — losing specialty/notes/photo and potentially
+  // violating the transactions FK.
+  //
+  // Fix: build the map across ALL categories using a two-pass strategy so that
+  // an exact same-category match takes priority over a cross-category match,
+  // but a cross-category match is used when the contact is being moved.
   const existingPeopleMap = new Map();
+  // Pass 1 — lower priority: contacts currently in OTHER categories.
+  existingPeopleData.forEach((person) => {
+    if (person.category !== categoryId) {
+      existingPeopleMap.set(person.name.toLowerCase(), person);
+    }
+  });
+  // Pass 2 — higher priority: contacts already in THIS category (overwrites).
   existingPeopleData.forEach((person) => {
     if (person.category === categoryId) {
       existingPeopleMap.set(person.name.toLowerCase(), person);
@@ -206,9 +221,7 @@ const textToPeople = (text, categoryId, existingPeopleData) => {
 
     // Create person object - preserve existing data if person exists
     const person = {
-      id:
-        existingPerson?.id ||
-        Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      id: existingPerson?.id || crypto.randomUUID(), // ← was Date.now().toString() + Math.random()...
       name,
       category: categoryId,
       phones: uniquePhones.length > 0 ? uniquePhones : [""], // Use deduplicated phones (within same contact only)
@@ -357,7 +370,7 @@ export const BulkEditPeopleModal = ({
 
       // NO DUPLICATE PHONE VALIDATION ACROSS CONTACTS
       // Multiple contacts can have the same phone number
-      
+
       onSave(allPeople);
       onOpenChange(false);
     } catch (error) {
@@ -413,7 +426,8 @@ export const BulkEditPeopleModal = ({
               <code>name | phone1 / phone2 / phone3 | address</code>
             </p>
             <p className="text-xs text-muted-foreground">
-              (Phone numbers must be exactly 10 digits - spaces will be removed automatically)
+              (Phone numbers must be exactly 10 digits - spaces will be removed
+              automatically)
             </p>
             <p className="text-xs text-muted-foreground">
               (You can use commas instead of pipes)

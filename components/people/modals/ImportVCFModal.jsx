@@ -63,10 +63,10 @@ const convertContactPickerToVyaapaar = (contacts, categoryId) => {
         .join("; ");
 
       return {
-        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        id: crypto.randomUUID(), // ← was Date.now().toString() + Math.random()...
         name: name.trim(),
         category: categoryId,
-        phones: uniquePhones.length > 0 ? uniquePhones : [''],
+        phones: uniquePhones.length > 0 ? uniquePhones : [""],
         address: address || "",
         specialty: "",
         notes: "",

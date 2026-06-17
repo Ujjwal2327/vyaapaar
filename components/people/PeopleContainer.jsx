@@ -14,9 +14,8 @@ import { ImportVCFModal } from "./modals/ImportVCFModal";
 import { FindDuplicatesModal } from "./modals/FindDuplicatesModal";
 import { toast } from "sonner";
 import Loader from "../Loader";
-import {
-  areContactsIdentical,
-} from "@/lib/utils/duplicateContactUtils";
+import { areContactsIdentical } from "@/lib/utils/duplicateContactUtils";
+import { photoCache } from "@/lib/utils/photoCache";
 
 const DEFAULT_CATEGORIES = [
   { id: "customer", label: "Customer", isDefault: true },
@@ -32,6 +31,12 @@ const getErrorMessage = (error) => {
   // User errors (validation, etc.)
   if (error.message === "NOT_AUTHENTICATED") {
     return "You must be logged in to save changes";
+  }
+
+  // Contact has linked transactions — cannot delete
+  if (error.message?.startsWith("CONTACT_HAS_TRANSACTIONS:")) {
+    const names = error.message.split("CONTACT_HAS_TRANSACTIONS:")[1];
+    return `Cannot delete "${names}" — this contact has existing transactions. Delete or reassign their transactions first.`;
   }
 
   // Server/DB errors - generic message
@@ -110,8 +115,17 @@ export const PeopleContainer = () => {
     return <Loader content="Loading contacts..." />;
 
   /**
-   * Check for exact duplicates and auto-skip them
-   * Only add contacts that are not exact duplicates
+   * Check for exact duplicates and auto-skip them.
+   *
+   * For "add" / "import" actions: skip contacts that are exact duplicates of
+   * existing contacts that are NOT being touched by this operation.
+   *
+   * For "bulkEdit" action: the incoming list IS the full intended replacement
+   * for all contacts.  We must never silently drop contacts here, because
+   * finalizeBulkEdit calls savePeopleData with the full list and any missing
+   * ID will be deleted from the DB.  Instead we only warn about new contacts
+   * (no existing ID) that are exact copies of a contact already in the list,
+   * and let the rest through unchanged.
    */
   const checkAndHandleDuplicates = async (newContacts, action) => {
     // Ensure array
@@ -119,24 +133,52 @@ export const PeopleContainer = () => {
       ? newContacts
       : [newContacts];
 
-    // For bulk edit, exclude contacts being edited from duplicate check
-    let existingContactsToCheck = peopleData;
-
     if (action === "bulkEdit") {
-      const newContactIds = new Set(
-        contactsArray.filter((c) => c.id).map((c) => c.id),
+      // For bulk edit we do NOT filter the list — doing so would permanently
+      // delete any "skipped" contact from the DB.  We only check for new
+      // entries (no pre-existing ID) that duplicate an already-present entry,
+      // and warn without removing anything.
+      const newEntries = contactsArray.filter((c) => {
+        const isNew = !peopleData.some((p) => p.id === c.id);
+        return isNew;
+      });
+      const existingEntries = contactsArray.filter((c) =>
+        peopleData.some((p) => p.id === c.id),
       );
-      existingContactsToCheck = peopleData.filter(
-        (p) => !newContactIds.has(p.id),
-      );
+
+      const skipped = [];
+      const toAdd = [];
+      newEntries.forEach((contact) => {
+        const isDupe = existingEntries.some((existing) =>
+          areContactsIdentical(contact, existing),
+        );
+        if (isDupe) {
+          skipped.push(contact);
+        } else {
+          toAdd.push(contact);
+        }
+      });
+
+      if (skipped.length > 0) {
+        const names = skipped.map((d) => d.name).join(", ");
+        toast.info(`Skipped ${skipped.length} exact duplicate(s)`, {
+          description:
+            names.length > 50 ? `${names.substring(0, 50)}...` : names,
+        });
+      }
+
+      // Save: existing contacts (always kept) + new non-duplicate contacts
+      await finalizeBulkEdit([...existingEntries, ...toAdd]);
+      return;
     }
 
-    // Separate exact duplicates from unique contacts
+    // "add" / "import": check against contacts NOT included in this operation
+    const existingContactsToCheck = peopleData;
+
     const exactDuplicates = [];
     const uniqueContacts = [];
 
     contactsArray.forEach((contact) => {
-      // Check if this contact is an EXACT duplicate of any existing contact
       const isExactDuplicate = existingContactsToCheck.some((existing) =>
         areContactsIdentical(contact, existing),
       );
@@ -158,11 +200,7 @@ export const PeopleContainer = () => {
 
     // Process unique contacts
     if (uniqueContacts.length > 0) {
-      if (action === "bulkEdit") {
-        await finalizeBulkEdit(uniqueContacts);
-      } else {
-        await finalizeAddContacts(uniqueContacts);
-      }
+      await finalizeAddContacts(uniqueContacts);
     } else if (exactDuplicates.length === 0) {
       // No contacts at all
       toast.info("No contacts to add");
@@ -176,9 +214,22 @@ export const PeopleContainer = () => {
     const newData = [...peopleData];
 
     contacts.forEach((contact) => {
+      const id = contact.id || crypto.randomUUID(); // ← was Date.now().toString() + Math.random()...
+
+      // BUG FIX: usePeople's contactToRow only ever reads the photo from
+      // photoCache (it ignores any `photo` field on the contact object).
+      // AddPersonModal / VCF import / device-contact import all attach the
+      // uploaded photo as a `photo` field on the contact, which was
+      // previously silently dropped because it never made it into the
+      // cache. Persist it here, under the FINAL id, before savePeopleData
+      // runs.
+      if (contact.photo && contact.photo.trim()) {
+        photoCache.set(id, contact.photo.trim());
+      }
+
       newData.push({
         ...contact,
-        id: contact.id || crypto.randomUUID(), // ← was Date.now().toString() + Math.random()...
+        id,
       });
     });
 
@@ -239,6 +290,10 @@ export const PeopleContainer = () => {
       });
 
       await savePeopleData(finalData);
+
+      // Remove cache entries for contacts that no longer exist so stale
+      // photos don't linger in localStorage indefinitely.
+      contactsToDeleteIds.forEach((id) => photoCache.remove(id));
 
       toast.success("Duplicates merged successfully", {
         description: `Merged ${mergedContacts.length} group(s), removed ${contactsToDeleteIds.length} duplicate(s)`,
@@ -321,18 +376,28 @@ export const PeopleContainer = () => {
     const loadingToast = toast.loading("Updating categories...");
 
     try {
-      // Update categories
-      setAvailableCategories(newCategories);
-      await saveCategories(newCategories);
-
-      // If merging, update people data
       if (fromCategoryId && toCategoryId) {
+        // Merge: remove the source category from the list before saving so the
+        // DB reflects the post-merge state.  The SettingsModal passes the
+        // full pre-merge list as newCategories so that it can do the contact
+        // migration here, but we must save the pruned version to the DB.
+        const prunedCategories = newCategories.filter(
+          (cat) => cat.id !== fromCategoryId,
+        );
+        setAvailableCategories(prunedCategories);
+        await saveCategories(prunedCategories);
+
+        // Migrate contacts from the removed category to the target category
         const updatedPeople = peopleData.map((person) =>
           person.category === fromCategoryId
             ? { ...person, category: toCategoryId }
             : person,
         );
         await savePeopleData(updatedPeople);
+      } else {
+        // Non-merge update (rename, add, delete)
+        setAvailableCategories(newCategories);
+        await saveCategories(newCategories);
       }
 
       toast.success("Categories updated successfully", { id: loadingToast });

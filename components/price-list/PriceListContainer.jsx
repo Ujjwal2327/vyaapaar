@@ -128,7 +128,10 @@ export const PriceListContainer = () => {
     if (debouncedSearchTerm && debouncedSearchTerm.trim()) {
       expandAll(filteredData);
     }
-  }, [debouncedSearchTerm]);
+    // filteredData must be a dep: without it the effect closure captures
+    // a stale snapshot and expandAll operates on the wrong result set.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearchTerm, filteredData]);
 
   // Prevent hydration mismatch and show loading during DB fetch
   if (!isHydrated || isDataLoading)

@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Filter, ChevronDown, Check } from "lucide-react";
+import { Filter, ChevronDown, Check, Link2, User } from "lucide-react";
 import { TransactionCard } from "./TransactionCard";
 
 const STATUS_OPTIONS = [
@@ -22,7 +22,6 @@ const StatusDropdown = ({ statusFilters, setStatusFilters, counts }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return;
     const handler = (e) => {
@@ -36,7 +35,7 @@ const StatusDropdown = ({ statusFilters, setStatusFilters, counts }) => {
     setStatusFilters((prev) => {
       const next = new Set(prev);
       if (next.has(value)) {
-        if (next.size === 1) return prev; // keep at least one
+        if (next.size === 1) return prev;
         next.delete(value);
       } else {
         next.add(value);
@@ -45,7 +44,6 @@ const StatusDropdown = ({ statusFilters, setStatusFilters, counts }) => {
     });
   };
 
-  // Build trigger label
   const activeOptions = STATUS_OPTIONS.filter(
     (o) =>
       statusFilters.has(o.value) &&
@@ -70,11 +68,10 @@ const StatusDropdown = ({ statusFilters, setStatusFilters, counts }) => {
 
   return (
     <div ref={ref} className="relative flex-1 min-w-0">
-      {/* Trigger — matches the kind Select trigger visually */}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
       >
         <span className="truncate text-foreground">{triggerLabel}</span>
         <ChevronDown
@@ -82,7 +79,6 @@ const StatusDropdown = ({ statusFilters, setStatusFilters, counts }) => {
         />
       </button>
 
-      {/* Dropdown panel */}
       {open && (
         <div className="absolute top-full mt-1 z-50 w-full min-w-[9rem] rounded-md border bg-popover shadow-md overflow-hidden">
           {STATUS_OPTIONS.map(({ value, label, dot }) => {
@@ -94,12 +90,11 @@ const StatusDropdown = ({ statusFilters, setStatusFilters, counts }) => {
                 key={value}
                 type="button"
                 onMouseDown={(e) => {
-                  e.preventDefault(); // prevent blur before toggle
+                  e.preventDefault();
                   toggleStatus(value);
                 }}
                 className="flex w-full items-center gap-2.5 px-3 py-2.5 text-sm hover:bg-accent transition-colors"
               >
-                {/* checkbox visual */}
                 <span
                   className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border transition-colors ${checked ? "bg-primary border-primary" : "border-muted-foreground/40"}`}
                 >
@@ -107,9 +102,7 @@ const StatusDropdown = ({ statusFilters, setStatusFilters, counts }) => {
                     <Check className="h-3 w-3 text-primary-foreground stroke-[3]" />
                   )}
                 </span>
-                {/* dot */}
                 <span className={`h-2 w-2 rounded-full shrink-0 ${dot}`} />
-                {/* label + count */}
                 <span className="flex-1 text-left font-medium">{label}</span>
                 <span className="text-muted-foreground tabular-nums">
                   {count}
@@ -130,38 +123,91 @@ export const TransactionList = ({
   setKindFilter,
   statusFilters,
   setStatusFilters,
+  roleFilter,
+  setRoleFilter,
   onSelectTransaction,
+  peopleData = [],
 }) => {
+  // Counts based on role filter for kind/status dropdowns
+  const baseTxs =
+    roleFilter === "primary"
+      ? allTransactions.filter((t) => t._role !== "linked")
+      : roleFilter === "linked"
+        ? allTransactions.filter((t) => t._role === "linked")
+        : allTransactions;
+
   const counts = {
-    // Exclude deleted from kind counts so "All types (N)" matches what's
-    // visible under the default status filter (active only).
-    all: allTransactions.filter((t) => t.status !== "deleted").length,
-    item: allTransactions.filter(
-      (t) => t.kind === "item" && t.status !== "deleted",
-    ).length,
-    financial: allTransactions.filter(
+    all: baseTxs.filter((t) => t.status !== "deleted").length,
+    item: baseTxs.filter((t) => t.kind === "item" && t.status !== "deleted")
+      .length,
+    financial: baseTxs.filter(
       (t) => t.kind === "financial" && t.status !== "deleted",
     ).length,
-    pending: allTransactions.filter((t) => t.status === "pending").length,
-    complete: allTransactions.filter((t) => t.status === "complete").length,
-    overpaid: allTransactions.filter((t) => t.status === "overpaid").length,
-    deleted: allTransactions.filter((t) => t.status === "deleted").length,
+    pending: baseTxs.filter((t) => t.status === "pending").length,
+    complete: baseTxs.filter((t) => t.status === "complete").length,
+    overpaid: baseTxs.filter((t) => t.status === "overpaid").length,
+    deleted: baseTxs.filter((t) => t.status === "deleted").length,
   };
+
+  // Count linked transactions for the role filter tabs
+  const primaryCount = allTransactions.filter(
+    (t) => t._role !== "linked" && t.status !== "deleted",
+  ).length;
+  const linkedCount = allTransactions.filter(
+    (t) => t._role === "linked" && t.status !== "deleted",
+  ).length;
 
   const isFiltered =
     kindFilter !== "all" ||
     !statusFilters.has("pending") ||
     !statusFilters.has("complete") ||
     !statusFilters.has("overpaid") ||
-    statusFilters.has("deleted");
+    statusFilters.has("deleted") ||
+    roleFilter !== "primary";
 
   return (
     <div className="space-y-3">
-      {/* single filter row */}
+      {/* Single filter row — role toggle merged in when linked txs exist */}
       <div className="flex items-center gap-2">
         <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
 
-        {/* Kind */}
+        {/* Role toggle — only shown when linked transactions exist */}
+        {linkedCount > 0 && (
+          <div className="flex rounded-md border border-input overflow-hidden shrink-0">
+            {[
+              { id: "primary", icon: User, title: `Mine (${primaryCount})` },
+              {
+                id: "linked",
+                icon: Link2,
+                title: `Referenced (${linkedCount})`,
+              },
+              {
+                id: "all",
+                icon: null,
+                title: `All (${primaryCount + linkedCount})`,
+              },
+            ].map(({ id, icon: Icon, title }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setRoleFilter(id)}
+                title={title}
+                className={`h-10 px-2.5 flex items-center justify-center text-sm transition-colors border-r last:border-r-0 border-input ${
+                  roleFilter === id
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                {Icon ? (
+                  <Icon className="w-3.5 h-3.5" />
+                ) : (
+                  <span className="text-xs font-medium leading-none">All</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
         <Select value={kindFilter} onValueChange={setKindFilter}>
           <SelectTrigger className="h-10 text-sm flex-1 min-w-0">
             <SelectValue />
@@ -179,13 +225,20 @@ export const TransactionList = ({
           </SelectContent>
         </Select>
 
-        {/* Status checklist dropdown */}
         <StatusDropdown
           statusFilters={statusFilters}
           setStatusFilters={setStatusFilters}
           counts={counts}
         />
       </div>
+
+      {/* Compact referenced notice — only one line, no banner */}
+      {roleFilter === "linked" && linkedCount > 0 && (
+        <p className="text-sm text-purple-600 dark:text-purple-400 flex items-center gap-1.5 px-0.5">
+          <Link2 className="w-3.5 h-3.5 shrink-0" />
+          Reference only — summary &amp; settle use primary transactions
+        </p>
+      )}
 
       {/* list */}
       {transactions.length === 0 ? (
@@ -205,6 +258,7 @@ export const TransactionList = ({
             <TransactionCard
               key={tx.id}
               transaction={tx}
+              peopleData={peopleData}
               onClick={() => onSelectTransaction(tx)}
             />
           ))}

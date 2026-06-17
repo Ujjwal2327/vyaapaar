@@ -31,6 +31,7 @@ import {
   mergeContacts,
   getDuplicateExplanation,
 } from "@/lib/utils/duplicateContactUtils";
+import { photoCache } from "@/lib/utils/photoCache";
 
 /**
  * FindDuplicatesModal
@@ -240,6 +241,18 @@ export const FindDuplicatesModal = ({
         (c) => c.id !== selection.keepContactId,
       );
 
+      // BUG FIX: contactToRow only ever reads a contact's photo from
+      // photoCache (keyed by contact id), and mergeContacts has no way to
+      // move that cache entry. If the kept contact has no cached photo but
+      // one of the contacts being merged away does, transfer it now —
+      // otherwise the photo is silently lost once the donor is deleted.
+      if (!photoCache.get(keepContact.id)) {
+        const donor = otherContacts.find((c) => photoCache.get(c.id));
+        if (donor) {
+          photoCache.set(keepContact.id, photoCache.get(donor.id));
+        }
+      }
+
       // Merge all other contacts into the keep contact
       let merged = { ...keepContact };
       otherContacts.forEach((contact) => {
@@ -250,6 +263,10 @@ export const FindDuplicatesModal = ({
         });
         contactsToDelete.push(contact.id);
       });
+
+      // Reflect the (possibly newly-transferred) photo presence so the
+      // saved contact's hasPhoto flag stays in sync with photoCache.
+      merged.hasPhoto = !!photoCache.get(keepContact.id);
 
       mergedContacts.push(merged);
     });

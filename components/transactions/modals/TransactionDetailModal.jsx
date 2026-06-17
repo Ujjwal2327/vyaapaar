@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +38,8 @@ import {
   Search,
   Ban,
   ChevronDown,
+  Link2,
+  User,
 } from "lucide-react";
 import { format } from "date-fns";
 import { usePriceList } from "@/hooks/usePriceList";
@@ -1070,6 +1072,208 @@ const ChangeHistorySection = ({ history }) => {
   );
 };
 
+// ─── LinkedContactsEditor ─────────────────────────────────────────────────────
+// Memo'd so parent modal re-renders (e.g. editedTx changes) don't remount this
+// component mid-interaction. Uses a ref to track current exclusions so the
+// filtered useMemo doesn't re-run on every parent state change.
+const LinkedContactsEditor = memo(function LinkedContactsEditor({
+  linkedContactIds,
+  onChange,
+  peopleData,
+  currentContactId,
+  readOnly = false,
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const inputRef = useRef(null);
+  const blurTimerRef = useRef(null);
+
+  useEffect(() => () => clearTimeout(blurTimerRef.current), []);
+
+  // Include linkedContactIds in deps so filtered list re-computes immediately
+  // after add — duplicate contacts never appear.
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase().trim();
+    const excluded = new Set([currentContactId, ...linkedContactIds]);
+    return peopleData
+      .filter(
+        (p) =>
+          !excluded.has(p.id) && (q === "" || p.name.toLowerCase().includes(q)),
+      )
+      .slice(0, 8);
+  }, [peopleData, query, currentContactId, linkedContactIds]);
+
+  const addContact = useCallback(
+    (person) => {
+      if (linkedContactIds.includes(person.id)) return;
+      onChange([...linkedContactIds, person.id]);
+      setQuery("");
+      // Keep dropdown open so remaining contacts show immediately
+    },
+    [onChange, linkedContactIds],
+  );
+
+  const removeContact = useCallback(
+    (id) => {
+      onChange(linkedContactIds.filter((x) => x !== id));
+    },
+    [onChange, linkedContactIds],
+  );
+
+  const linkedPeople = useMemo(
+    () =>
+      linkedContactIds
+        .map((id) => peopleData.find((p) => p.id === id))
+        .filter(Boolean),
+    [linkedContactIds, peopleData],
+  );
+
+  const handleFocus = useCallback(() => {
+    clearTimeout(blurTimerRef.current);
+    setOpen(true);
+  }, []);
+
+  const handleBlur = useCallback(() => {
+    blurTimerRef.current = setTimeout(() => setOpen(false), 150);
+  }, []);
+
+  if (readOnly) {
+    if (linkedPeople.length === 0) return null;
+    return (
+      <div className="rounded-md border border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/30 px-3 py-2.5">
+        <p className="text-sm font-medium text-purple-700 dark:text-purple-300 flex items-center gap-1.5 mb-1.5">
+          <Link2 className="w-3.5 h-3.5" />
+          Also involves
+        </p>
+        <div className="space-y-1">
+          {linkedPeople.map((p) => {
+            const phone = (p.phones ?? []).find((ph) => ph?.trim()) ?? null;
+            return (
+              <div
+                key={p.id}
+                className="flex items-center gap-1.5 text-sm text-purple-700 dark:text-purple-300"
+              >
+                <User className="w-3 h-3 shrink-0" />
+                <span className="font-medium">{p.name}</span>
+                <span className="text-purple-500 dark:text-purple-400 capitalize">
+                  {p.category}
+                </span>
+                {phone && (
+                  <span className="text-purple-500 dark:text-purple-400">
+                    · {phone}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <Label className="text-base font-semibold flex items-center gap-1.5">
+        <Link2 className="w-4 h-4 text-purple-500" />
+        Also involves
+      </Label>
+
+      {/* Selected chips — plain, no hover tooltip */}
+      {linkedPeople.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {linkedPeople.map((p) => (
+            <span
+              key={p.id}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 text-sm font-medium"
+            >
+              <User className="w-3 h-3 shrink-0" />
+              {p.name}
+              <button
+                type="button"
+                onClick={() => removeContact(p.id)}
+                className="ml-0.5 hover:text-purple-900 dark:hover:text-purple-100 transition-colors"
+                title="Remove"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+        <input
+          ref={inputRef}
+          type="text"
+          placeholder="Add a contact reference…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          className="w-full pl-10 pr-8 h-10 rounded-md border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+        {query && (
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setQuery("");
+              inputRef.current?.focus();
+            }}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+        {open && (
+          <div className="absolute z-[200] top-full mt-1 left-0 right-0 rounded-md border bg-popover shadow-lg overflow-hidden">
+            {filtered.length === 0 ? (
+              <p className="px-3 py-2.5 text-sm text-muted-foreground">
+                {query
+                  ? `No contacts matching "${query}"`
+                  : "All contacts already added"}
+              </p>
+            ) : (
+              <div className="max-h-48 overflow-y-auto">
+                {filtered.map((p) => {
+                  const phone =
+                    (p.phones ?? []).find((ph) => ph?.trim()) ?? null;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        addContact(p);
+                      }}
+                      className="w-full px-3 py-2.5 text-sm hover:bg-accent active:bg-accent text-left flex items-start gap-2 transition-colors"
+                    >
+                      <User className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{p.name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          <span className="capitalize">{p.category}</span>
+                          {phone && <span> · {phone}</span>}
+                        </p>
+                        {p.address && (
+                          <p className="text-sm text-muted-foreground truncate">
+                            {p.address}
+                          </p>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+
 // ─── main modal ───────────────────────────────────────────────────────────────
 export const TransactionDetailModal = ({
   open,
@@ -1081,6 +1285,7 @@ export const TransactionDetailModal = ({
   onDelete,
   onAddPayment,
   onNavigateToTransaction,
+  peopleData = [],
 }) => {
   const { priceData, sellPriceMode } = usePriceList();
 
@@ -1223,6 +1428,7 @@ export const TransactionDetailModal = ({
         totalAmount: newTotal,
         note: editedTx.note,
         itemListHistory: newHistory,
+        linkedContactIds: editedTx.linkedContactIds ?? [],
       };
     } else {
       const newTotal = parseFloat(editedTx.totalAmount) || 0;
@@ -1243,6 +1449,7 @@ export const TransactionDetailModal = ({
         totalAmount: newTotal,
         note: editedTx.note,
         itemListHistory: newHistory,
+        linkedContactIds: editedTx.linkedContactIds ?? [],
       };
     }
     await onUpdate(tx.id, updates);
@@ -1464,6 +1671,45 @@ export const TransactionDetailModal = ({
               )}
             </div>
 
+            {/* LINKED CONTACTS — shown for all non-deleted transactions */}
+            {!isDeleted &&
+              peopleData.length > 1 &&
+              (editMode ? (
+                <LinkedContactsEditor
+                  linkedContactIds={editedTx.linkedContactIds ?? []}
+                  onChange={(ids) =>
+                    setEditedTx((p) => ({ ...p, linkedContactIds: ids }))
+                  }
+                  peopleData={peopleData}
+                  currentContactId={tx.contactId}
+                  readOnly={false}
+                />
+              ) : (
+                <LinkedContactsEditor
+                  linkedContactIds={tx.linkedContactIds ?? []}
+                  onChange={() => {}}
+                  peopleData={peopleData}
+                  currentContactId={tx.contactId}
+                  readOnly={true}
+                />
+              ))}
+
+            {/* Read-only linked notice when viewing AS a linked contact */}
+            {tx._role === "linked" && (
+              <div className="flex items-start gap-2 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/30 px-3 py-2.5 text-sm text-purple-700 dark:text-purple-400">
+                <Link2 className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>
+                  You're viewing this transaction as a referenced contact. The
+                  primary contact is{" "}
+                  <strong>
+                    {peopleData.find((p) => p.id === tx.contactId)?.name ??
+                      "unknown"}
+                  </strong>
+                  . Payments and edits must be made from their transaction page.
+                </span>
+              </div>
+            )}
+
             <Separator />
 
             {/* PAYMENT SUMMARY */}
@@ -1526,17 +1772,21 @@ export const TransactionDetailModal = ({
                 </div>
               )}
 
-              {isPending && remaining > 0 && !editMode && !isDeleted && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full h-10"
-                  onClick={onAddPayment}
-                >
-                  <CreditCard className="w-4 h-4 mr-1.5" />
-                  Record payment
-                </Button>
-              )}
+              {isPending &&
+                remaining > 0 &&
+                !editMode &&
+                !isDeleted &&
+                tx._role !== "linked" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full h-10"
+                    onClick={onAddPayment}
+                  >
+                    <CreditCard className="w-4 h-4 mr-1.5" />
+                    Record payment
+                  </Button>
+                )}
             </div>
 
             {/* PAYMENT HISTORY */}
@@ -1749,7 +1999,7 @@ export const TransactionDetailModal = ({
 
         {/* bottom action bar */}
         <div className="border-t px-4 py-3 flex items-center gap-2 bg-background shrink-0">
-          {isDeleted ? (
+          {isDeleted || tx._role === "linked" ? (
             <Button
               variant="outline"
               size="sm"

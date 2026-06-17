@@ -22,6 +22,9 @@ export const usePeople = () => {
   const [isDataLoading, setIsDataLoading] = useState(true);
 
   const hasFetchedDb = useRef(false);
+  // Track the last user ID so we can detect account switches within the same
+  // tab session and force a fresh DB fetch for the new user.
+  const prevUserIdRef = useRef(null);
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -87,6 +90,18 @@ export const usePeople = () => {
 
   useEffect(() => {
     const loadData = async () => {
+      const currentUserId = user?.id ?? null;
+
+      // If the user changed since the last fetch (e.g. account switch in same
+      // tab), reset the guard so we fetch fresh data for the new user instead
+      // of serving the previous user's stale localStorage cache.
+      if (hasFetchedDb.current && currentUserId !== prevUserIdRef.current) {
+        hasFetchedDb.current = false;
+        setPeopleData([]);
+        setCategories(DEFAULT_CATEGORIES);
+      }
+      prevUserIdRef.current = currentUserId;
+
       if (hasFetchedDb.current) {
         setIsDataLoading(false);
         setIsHydrated(true);
@@ -177,6 +192,41 @@ export const usePeople = () => {
       }
 
       if (toDelete.length > 0) {
+        // Block deletion if any active (non-soft-deleted) transactions exist.
+        // The transactions table has a FK to contacts with no ON DELETE CASCADE,
+        // so we surface a clear, user-friendly error instead of a raw DB error.
+        const { data: linkedTxRows, error: txCheckErr } = await supabase
+          .from("transactions")
+          .select("contact_id")
+          .in("contact_id", toDelete)
+          .neq("status", "deleted")
+          .limit(1);
+
+        if (txCheckErr) throw txCheckErr;
+
+        if (linkedTxRows && linkedTxRows.length > 0) {
+          const blockedIds = new Set(linkedTxRows.map((r) => r.contact_id));
+          const blockedNames = peopleData
+            .filter((p) => blockedIds.has(p.id))
+            .map((p) => p.name)
+            .join(", ");
+          throw new Error(`CONTACT_HAS_TRANSACTIONS:${blockedNames}`);
+        }
+
+        // BUG FIX: Soft-deleted transactions still hold a FK reference to the
+        // contact row. The active-transaction check above only excludes them,
+        // so a subsequent DELETE would hit a FK violation from the DB.
+        // Since soft-deleted transactions are already invisible to the user,
+        // we permanently remove them here to clear the FK reference, then
+        // safely delete the contact.
+        const { error: txDeleteErr } = await supabase
+          .from("transactions")
+          .delete()
+          .in("contact_id", toDelete)
+          .eq("status", "deleted");
+
+        if (txDeleteErr) throw txDeleteErr;
+
         const { error } = await supabase
           .from("contacts")
           .delete()

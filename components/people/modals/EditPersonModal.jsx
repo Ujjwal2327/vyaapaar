@@ -20,38 +20,44 @@ import { Plus, X, Upload, User, Star, AlertCircle } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toTitleCase } from "@/lib/utils/dataTransform";
 import { sortCategories } from "@/lib/utils/categoryUtils";
-import { checkInternalDuplicates, cleanAndDeduplicatePhones } from "@/lib/utils/phoneValidation";
-import { validateAndCompressImage, getBase64Size } from "@/lib/utils/imageCompression";
+import {
+  checkInternalDuplicates,
+  cleanAndDeduplicatePhones,
+} from "@/lib/utils/phoneValidation";
+import {
+  validateAndCompressImage,
+  getBase64Size,
+} from "@/lib/utils/imageCompression";
 import { photoCache } from "@/lib/utils/photoCache";
 
 // Phone validation with real-time cleaning
 const cleanAndValidatePhone = (phone) => {
   if (!phone) return { cleaned: "", isValid: true, error: null };
-  
+
   // Remove all spaces in real-time
-  const cleaned = phone.replace(/\s+/g, '');
-  
+  const cleaned = phone.replace(/\s+/g, "");
+
   // Check if empty (valid)
   if (!cleaned) return { cleaned: "", isValid: true, error: null };
-  
+
   // Check if it contains only digits
   if (!/^\d+$/.test(cleaned)) {
-    return { 
-      cleaned, 
-      isValid: false, 
-      error: "Phone number must contain only digits" 
+    return {
+      cleaned,
+      isValid: false,
+      error: "Phone number must contain only digits",
     };
   }
-  
+
   // Check if it's exactly 10 digits
   if (cleaned.length !== 10) {
-    return { 
-      cleaned, 
-      isValid: false, 
-      error: `Phone number must be exactly 10 digits (currently ${cleaned.length})` 
+    return {
+      cleaned,
+      isValid: false,
+      error: `Phone number must be exactly 10 digits (currently ${cleaned.length})`,
     };
   }
-  
+
   return { cleaned, isValid: true, error: null };
 };
 
@@ -64,9 +70,9 @@ export const EditPersonModal = ({
 }) => {
   // Memoize sorted categories to prevent infinite loop
   const CATEGORIES = useMemo(() => {
-    return sortCategories(availableCategories || [
-      { id: "customer", label: "Customer" },
-    ]);
+    return sortCategories(
+      availableCategories || [{ id: "customer", label: "Customer" }],
+    );
   }, [availableCategories]);
 
   const fileInputRef = useRef(null);
@@ -88,8 +94,8 @@ export const EditPersonModal = ({
           : [""];
 
       // Load photo from cache
-      const cachedPhoto = editingPerson.hasPhoto 
-        ? photoCache.get(editingPerson.id) 
+      const cachedPhoto = editingPerson.hasPhoto
+        ? photoCache.get(editingPerson.id)
         : null;
 
       const currentFormData = {
@@ -104,9 +110,11 @@ export const EditPersonModal = ({
       setFormData(currentFormData);
       setInitialFormData(currentFormData);
       setPhotoPreview(cachedPhoto || "");
-      
+
       // Initialize phone errors array
-      setPhoneErrors(new Array(phones.length > 0 ? phones.length : 1).fill(null));
+      setPhoneErrors(
+        new Array(phones.length > 0 ? phones.length : 1).fill(null),
+      );
       setIsCompressing(false);
       setPhotoChanged(false);
     } else if (!editingPerson && formData !== null) {
@@ -121,59 +129,70 @@ export const EditPersonModal = ({
 
   const handlePhoneChange = (index, value) => {
     const validation = cleanAndValidatePhone(value);
-    
-    setFormData(prev => {
-      const newPhones = [...prev.phones];
-      newPhones[index] = validation.cleaned;
-      return { ...prev, phones: newPhones };
-    });
-    
-    // Update validation errors
-    setPhoneErrors(prev => {
-      const newErrors = [...prev];
-      newErrors[index] = validation.error;
-      
-      // Check for internal duplicates (within this form)
-      if (validation.isValid && validation.cleaned.length === 10) {
-        const newPhones = [...formData.phones];
-        newPhones[index] = validation.cleaned;
-        const internalCheck = checkInternalDuplicates(newPhones);
-        if (internalCheck.hasDuplicates && internalCheck.duplicateNumbers.includes(validation.cleaned)) {
-          newErrors[index] = "This number is already used in another field above";
-        }
+
+    // BUG FIX: Previously the duplicate check lived inside the setPhoneErrors
+    // functional updater and read `formData.phones` from the outer closure.
+    // That closure captured the phones array from the last render, not the
+    // value being written by the concurrent setFormData call, so the check
+    // could operate on a stale array.
+    //
+    // Fix: compute both the new phones array and the new errors array
+    // synchronously from the current rendered state, then call each setter
+    // with a direct (non-functional) value.  handlePhoneChange is only ever
+    // invoked from a React onChange event, so formData and phoneErrors here
+    // always reflect the state that the user is currently seeing.
+    const newPhones = [...formData.phones];
+    newPhones[index] = validation.cleaned;
+
+    const newErrors = [...phoneErrors];
+    newErrors[index] = validation.error;
+
+    // Check for internal duplicates using the already-updated phones array.
+    if (
+      validation.isValid &&
+      validation.cleaned.length === 10 &&
+      !newErrors[index]
+    ) {
+      const internalCheck = checkInternalDuplicates(newPhones);
+      if (
+        internalCheck.hasDuplicates &&
+        internalCheck.duplicateNumbers.includes(validation.cleaned)
+      ) {
+        newErrors[index] = "This number is already used in another field above";
       }
-      
-      return newErrors;
-    });
+    }
+
+    setFormData({ ...formData, phones: newPhones });
+    setPhoneErrors(newErrors);
   };
 
   const addPhoneField = () => {
-    setFormData(prev => ({ ...prev, phones: [...prev.phones, ""] }));
-    setPhoneErrors(prev => [...prev, null]);
+    setFormData((prev) => ({ ...prev, phones: [...prev.phones, ""] }));
+    setPhoneErrors((prev) => [...prev, null]);
   };
 
   const removePhoneField = (index) => {
     if (formData.phones.length > 1) {
-      setFormData(prev => ({
+      setFormData((prev) => ({
         ...prev,
-        phones: prev.phones.filter((_, i) => i !== index)
+        phones: prev.phones.filter((_, i) => i !== index),
       }));
-      
-      setPhoneErrors(prev => prev.filter((_, i) => i !== index));
+
+      setPhoneErrors((prev) => prev.filter((_, i) => i !== index));
     }
   };
 
   const makePrimary = (index) => {
     if (index === 0) return;
-    
-    setFormData(prev => {
+
+    setFormData((prev) => {
       const newPhones = [...prev.phones];
       const primaryPhone = newPhones.splice(index, 1)[0];
       newPhones.unshift(primaryPhone);
       return { ...prev, phones: newPhones };
     });
-    
-    setPhoneErrors(prev => {
+
+    setPhoneErrors((prev) => {
       const newErrors = [...prev];
       const primaryError = newErrors.splice(index, 1)[0];
       newErrors.unshift(primaryError);
@@ -193,21 +212,25 @@ export const EditPersonModal = ({
 
     try {
       setIsCompressing(true);
-      
+
       // Compress the image
-      const { base64: compressedBase64, originalSize, compressedSize } = 
-        await validateAndCompressImage(file);
-      
+      const {
+        base64: compressedBase64,
+        originalSize,
+        compressedSize,
+      } = await validateAndCompressImage(file);
+
       setFormData({ ...formData, photo: compressedBase64 });
       setPhotoPreview(compressedBase64);
       setPhotoChanged(true);
-      
+
       // Show compression info in console
       console.log(`Image compressed: ${originalSize}KB → ${compressedSize}KB`);
-      
     } catch (error) {
-      console.error('Image compression error:', error);
-      alert(error.message || "Failed to compress image. Please try another image.");
+      console.error("Image compression error:", error);
+      alert(
+        error.message || "Failed to compress image. Please try another image.",
+      );
     } finally {
       setIsCompressing(false);
     }
@@ -227,7 +250,7 @@ export const EditPersonModal = ({
 
     // Clean and deduplicate phone numbers FIRST (removes spaces and duplicates)
     const cleanedAndDedupedPhones = cleanAndDeduplicatePhones(formData.phones);
-    
+
     // Validate all phones one more time
     const allPhonesValid = cleanedAndDedupedPhones.every((phone) => {
       if (!phone.trim()) return true; // Empty is ok
@@ -250,7 +273,7 @@ export const EditPersonModal = ({
 
     // Remove photo from the data being saved - it will be in cache
     const { photo, ...dataWithoutPhoto } = cleanedData;
-    
+
     // Update photo cache if photo changed
     if (photoChanged) {
       if (photo && photo.trim()) {
@@ -284,7 +307,8 @@ export const EditPersonModal = ({
     const hasChanges =
       formData.name !== initialFormData.name ||
       formData.category !== initialFormData.category ||
-      JSON.stringify(formData.phones) !== JSON.stringify(initialFormData.phones) ||
+      JSON.stringify(formData.phones) !==
+        JSON.stringify(initialFormData.phones) ||
       formData.address !== initialFormData.address ||
       formData.specialty !== initialFormData.specialty ||
       photoChanged ||
@@ -345,7 +369,11 @@ export const EditPersonModal = ({
                 disabled={isCompressing}
               >
                 <Upload className="w-4 h-4 mr-2" />
-                {isCompressing ? "Compressing..." : formData.photo ? "Change Photo" : "Upload Photo"}
+                {isCompressing
+                  ? "Compressing..."
+                  : formData.photo
+                    ? "Change Photo"
+                    : "Upload Photo"}
               </Button>
               {(photoPreview || formData.photo) && (
                 <Button
@@ -479,7 +507,8 @@ export const EditPersonModal = ({
               ))}
             </div>
             <p className="text-xs text-muted-foreground">
-              Phone numbers must be exactly 10 digits. Spaces will be removed automatically.
+              Phone numbers must be exactly 10 digits. Spaces will be removed
+              automatically.
             </p>
           </div>
 

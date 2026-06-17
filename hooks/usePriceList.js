@@ -44,6 +44,9 @@ export const usePriceList = () => {
   const [isDataLoading, setIsDataLoading] = useState(true);
 
   const hasFetchedDb = useRef(false);
+  // Track the last user ID so we can detect account switches within the same
+  // tab session and force a fresh DB fetch for the new user.
+  const prevUserIdRef = useRef(null);
 
   // Debounce searchTerm by 200ms so filterData doesn't run on every keystroke
   useEffect(() => {
@@ -82,6 +85,17 @@ export const usePriceList = () => {
   // Load data when auth finishes loading
   useEffect(() => {
     const loadData = async () => {
+      const currentUserId = user?.id ?? null;
+
+      // If the user changed since the last fetch (e.g. account switch in same
+      // tab), reset the guard so we fetch fresh data for the new user instead
+      // of serving the previous user's stale localStorage cache.
+      if (hasFetchedDb.current && currentUserId !== prevUserIdRef.current) {
+        hasFetchedDb.current = false;
+        setPriceData({});
+      }
+      prevUserIdRef.current = currentUserId;
+
       if (hasFetchedDb.current) {
         setIsDataLoading(false);
         setIsHydrated(true);
