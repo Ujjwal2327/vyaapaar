@@ -2,6 +2,12 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/auth/AuthProvider";
 
+// Sentinel passed as `contactId` to mean "no contact — unassigned pool".
+// Using a sentinel (rather than null/undefined) lets the existing
+// `if (!contactId) return;` guards keep working unmodified, since this
+// hook already treats falsy contactId as "not ready yet".
+export const NO_CONTACT = "none";
+
 // Module-level — stable across renders, safe to use inside useEffect closures.
 const rowToTransaction = (row) => ({
   id: row.id,
@@ -38,6 +44,7 @@ export const useTransactions = (contactId) => {
 
   const prevUserIdRef = useRef(null);
 
+  const isNoContact = contactId === NO_CONTACT;
   const localKey = `transactions_${contactId}`;
 
   const loadFromLocal = useCallback(() => {
@@ -86,25 +93,35 @@ export const useTransactions = (contactId) => {
       }
 
       try {
-        // Fetch transactions where this contact is PRIMARY owner
-        const { data: primaryData, error: primaryErr } = await supabase
+        // Fetch transactions where this contact is PRIMARY owner.
+        // In "no contact" mode there's no single owner to match — instead
+        // we pull every transaction for this user with a NULL contact_id.
+        const primaryQuery = supabase
           .from("transactions")
           .select("*")
-          .eq("contact_id", contactId)
           .eq("user_id", user.id)
           .order("created_at", { ascending: false });
+
+        const { data: primaryData, error: primaryErr } = isNoContact
+          ? await primaryQuery.is("contact_id", null)
+          : await primaryQuery.eq("contact_id", contactId);
 
         if (primaryErr) throw primaryErr;
 
-        // Fetch transactions where this contact is a LINKED (secondary) contact
-        const { data: linkedData, error: linkedErr } = await supabase
-          .from("transactions")
-          .select("*")
-          .eq("user_id", user.id)
-          .contains("linked_contact_ids", [contactId])
-          .order("created_at", { ascending: false });
+        // "Linked / referenced" transactions only make sense relative to a
+        // real contact — there's nothing to fetch here in no-contact mode.
+        let linkedData = [];
+        if (!isNoContact) {
+          const { data, error: linkedErr } = await supabase
+            .from("transactions")
+            .select("*")
+            .eq("user_id", user.id)
+            .contains("linked_contact_ids", [contactId])
+            .order("created_at", { ascending: false });
 
-        if (linkedErr) throw linkedErr;
+          if (linkedErr) throw linkedErr;
+          linkedData = data;
+        }
 
         // Merge, deduplicate (a tx can't be both primary and linked for same contact)
         const primaryRows = (primaryData ?? []).map((r) => ({
@@ -133,12 +150,21 @@ export const useTransactions = (contactId) => {
     };
 
     load();
-  }, [contactId, user, loadFromLocal, saveToLocal]);
+  }, [contactId, isNoContact, user, loadFromLocal, saveToLocal]);
 
   const transactionToRow = (tx) => ({
     id: tx.id,
     user_id: user.id,
-    contact_id: tx.contactId ?? contactId,
+    // tx.contactId is the source of truth when present (covers both real
+    // contacts and explicit null/no-contact). Only fall back to the hook's
+    // contactId when tx.contactId is undefined — and never write the
+    // NO_CONTACT sentinel itself into the DB.
+    contact_id:
+      tx.contactId !== undefined
+        ? tx.contactId
+        : isNoContact
+          ? null
+          : contactId,
     linked_contact_ids: tx.linkedContactIds ?? [],
     type: tx.type,
     kind: tx.kind,
@@ -158,7 +184,16 @@ export const useTransactions = (contactId) => {
     const tx = {
       ...newTx,
       id: crypto.randomUUID(),
-      contactId,
+      // Allow the caller (e.g. AddTransactionModal's optional "Assign to
+      // contact" picker on the Unassigned page) to supply a real contactId
+      // even while this hook is in no-contact mode. Otherwise default to
+      // null in no-contact mode, or the page's fixed contactId normally.
+      contactId:
+        newTx.contactId !== undefined
+          ? newTx.contactId
+          : isNoContact
+            ? null
+            : contactId,
       linkedContactIds: newTx.linkedContactIds ?? [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -232,6 +267,155 @@ export const useTransactions = (contactId) => {
     return merged;
   };
 
+  // ── assignContact ───────────────────────────────────────────────────────
+  // Attaches a real contact to a transaction. Used both from the Unassigned
+  // list (bulk) and from TransactionDetailModal (single transaction).
+  //
+  // By default this only moves a transaction FROM no-contact TO a contact —
+  // pass `allowReassign: true` to let the user correct a mistaken assignment
+  // by picking a different contact (e.g. via the "Change" action in the
+  // detail modal). Settlement history / partner references are untouched
+  // either way; only contact_id changes.
+  const assignContact = async (
+    txId,
+    targetContactId,
+    { allowReassign = false } = {},
+  ) => {
+    if (!user) throw new Error("NOT_AUTHENTICATED");
+    if (!targetContactId) throw new Error("A contact must be selected");
+
+    const { data: freshRows, error: fetchErr } = await supabase
+      .from("transactions")
+      .select("*")
+      .eq("id", txId)
+      .eq("user_id", user.id)
+      .limit(1);
+
+    if (fetchErr) throw fetchErr;
+
+    const freshRow = freshRows?.[0];
+    if (!freshRow) throw new Error("Transaction not found");
+    if (freshRow.contact_id && !allowReassign)
+      throw new Error("This transaction is already linked to a contact");
+
+    const { error: updateErr } = await supabase
+      .from("transactions")
+      .update({
+        contact_id: targetContactId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", txId)
+      .eq("user_id", user.id);
+
+    if (updateErr) throw updateErr;
+
+    // Update in place rather than removing from local state immediately —
+    // if this hook represents the no-contact pool, the transaction no
+    // longer truly belongs here, but keeping it (with its new contactId)
+    // lets an open TransactionDetailModal keep showing it — with a "Change"
+    // option — until the user closes the modal. The page is responsible
+    // for dropping it from the visible list at that point (see
+    // UnassignedPage's onOpenChange handler).
+    const assignedAt = new Date().toISOString();
+    setTransactions((prev) => {
+      const newList = prev.map((t) =>
+        t.id === txId
+          ? { ...t, contactId: targetContactId, updatedAt: assignedAt }
+          : t,
+      );
+      saveToLocal(newList);
+      return newList;
+    });
+  };
+
+  // Bulk variant — assigns the same contact to several unassigned
+  // transactions at once (e.g. "these 4 walk-in sales were all Devilal").
+  // Skips (rather than throws on) any transaction that already has a
+  // contact, so a partially-stale selection doesn't abort the whole batch.
+  const assignContactBulk = async (txIds, targetContactId) => {
+    if (!user) throw new Error("NOT_AUTHENTICATED");
+    if (!targetContactId) throw new Error("A contact must be selected");
+    if (!txIds?.length) return { assignedCount: 0, skippedCount: 0 };
+
+    const { data: freshRows, error: fetchErr } = await supabase
+      .from("transactions")
+      .select("id, contact_id")
+      .in("id", txIds)
+      .eq("user_id", user.id);
+
+    if (fetchErr) throw fetchErr;
+
+    const assignableIds = (freshRows ?? [])
+      .filter((r) => !r.contact_id)
+      .map((r) => r.id);
+    const skippedCount = txIds.length - assignableIds.length;
+
+    if (assignableIds.length === 0) return { assignedCount: 0, skippedCount };
+
+    const { error: updateErr } = await supabase
+      .from("transactions")
+      .update({
+        contact_id: targetContactId,
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", assignableIds)
+      .eq("user_id", user.id);
+
+    if (updateErr) throw updateErr;
+
+    setTransactions((prev) => {
+      const assignedSet = new Set(assignableIds);
+      const newList = prev.filter((t) => !assignedSet.has(t.id));
+      saveToLocal(newList);
+      return newList;
+    });
+
+    return { assignedCount: assignableIds.length, skippedCount };
+  };
+
+  // ── unassignContact ──────────────────────────────────────────────────────
+  // Clears a transaction's contact back to null (e.g. correcting a mistaken
+  // assignment via "Change" → "Remove" in the detail modal, rather than
+  // re-pointing it to a different contact). The transaction becomes
+  // unassigned again.
+  const unassignContact = async (txId) => {
+    if (!user) throw new Error("NOT_AUTHENTICATED");
+
+    const { error: updateErr } = await supabase
+      .from("transactions")
+      .update({ contact_id: null, updated_at: new Date().toISOString() })
+      .eq("id", txId)
+      .eq("user_id", user.id);
+
+    if (updateErr) throw updateErr;
+
+    setTransactions((prev) => {
+      const newList = prev.map((t) =>
+        t.id === txId ? { ...t, contactId: null } : t,
+      );
+      saveToLocal(newList);
+      return newList;
+    });
+  };
+
+  // ── dropFromLocalState ───────────────────────────────────────────────────
+  // Purely local cleanup — no DB write. Used by the Unassigned page to
+  // remove a transaction it just assigned a contact to, once the detail
+  // modal showing it (with its "Change" option) has been closed. Before
+  // this point the transaction stays in local state on purpose, even though
+  // it's already excluded from `summary` and the filtered list.
+  const dropFromLocalState = useCallback(
+    (txId) => {
+      setTransactions((prev) => {
+        if (!prev.some((t) => t.id === txId)) return prev;
+        const newList = prev.filter((t) => t.id !== txId);
+        saveToLocal(newList);
+        return newList;
+      });
+    },
+    [saveToLocal],
+  );
+
   const deleteTransaction = async (txId) => {
     if (!user) throw new Error("NOT_AUTHENTICATED");
 
@@ -257,12 +441,15 @@ export const useTransactions = (contactId) => {
 
     let allContactTxRows = [];
     {
-      const { data: contactRows, error: contactFetchErr } = await supabase
+      const baseQuery = supabase
         .from("transactions")
         .select("*")
-        .eq("contact_id", contactId)
         .eq("user_id", user.id)
         .neq("status", "deleted");
+
+      const { data: contactRows, error: contactFetchErr } = isNoContact
+        ? await baseQuery.is("contact_id", null)
+        : await baseQuery.eq("contact_id", contactId);
 
       if (contactFetchErr) throw contactFetchErr;
       allContactTxRows = contactRows ?? [];
@@ -787,6 +974,10 @@ export const useTransactions = (contactId) => {
 
   const netSettle = async ({ note, method } = {}) => {
     if (!user) throw new Error("NOT_AUTHENTICATED");
+    if (isNoContact)
+      throw new Error(
+        "Net Settle requires a single contact and isn't available on the Unassigned page — use Settle instead.",
+      );
 
     // netSettle only considers PRIMARY transactions
     const { data: freshRows, error: fetchErr } = await supabase
@@ -1042,6 +1233,11 @@ export const useTransactions = (contactId) => {
     (acc, tx) => {
       if (tx.status === "deleted") return acc;
       if (tx._role === "linked") return acc; // exclude linked-only from summary
+      // In the no-contact pool, a transaction that's just been assigned a
+      // real contact (but is still kept in local state so an open detail
+      // modal can show a "Change" option) no longer belongs to this
+      // summary — it now belongs to the assigned contact's totals instead.
+      if (isNoContact && tx.contactId) return acc;
 
       const remaining = (tx.totalAmount ?? 0) - (tx.paidAmount ?? 0);
       const isOverpaid = remaining < 0;
@@ -1092,5 +1288,9 @@ export const useTransactions = (contactId) => {
     settleTransactions,
     computeSettlementPreview,
     netSettle,
+    assignContact,
+    assignContactBulk,
+    unassignContact,
+    dropFromLocalState,
   };
 };

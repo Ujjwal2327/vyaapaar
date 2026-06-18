@@ -40,6 +40,7 @@ import {
   ChevronDown,
   Link2,
   User,
+  UserPlus,
 } from "lucide-react";
 import { format } from "date-fns";
 import { usePriceList } from "@/hooks/usePriceList";
@@ -1072,6 +1073,259 @@ const ChangeHistorySection = ({ history }) => {
   );
 };
 
+// ─── AssignContactPanel ───────────────────────────────────────────────────────
+// Handles three states for a transaction's contact assignment:
+//  1. Unassigned, collapsed — a single compact "Attach contact" trigger.
+//  2. Unassigned, searching — the trigger expands into a search box.
+//  3. Assigned — a small read-only chip with a "Change" action that reopens
+//     search (pre-armed to reassign or remove), so a mistaken assignment can
+//     be corrected without leaving the modal.
+// Self-contained search/select UI, deliberately separate from
+// LinkedContactsEditor since "the financial owner" and "also involves" are
+// different concepts.
+const AssignContactPanel = memo(function AssignContactPanel({
+  peopleData,
+  assignedContact,
+  onAssign,
+  onUnassign,
+}) {
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const inputRef = useRef(null);
+  const blurTimerRef = useRef(null);
+
+  useEffect(() => () => clearTimeout(blurTimerRef.current), []);
+
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase().trim();
+    return peopleData
+      .filter((p) => q === "" || p.name.toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [peopleData, query]);
+
+  const handleFocus = useCallback(() => {
+    clearTimeout(blurTimerRef.current);
+    setOpen(true);
+  }, []);
+  const handleBlur = useCallback(() => {
+    blurTimerRef.current = setTimeout(() => setOpen(false), 150);
+  }, []);
+
+  const startSearching = () => {
+    setPicked(null);
+    setQuery("");
+    setSearching(true);
+    // Intentionally no autofocus — opening the modal (or clicking "Change")
+    // shouldn't yank focus into a search box the user hasn't asked to type in.
+  };
+  const cancelSearching = () => {
+    setSearching(false);
+    setPicked(null);
+    setQuery("");
+  };
+
+  const handleConfirm = async () => {
+    if (!picked || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await onAssign(picked.id);
+      setSearching(false);
+      setPicked(null);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    if (isSubmitting || !onUnassign) return;
+    setIsSubmitting(true);
+    try {
+      await onUnassign();
+      setSearching(false);
+      setPicked(null);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // ── State 3: assigned, not currently changing ──────────────────────────
+  if (assignedContact && !searching) {
+    return (
+      <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <User className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+          <p className="text-sm truncate">
+            <span className="text-muted-foreground">Contact: </span>
+            <span className="font-medium">{assignedContact.name}</span>
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-8 text-sm shrink-0"
+          onClick={startSearching}
+        >
+          Change
+        </Button>
+      </div>
+    );
+  }
+
+  // ── State 1: unassigned, collapsed trigger ──────────────────────────────
+  if (!searching) {
+    return (
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="h-8 text-sm gap-1.5"
+        onClick={startSearching}
+      >
+        <UserPlus className="w-3.5 h-3.5" />
+        Attach contact
+      </Button>
+    );
+  }
+
+  // ── State 2 (or "Change" reopened): searching ───────────────────────────
+  return (
+    <div className="rounded-lg border bg-muted/20 px-3 py-2.5 space-y-2">
+      {picked ? (
+        <div className="flex items-center justify-between gap-2 rounded-md border bg-background px-3 py-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <User className="w-4 h-4 text-primary shrink-0" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium truncate">{picked.name}</p>
+              <p className="text-sm text-muted-foreground capitalize">
+                {picked.category}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 px-2"
+              onClick={() => setPicked(null)}
+              disabled={isSubmitting}
+              title="Pick a different contact"
+            >
+              <X className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 text-sm gap-1"
+              onClick={handleConfirm}
+              disabled={isSubmitting}
+            >
+              <Check className="w-3.5 h-3.5" />
+              {isSubmitting ? "Saving…" : "Confirm"}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder="Search contacts to attach…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            className="w-full pl-10 pr-8 h-10 rounded-md border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          {query && (
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setQuery("");
+                inputRef.current?.focus();
+              }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+          {open && (
+            <div className="absolute z-[200] top-full mt-1 left-0 right-0 rounded-md border bg-popover shadow-lg overflow-hidden">
+              {filtered.length === 0 ? (
+                <p className="px-3 py-2.5 text-sm text-muted-foreground">
+                  {query
+                    ? `No contacts matching "${query}"`
+                    : "No contacts yet"}
+                </p>
+              ) : (
+                <div className="max-h-48 overflow-y-auto">
+                  {filtered.map((p) => {
+                    const phone =
+                      (p.phones ?? []).find((ph) => ph?.trim()) ?? null;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setPicked(p);
+                          setQuery("");
+                          setOpen(false);
+                        }}
+                        className="w-full px-3 py-2.5 text-sm hover:bg-accent active:bg-accent text-left flex items-start gap-2 transition-colors"
+                      >
+                        <User className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">{p.name}</p>
+                          <p className="text-sm text-muted-foreground">
+                            <span className="capitalize">{p.category}</span>
+                            {phone && <span> · {phone}</span>}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-2 pt-0.5">
+        {assignedContact && onUnassign ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 text-sm text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
+            onClick={handleRemove}
+            disabled={isSubmitting}
+          >
+            Remove contact
+          </Button>
+        ) : (
+          <span />
+        )}
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-8 text-sm"
+          onClick={cancelSearching}
+          disabled={isSubmitting}
+        >
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+});
+
 // ─── LinkedContactsEditor ─────────────────────────────────────────────────────
 // Memo'd so parent modal re-renders (e.g. editedTx changes) don't remount this
 // component mid-interaction. Uses a ref to track current exclusions so the
@@ -1284,6 +1538,8 @@ export const TransactionDetailModal = ({
   onUpdate,
   onDelete,
   onAddPayment,
+  onAssignContact,
+  onUnassignContact,
   onNavigateToTransaction,
   peopleData = [],
 }) => {
@@ -1382,6 +1638,9 @@ export const TransactionDetailModal = ({
   const isOverpaid = tx.status === "overpaid";
   const isDeleted = tx.status === "deleted";
   const remaining = (tx.totalAmount ?? 0) - (tx.paidAmount ?? 0);
+  const assignedContact = tx.contactId
+    ? (peopleData.find((p) => p.id === tx.contactId) ?? null)
+    : null;
   const progress =
     tx.totalAmount > 0
       ? Math.min((tx.paidAmount / tx.totalAmount) * 100, 100)
@@ -1670,6 +1929,31 @@ export const TransactionDetailModal = ({
                 </p>
               )}
             </div>
+
+            {/* ASSIGN CONTACT — shown whenever the page wired up contact
+                assignment (i.e. the Unassigned page). Covers both the
+                "attach contact" and "change contact" states. Hidden while
+                editing to avoid two concurrent write flows; hidden for
+                deleted/linked since those don't apply. */}
+            {!isDeleted &&
+              !editMode &&
+              tx._role !== "linked" &&
+              onAssignContact && (
+                <AssignContactPanel
+                  peopleData={peopleData}
+                  assignedContact={assignedContact}
+                  onAssign={(targetId) =>
+                    onAssignContact(tx.id, targetId, {
+                      allowReassign: !!tx.contactId,
+                    })
+                  }
+                  onUnassign={
+                    onUnassignContact
+                      ? () => onUnassignContact(tx.id)
+                      : undefined
+                  }
+                />
+              )}
 
             {/* LINKED CONTACTS — shown for all non-deleted transactions */}
             {!isDeleted &&

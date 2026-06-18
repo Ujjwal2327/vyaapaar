@@ -518,6 +518,158 @@ const LinkedContactsPicker = memo(function LinkedContactsPicker({
   );
 });
 
+// ─── PrimaryContactPicker ──────────────────────────────────────────────────
+// Single-select contact picker shown only on the Unassigned page (no fixed
+// `contact` prop), letting the user optionally attach a real contact at
+// creation time instead of always assigning one after the fact.
+// Memo'd for the same reason as LinkedContactsPicker — keep typing local.
+const PrimaryContactPicker = memo(function PrimaryContactPicker({
+  selectedContactId,
+  setSelectedContactId,
+  peopleData,
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const inputRef = useRef(null);
+  const blurTimerRef = useRef(null);
+
+  useEffect(() => () => clearTimeout(blurTimerRef.current), []);
+
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase().trim();
+    return peopleData
+      .filter((p) => q === "" || p.name.toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [peopleData, query]);
+
+  const selectedPerson = useMemo(
+    () => peopleData.find((p) => p.id === selectedContactId) ?? null,
+    [peopleData, selectedContactId],
+  );
+
+  const handleFocus = useCallback(() => {
+    clearTimeout(blurTimerRef.current);
+    setOpen(true);
+  }, []);
+  const handleBlur = useCallback(() => {
+    blurTimerRef.current = setTimeout(() => setOpen(false), 150);
+  }, []);
+
+  if (selectedPerson) {
+    return (
+      <div className="space-y-2">
+        <Label className="text-base font-medium flex items-center gap-1.5">
+          <User className="w-4 h-4 text-primary" />
+          Contact{" "}
+          <span className="text-muted-foreground font-normal text-sm">
+            (optional)
+          </span>
+        </Label>
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5">
+          <div className="flex items-center gap-2 min-w-0">
+            <User className="w-4 h-4 text-primary shrink-0" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium truncate">
+                {selectedPerson.name}
+              </p>
+              <p className="text-sm text-muted-foreground capitalize">
+                {selectedPerson.category}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSelectedContactId(null)}
+            className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+            title="Remove"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <Label className="text-base font-medium flex items-center gap-1.5">
+        <User className="w-4 h-4 text-primary" />
+        Contact{" "}
+        <span className="text-muted-foreground font-normal text-sm">
+          (optional)
+        </span>
+      </Label>
+      <p className="text-sm text-muted-foreground -mt-1">
+        Leave blank for a quick walk-in sale — you can attach a contact later.
+      </p>
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+        <input
+          ref={inputRef}
+          type="text"
+          placeholder="Search contacts… (optional)"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          className="w-full pl-10 pr-8 h-10 rounded-md border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+        {query && (
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setQuery("");
+              inputRef.current?.focus();
+            }}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+        {open && (
+          <div className="absolute z-[200] top-full mt-1 left-0 right-0 rounded-md border bg-popover shadow-lg overflow-hidden">
+            {filtered.length === 0 ? (
+              <p className="px-3 py-2.5 text-sm text-muted-foreground">
+                {query ? `No contacts matching "${query}"` : "No contacts yet"}
+              </p>
+            ) : (
+              <div className="max-h-48 overflow-y-auto">
+                {filtered.map((p) => {
+                  const phone =
+                    (p.phones ?? []).find((ph) => ph?.trim()) ?? null;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setSelectedContactId(p.id);
+                        setQuery("");
+                        setOpen(false);
+                      }}
+                      className="w-full px-3 py-2.5 text-sm hover:bg-accent active:bg-accent text-left flex items-start gap-2 transition-colors"
+                    >
+                      <User className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{p.name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          <span className="capitalize">{p.category}</span>
+                          {phone && <span> · {phone}</span>}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+
 // ─── PriceItemSearch ──────────────────────────────────────────────────────────
 const PriceItemSearch = ({
   onSelect,
@@ -1130,6 +1282,7 @@ const blankState = () => ({
   initialPayment: { amount: "", note: "", method: "cash" },
   financialTotal: "",
   linkedContactIds: [],
+  selectedContactId: null,
 });
 
 // ─── main modal ───────────────────────────────────────────────────────────────
@@ -1142,7 +1295,11 @@ export const AddTransactionModal = ({
   currentContactId,
 }) => {
   const { priceData, sellPriceMode } = usePriceList();
-  const contactId = contact?.id;
+  // On the contact page, contact is always provided and contactId is its id.
+  // On the Unassigned page, no `contact` prop is passed — fall back to a
+  // fixed key so drafts still save/restore (rather than silently disabling
+  // drafts, which is what happened before when contactId was undefined).
+  const contactId = contact?.id ?? "unassigned";
 
   const [pendingDraft, setPendingDraft] = useState(null);
   const [showDraftPrompt, setShowDraftPrompt] = useState(false);
@@ -1159,6 +1316,7 @@ export const AddTransactionModal = ({
   });
   const [financialTotal, setFinancialTotal] = useState("");
   const [linkedContactIds, setLinkedContactIds] = useState([]);
+  const [selectedContactId, setSelectedContactId] = useState(null);
 
   useEffect(() => {
     if (!open || !contactId) return;
@@ -1180,6 +1338,7 @@ export const AddTransactionModal = ({
     initialPayment,
     financialTotal,
     linkedContactIds,
+    selectedContactId,
   };
 
   const allPriceItems = useMemo(
@@ -1227,6 +1386,7 @@ export const AddTransactionModal = ({
     );
     setFinancialTotal(s.financialTotal ?? "");
     setLinkedContactIds(s.linkedContactIds ?? []);
+    setSelectedContactId(s.selectedContactId ?? null);
   };
   const reset = () => applyState(blankState());
 
@@ -1276,6 +1436,14 @@ export const AddTransactionModal = ({
       itemListHistory: [],
       note,
       linkedContactIds,
+      // Only relevant on the Unassigned page (no fixed `contact` prop) —
+      // lets the user attach a real contact at creation time instead of
+      // always assigning one after the fact. On the normal contact page
+      // this stays undefined and useTransactions falls back to its own
+      // fixed contactId, as before.
+      ...(!contact && selectedContactId
+        ? { contactId: selectedContactId }
+        : {}),
       status:
         paidNow > totalAmount && totalAmount > 0
           ? "overpaid"
@@ -1347,6 +1515,11 @@ export const AddTransactionModal = ({
   const linkedPeople = linkedContactIds
     .map((id) => peopleData.find((p) => p.id === id))
     .filter(Boolean);
+
+  // Primary contact picked on the Unassigned page, for review display
+  const reviewSelectedContact = selectedContactId
+    ? peopleData.find((p) => p.id === selectedContactId)
+    : null;
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -1489,14 +1662,18 @@ export const AddTransactionModal = ({
                             value: "out",
                             label: "Sale / We give",
                             icon: TrendingUp,
-                            desc: `Sell to ${contact?.name}`,
+                            desc: contact?.name
+                              ? `Sell to ${contact.name}`
+                              : "Sell to walk-in customer",
                             color: "text-green-600",
                           },
                           {
                             value: "in",
                             label: "Purchase / We get",
                             icon: TrendingDown,
-                            desc: `Buy from ${contact?.name}`,
+                            desc: contact?.name
+                              ? `Buy from ${contact.name}`
+                              : "Buy from walk-in supplier",
                             color: "text-red-600",
                           },
                         ].map(({ value, label, icon: Icon, desc, color }) => (
@@ -1516,13 +1693,26 @@ export const AddTransactionModal = ({
                       </div>
                     </div>
 
+                    {/* Primary contact picker — Unassigned page only (no fixed
+                        `contact` prop passed in). Lets the user optionally
+                        attach a real contact at creation time instead of
+                        always assigning one after the fact. Shown first
+                        since it's the more important field. */}
+                    {!contact && peopleData.length > 0 && (
+                      <PrimaryContactPicker
+                        selectedContactId={selectedContactId}
+                        setSelectedContactId={setSelectedContactId}
+                        peopleData={peopleData}
+                      />
+                    )}
+
                     {/* Linked contacts picker — on the Type step */}
                     {peopleData.length > 1 && (
                       <LinkedContactsPicker
                         linkedContactIds={linkedContactIds}
                         setLinkedContactIds={setLinkedContactIds}
                         peopleData={peopleData}
-                        currentContactId={currentContactId ?? contactId}
+                        currentContactId={currentContactId ?? contact?.id}
                       />
                     )}
                   </div>
@@ -1944,6 +2134,21 @@ export const AddTransactionModal = ({
                             Note
                           </p>
                           <p className="text-sm">{note}</p>
+                        </div>
+                      )}
+
+                      {/* Primary contact picked on Unassigned page */}
+                      {!contact && reviewSelectedContact && (
+                        <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2.5 flex items-center gap-2">
+                          <User className="w-3.5 h-3.5 text-primary shrink-0" />
+                          <p className="text-sm">
+                            <span className="text-muted-foreground">
+                              Contact:{" "}
+                            </span>
+                            <span className="font-medium">
+                              {reviewSelectedContact.name}
+                            </span>
+                          </p>
                         </div>
                       )}
 

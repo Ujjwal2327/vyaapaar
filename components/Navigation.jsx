@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Package, Users } from "lucide-react";
+import { Package, Users, Receipt } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function Navigation() {
@@ -18,6 +18,11 @@ export default function Navigation() {
       href: "/contacts",
       label: "Contacts",
       icon: Users,
+    },
+    {
+      href: "/unassigned",
+      label: "Unassigned",
+      icon: Receipt,
     },
   ];
 
