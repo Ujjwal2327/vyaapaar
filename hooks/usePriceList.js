@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { sortData, buildSearchIndex } from "../lib/utils/priceListUtils";
@@ -186,14 +186,19 @@ export const usePriceList = () => {
     }
   };
 
-  const toggleCategory = (path) => {
+  // useCallback so consumers (e.g. PriceListContainer effects/memo deps)
+  // get a stable function reference across renders instead of a brand-new
+  // closure every time — unstable function refs in a dependency array are
+  // exactly what caused the earlier infinite-loop bug.
+  const toggleCategory = useCallback((path) => {
     setExpandedCategories((prev) => ({ ...prev, [path]: !prev[path] }));
-  };
+  }, []);
 
-  const expandAll = (data) => {
+  const expandAll = useCallback((data) => {
     const allPaths = {};
     const collectPaths = (obj, parentPath = "") => {
       Object.entries(obj).forEach(([key, value]) => {
+        if (key.startsWith("__")) return;
         const currentPath = parentPath ? `${parentPath}.${key}` : key;
         if (value.type === "category") {
           allPaths[currentPath] = true;
@@ -203,17 +208,19 @@ export const usePriceList = () => {
     };
     collectPaths(data);
     setExpandedCategories(allPaths);
-  };
+  }, []);
 
-  const collapseAll = () => setExpandedCategories({});
+  const collapseAll = useCallback(() => setExpandedCategories({}), []);
 
-  const toggleSellPriceMode = () => {
-    const newMode = sellPriceMode === "retail" ? "bulk" : "retail";
-    setSellPriceMode(newMode);
-    localStorage.setItem("sellPriceMode", newMode);
-  };
+  const toggleSellPriceMode = useCallback(() => {
+    setSellPriceMode((prevMode) => {
+      const newMode = prevMode === "retail" ? "bulk" : "retail";
+      localStorage.setItem("sellPriceMode", newMode);
+      return newMode;
+    });
+  }, []);
 
-  const cyclePriceView = () => {
+  const cyclePriceView = useCallback(() => {
     const showCostProfit = localStorage.getItem("showCostProfit") === "true";
 
     if (!showCostProfit) {
@@ -221,21 +228,19 @@ export const usePriceList = () => {
       return;
     }
 
-    if (priceView === "sell") {
-      setPriceView("cost");
-    } else if (priceView === "cost") {
-      setPriceView("profit");
-    } else {
-      setPriceView("sell");
-    }
-  };
+    setPriceView((prev) => {
+      if (prev === "sell") return "cost";
+      if (prev === "cost") return "profit";
+      return "sell";
+    });
+  }, []);
 
-  const getPriceViewText = () => {
+  const getPriceViewText = useCallback(() => {
     if (priceView === "sell") return "Sell Price";
     if (priceView === "cost") return "Cost Price";
     if (priceView === "profit") return "Profit";
     return "Sell Price";
-  };
+  }, [priceView]);
 
   return {
     priceData,

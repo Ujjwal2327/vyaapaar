@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { usePriceList } from "@/hooks/usePriceList";
 import { PriceListHeader } from "./PriceListHeader";
 import { PriceListContent } from "./PriceListContent";
@@ -108,13 +108,19 @@ export const PriceListContainer = () => {
     }
   }, []);
 
-  const handleSortChange = (newSortType) => {
+  const handleSortChange = useCallback((newSortType) => {
     setSortType(newSortType);
     localStorage.setItem("sortType", newSortType);
-  };
+  }, []);
 
-  const filteredData = filterData(priceData, debouncedSearchTerm, searchIndex);
-  const sortedData = sortData(filteredData, sortType);
+  const filteredData = useMemo(
+    () => filterData(priceData, debouncedSearchTerm, searchIndex),
+    [priceData, debouncedSearchTerm, searchIndex],
+  );
+  const sortedData = useMemo(
+    () => sortData(filteredData, sortType),
+    [filteredData, sortType],
+  );
 
   const hasAnyExpanded = Object.values(expandedCategories).some(
     (val) => val === true,
@@ -123,61 +129,67 @@ export const PriceListContainer = () => {
   const [showItemDetailModal, setShowItemDetailModal] = useState(false);
   const [viewingItem, setViewingItem] = useState({ data: null, name: "" });
 
-  // Auto-expand when searching
+  // Auto-expand when search results change.
+  // Safe to depend on filteredData directly now: it's memoized above (stable
+  // reference unless priceData/debouncedSearchTerm/searchIndex actually
+  // change), and expandAll is useCallback'd in usePriceList — so this only
+  // fires when the search actually changes, matching the public business
+  // page's pattern.
   useEffect(() => {
     if (debouncedSearchTerm && debouncedSearchTerm.trim()) {
       expandAll(filteredData);
     }
-    // filteredData must be a dep: without it the effect closure captures
-    // a stale snapshot and expandAll operates on the wrong result set.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearchTerm, filteredData]);
+  }, [filteredData, debouncedSearchTerm, expandAll]);
 
-  // Prevent hydration mismatch and show loading during DB fetch
-  if (!isHydrated || isDataLoading)
-    return <Loader content="Loading catalog..." />;
-
-  const handleAddCategory = () => {
+  const handleAddCategory = useCallback(() => {
     setModalType("category");
     setModalContext({ path: "" });
     setShowAddModal(true);
-  };
+  }, []);
 
-  const handleAddSubcategory = (path) => {
+  const handleAddSubcategory = useCallback((path) => {
     setModalType("category");
     setModalContext({ path });
     setShowAddModal(true);
-  };
+  }, []);
 
-  const handleAddItem = (path) => {
+  const handleAddItem = useCallback((path) => {
     setModalType("item");
     setModalContext({ path });
     setShowAddModal(true);
-  };
+  }, []);
 
-  const handleAdd = async (formData) => {
-    formData.name = toTitleCase(formData.name);
-    const newData = addItem(priceData, modalContext.path, modalType, formData);
-
-    const loadingToast = toast.loading(
-      `Adding ${modalType === "category" ? "category" : "item"}...`,
-    );
-
-    try {
-      await savePriceData(newData);
-      toast.success(
-        `${modalType === "category" ? "Category" : "Item"} added successfully`,
-        { id: loadingToast },
+  const handleAdd = useCallback(
+    async (formData) => {
+      formData.name = toTitleCase(formData.name);
+      const newData = addItem(
+        priceData,
+        modalContext.path,
+        modalType,
+        formData,
       );
-      setShowAddModal(false);
-    } catch (error) {
-      console.error("Failed to add item:", error);
-      toast.error(getErrorMessage(error), { id: loadingToast });
-      // Modal stays open on error
-    }
-  };
 
-  const handleEditItem = (path, itemData) => {
+      const loadingToast = toast.loading(
+        `Adding ${modalType === "category" ? "category" : "item"}...`,
+      );
+
+      try {
+        await savePriceData(newData);
+        toast.success(
+          `${modalType === "category" ? "Category" : "Item"} added successfully`,
+          { id: loadingToast },
+        );
+        setShowAddModal(false);
+      } catch (error) {
+        console.error("Failed to add item:", error);
+        toast.error(getErrorMessage(error), { id: loadingToast });
+        // Modal stays open on error
+      }
+    },
+    [priceData, modalContext, modalType, savePriceData],
+  );
+
+  const handleEditItem = useCallback((path, itemData) => {
     const pathSegments = path.split(".");
     const itemName = pathSegments[pathSegments.length - 1];
 
@@ -189,128 +201,159 @@ export const PriceListContainer = () => {
       },
     });
     setShowEditModal(true);
-  };
+  }, []);
 
-  const handleEdit = async (formData) => {
-    if (!editingItem) return;
+  const handleEdit = useCallback(
+    async (formData) => {
+      if (!editingItem) return;
 
-    const originalItemName = editingItem.data.name;
-    formData.name = toTitleCase(formData.name);
+      const originalItemName = editingItem.data.name;
+      formData.name = toTitleCase(formData.name);
 
-    const newData = editItem(
-      priceData,
-      editingItem.path,
-      originalItemName,
-      formData,
-    );
+      const newData = editItem(
+        priceData,
+        editingItem.path,
+        originalItemName,
+        formData,
+      );
 
-    const loadingToast = toast.loading("Updating item...");
+      const loadingToast = toast.loading("Updating item...");
 
-    try {
-      await savePriceData(newData);
-      toast.success("Item updated successfully", { id: loadingToast });
-      setShowEditModal(false);
-      setEditingItem(null);
-    } catch (error) {
-      console.error("Failed to edit item:", error);
-      toast.error(getErrorMessage(error), { id: loadingToast });
-      // Modal stays open on error
-    }
-  };
+      try {
+        await savePriceData(newData);
+        toast.success("Item updated successfully", { id: loadingToast });
+        setShowEditModal(false);
+        setEditingItem(null);
+      } catch (error) {
+        console.error("Failed to edit item:", error);
+        toast.error(getErrorMessage(error), { id: loadingToast });
+        // Modal stays open on error
+      }
+    },
+    [editingItem, priceData, savePriceData],
+  );
 
-  const handleEditCategory = (path, name) => {
-    const categoryData = getItemAtPath(priceData, path);
-    const existingNotes = categoryData?.notes || "";
+  const handleEditCategory = useCallback(
+    (path, name) => {
+      const categoryData = getItemAtPath(priceData, path);
+      const existingNotes = categoryData?.notes || "";
 
-    setEditingCategory({ path, name, notes: existingNotes });
-    setShowEditCategoryModal(true);
-  };
+      setEditingCategory({ path, name, notes: existingNotes });
+      setShowEditCategoryModal(true);
+    },
+    [priceData],
+  );
 
-  const handleSaveCategory = async (formData) => {
-    if (!editingCategory || !formData.name.trim()) return;
+  const handleSaveCategory = useCallback(
+    async (formData) => {
+      if (!editingCategory || !formData.name.trim()) return;
 
-    const newNameTitleCase = toTitleCase(formData.name);
+      const newNameTitleCase = toTitleCase(formData.name);
 
-    const newData = editCategory(
-      priceData,
-      editingCategory.path,
-      newNameTitleCase,
-      formData.notes,
-    );
+      const newData = editCategory(
+        priceData,
+        editingCategory.path,
+        newNameTitleCase,
+        formData.notes,
+      );
 
-    const loadingToast = toast.loading("Updating category...");
+      const loadingToast = toast.loading("Updating category...");
 
-    try {
-      await savePriceData(newData);
-      toast.success("Category updated successfully", { id: loadingToast });
-      setShowEditCategoryModal(false);
-      setEditingCategory(null);
-    } catch (error) {
-      console.error("Failed to edit category:", error);
-      toast.error(getErrorMessage(error), { id: loadingToast });
-      // Modal stays open on error
-    }
-  };
+      try {
+        await savePriceData(newData);
+        toast.success("Category updated successfully", { id: loadingToast });
+        setShowEditCategoryModal(false);
+        setEditingCategory(null);
+      } catch (error) {
+        console.error("Failed to edit category:", error);
+        toast.error(getErrorMessage(error), { id: loadingToast });
+        // Modal stays open on error
+      }
+    },
+    [editingCategory, priceData, savePriceData],
+  );
 
-  const handleViewCategoryDetails = (path, name) => {
-    const categoryData = getItemAtPath(priceData, path);
-    const categoryNotes = categoryData?.notes || "";
+  const handleViewCategoryDetails = useCallback(
+    (path, name) => {
+      const categoryData = getItemAtPath(priceData, path);
+      const categoryNotes = categoryData?.notes || "";
 
-    setViewingCategory({ name, notes: categoryNotes });
-    setShowCategoryDetailModal(true);
-  };
+      setViewingCategory({ name, notes: categoryNotes });
+      setShowCategoryDetailModal(true);
+    },
+    [priceData],
+  );
 
-  const handleDelete = async (path, e) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
+  const handleDelete = useCallback(
+    async (path, e) => {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
 
-    toast.warning("Are you sure you want to delete this item?", {
-      action: {
-        label: "Delete",
-        onClick: async () => {
-          const newData = deleteItem(priceData, path);
-          const loadingToast = toast.loading("Deleting...");
+      toast.warning("Are you sure you want to delete this item?", {
+        action: {
+          label: "Delete",
+          onClick: async () => {
+            const newData = deleteItem(priceData, path);
+            const loadingToast = toast.loading("Deleting...");
 
-          try {
-            await savePriceData(newData);
-            toast.success("Deleted successfully", { id: loadingToast });
-          } catch (error) {
-            console.error("Failed to delete:", error);
-            toast.error(getErrorMessage(error), { id: loadingToast });
-          }
+            try {
+              await savePriceData(newData);
+              toast.success("Deleted successfully", { id: loadingToast });
+            } catch (error) {
+              console.error("Failed to delete:", error);
+              toast.error(getErrorMessage(error), { id: loadingToast });
+            }
+          },
         },
-      },
-      duration: 5000,
-    });
-  };
+        duration: 5000,
+      });
+    },
+    [priceData, savePriceData],
+  );
 
-  const handleBulkEdit = () => {
+  const handleBulkEdit = useCallback(() => {
     const text = exportToText(priceData);
     setBulkEditText(text);
     setShowBulkModal(true);
-  };
+  }, [priceData]);
 
-  const handleBulkSave = async (bulkText) => {
-    const loadingToast = toast.loading("Importing data...");
+  const handleBulkSave = useCallback(
+    async (bulkText) => {
+      const loadingToast = toast.loading("Importing data...");
 
-    try {
-      const newData = importFromText(bulkText);
-      await savePriceData(newData);
-      toast.success("Data imported successfully", { id: loadingToast });
-      setShowBulkModal(false);
-    } catch (error) {
-      console.error("Import error:", error);
-      toast.error(getErrorMessage(error), { id: loadingToast });
-      // Modal stays open on error
-    }
-  };
+      try {
+        const newData = importFromText(bulkText);
+        await savePriceData(newData);
+        toast.success("Data imported successfully", { id: loadingToast });
+        setShowBulkModal(false);
+      } catch (error) {
+        console.error("Import error:", error);
+        toast.error(getErrorMessage(error), { id: loadingToast });
+        // Modal stays open on error
+      }
+    },
+    [savePriceData],
+  );
 
-  const handleViewDetails = (itemName, itemData) => {
+  const handleViewDetails = useCallback((itemName, itemData) => {
     setViewingItem({ data: itemData, name: itemName });
     setShowItemDetailModal(true);
-  };
+  }, []);
+
+  const handleExpandAll = useCallback(
+    () => expandAll(sortedData),
+    [expandAll, sortedData],
+  );
+
+  // Prevent hydration mismatch and show loading during DB fetch.
+  // This must come AFTER every hook call above (useState/useEffect/useMemo/
+  // useCallback) — hooks can never be called conditionally or after an
+  // early return, or React throws "change in the order of Hooks" once
+  // isHydrated flips from false to true.
+  if (!isHydrated || isDataLoading)
+    return <Loader content="Loading catalog..." />;
 
   return (
     <>
@@ -324,7 +367,7 @@ export const PriceListContainer = () => {
         getPriceViewText={getPriceViewText}
         onBulkEdit={handleBulkEdit}
         onAddCategory={handleAddCategory}
-        onExpandAll={() => expandAll(sortedData)}
+        onExpandAll={handleExpandAll}
         onCollapseAll={collapseAll}
         sortType={sortType}
         onSortChange={handleSortChange}

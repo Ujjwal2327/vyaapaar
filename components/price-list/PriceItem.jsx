@@ -1,6 +1,7 @@
 import { Edit2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { normalizeUnit } from "@/lib/units-config";
+import { memo } from "react";
 
 const convertPrice = (pricePerUnit, fromUnit, toUnit) => {
   const fromLower = fromUnit.toLowerCase().trim();
@@ -204,7 +205,7 @@ const calculateProfitWithConversion = (sell, sellUnit, cost, costUnit) => {
   return { success: false };
 };
 
-export const PriceItem = ({
+const PriceItemImpl = ({
   isLast,
   name,
   path,
@@ -221,14 +222,15 @@ export const PriceItem = ({
   const costUnit = normalizeUnit(item.costUnit || item.sellUnit || "piece");
 
   // Handle backward compatibility: use retailSell if available, else fall back to sell
-  const retailSell = item.retailSell !== undefined ? item.retailSell : item.sell || 0;
+  const retailSell =
+    item.retailSell !== undefined ? item.retailSell : item.sell || 0;
   const bulkSell = item.bulkSell !== undefined ? item.bulkSell : retailSell;
 
   // Determine which sell price to use based on mode
   const currentSellPrice = sellPriceMode === "bulk" ? bulkSell : retailSell;
 
   let displayValue;
-  
+
   if (priceView === "sell") {
     displayValue = `₹${currentSellPrice}/${sellUnit}`;
   } else if (priceView === "cost") {
@@ -245,7 +247,7 @@ export const PriceItem = ({
         currentSellPrice,
         sellUnit,
         item.cost,
-        costUnit
+        costUnit,
       );
 
       if (conversionResult.success) {
@@ -297,3 +299,5 @@ export const PriceItem = ({
     </div>
   );
 };
+
+export const PriceItem = memo(PriceItemImpl);

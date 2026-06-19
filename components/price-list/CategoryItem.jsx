@@ -1,13 +1,13 @@
 import { ChevronDown, ChevronUp, Plus, Trash2, Edit2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useState, useRef } from "react";
+import { useState, useRef, memo } from "react";
 
-export const CategoryItem = ({
+const CategoryItemImpl = ({
   name,
   path,
   level,
   isExpanded,
-  onToggle,
+  onToggleCategory,
   editMode,
   onDelete,
   onAddSubcategory,
@@ -23,7 +23,7 @@ export const CategoryItem = ({
   const handleCategoryClick = () => {
     if (editMode) {
       // In edit mode, just toggle
-      onToggle();
+      onToggleCategory(path);
       return;
     }
 
@@ -39,7 +39,7 @@ export const CategoryItem = ({
     tapTimeoutRef.current = setTimeout(() => {
       if (tapCount + 1 === 1) {
         // Single tap - toggle expand/collapse
-        onToggle();
+        onToggleCategory(path);
       } else if (tapCount + 1 === 2) {
         // Double tap - view details
         onViewCategoryDetails(path, name);
@@ -57,8 +57,8 @@ export const CategoryItem = ({
             level === 0
               ? "text-xl font-bold"
               : level === 1
-              ? "text-lg font-semibold"
-              : "text-[1.1rem] font-semibold"
+                ? "text-lg font-semibold"
+                : "text-[1.1rem] font-semibold"
           }`}
           variant="secondary"
         >
@@ -125,3 +125,5 @@ export const CategoryItem = ({
     </div>
   );
 };
+
+export const CategoryItem = memo(CategoryItemImpl);

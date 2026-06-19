@@ -1,7 +1,8 @@
+import { memo } from "react";
 import { CategoryItem } from "./CategoryItem";
 import { PriceItem } from "./PriceItem";
 
-export const PriceListContent = ({
+const PriceListContentImpl = ({
   data,
   priceView,
   sellPriceMode,
@@ -33,7 +34,7 @@ export const PriceListContent = ({
             path={currentPath}
             level={currentLevel}
             isExpanded={isExpanded}
-            onToggle={() => onToggleCategory(currentPath)}
+            onToggleCategory={onToggleCategory}
             editMode={editMode}
             onDelete={onDelete}
             onAddSubcategory={onAddSubcategory}
@@ -78,3 +79,5 @@ export const PriceListContent = ({
     </div>
   );
 };
+
+export const PriceListContent = memo(PriceListContentImpl);
