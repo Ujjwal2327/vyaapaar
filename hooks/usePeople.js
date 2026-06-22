@@ -1,7 +1,22 @@
+"use client";
+
+/**
+ * hooks/usePeople.js  — offline-first version
+ *
+ * Changes vs original:
+ *  1. Load: serves localStorage immediately, DB fetch runs in background.
+ *  2. savePeopleData: writes local state + localStorage FIRST, then attempts
+ *     DB upsert/delete. If offline or network error → enqueues instead of throwing.
+ *  3. saveCategories: same pattern.
+ *  4. All business logic (duplicate contacts guard, FK check, photo cache) is
+ *     preserved exactly.
+ */
+
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { photoCache } from "@/lib/utils/photoCache";
+import { enqueue, OP_TYPES } from "@/lib/offlineQueue";
 
 const DEFAULT_CATEGORIES = [
   { id: "customer", label: "Customer", isDefault: true },
@@ -9,6 +24,33 @@ const DEFAULT_CATEGORIES = [
   { id: "helper", label: "Helper", isDefault: true },
   { id: "other", label: "Other", isDefault: true },
 ];
+
+const isNetworkError = (err) => {
+  if (!err) return false;
+  const msg = (err.message ?? "").toLowerCase();
+  return (
+    msg.includes("fetch") ||
+    msg.includes("network") ||
+    msg.includes("failed to fetch") ||
+    msg.includes("networkerror") ||
+    (typeof navigator !== "undefined" && !navigator.onLine)
+  );
+};
+
+// ─── row ↔ contact converters (unchanged from original) ──────────────────────
+
+const rowToContact = (row) => ({
+  id: row.id,
+  name: row.name,
+  category: row.category,
+  phones: row.phones ?? [],
+  address: row.address ?? "",
+  specialty: row.specialty ?? "",
+  notes: row.notes ?? "",
+  hasPhoto: row.has_photo ?? false,
+});
+
+// ─── hook ─────────────────────────────────────────────────────────────────────
 
 export const usePeople = () => {
   const { user, loading: authLoading } = useAuth();
@@ -22,49 +64,9 @@ export const usePeople = () => {
   const [isDataLoading, setIsDataLoading] = useState(true);
 
   const hasFetchedDb = useRef(false);
-  // Track the last user ID so we can detect account switches within the same
-  // tab session and force a fresh DB fetch for the new user.
   const prevUserIdRef = useRef(null);
 
-  // ── helpers ────────────────────────────────────────────────────────────────
-
-  /** Convert a DB row into the contact shape the UI expects */
-  const rowToContact = (row) => ({
-    id: row.id,
-    name: row.name,
-    category: row.category,
-    phones: row.phones ?? [],
-    address: row.address ?? "",
-    specialty: row.specialty ?? "",
-    notes: row.notes ?? "",
-    hasPhoto: row.has_photo ?? false,
-  });
-
-  /** Convert a UI contact into a DB row payload */
-  const contactToRow = (contact) => {
-    const photo = photoCache.get(contact.id) || null;
-
-    // If id is not a valid UUID, generate a new one
-    const uuidRegex =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const id = uuidRegex.test(contact.id) ? contact.id : crypto.randomUUID();
-
-    return {
-      id,
-      user_id: user.id,
-      name: contact.name,
-      category: contact.category,
-      phones: contact.phones ?? [],
-      address: contact.address ?? "",
-      specialty: contact.specialty ?? "",
-      notes: contact.notes ?? "",
-      photo: photo,
-      has_photo: !!photo,
-    };
-  };
-
-  // ── localStorage helpers ───────────────────────────────────────────────────
-
+  // ── localStorage helpers ─────────────────────────────────────────────────
   const loadFromLocal = () => {
     try {
       const raw = localStorage.getItem("peopleData");
@@ -86,15 +88,11 @@ export const usePeople = () => {
     if (cats) localStorage.setItem("peopleCategories", JSON.stringify(cats));
   };
 
-  // ── initial load ───────────────────────────────────────────────────────────
-
+  // ── initial load ─────────────────────────────────────────────────────────
   useEffect(() => {
     const loadData = async () => {
       const currentUserId = user?.id ?? null;
 
-      // If the user changed since the last fetch (e.g. account switch in same
-      // tab), reset the guard so we fetch fresh data for the new user instead
-      // of serving the previous user's stale localStorage cache.
       if (hasFetchedDb.current && currentUserId !== prevUserIdRef.current) {
         hasFetchedDb.current = false;
         setPeopleData([]);
@@ -112,22 +110,25 @@ export const usePeople = () => {
       setIsDataLoading(true);
       hasFetchedDb.current = true;
 
+      // Step 1: serve from localStorage immediately
+      loadFromLocal();
+      setIsHydrated(true);
+
       if (!user) {
-        loadFromLocal();
         setIsDataLoading(false);
-        setIsHydrated(true);
         return;
       }
 
-      // Clear stale localStorage from old JSON-blob schema
+      // Clear stale v1 format
       if (localStorage.getItem("contactsMigrated") !== "v2") {
         localStorage.removeItem("peopleData");
         localStorage.removeItem("peoplePhotos");
         localStorage.setItem("contactsMigrated", "v2");
+        setPeopleData([]);
       }
 
+      // Step 2: background DB fetch
       try {
-        // Load contacts from new table
         const { data: rows, error: contactsError } = await supabase
           .from("contacts")
           .select("*")
@@ -137,8 +138,6 @@ export const usePeople = () => {
         if (contactsError) throw contactsError;
 
         const contacts = (rows ?? []).map(rowToContact);
-
-        // Cache any photos that came back from DB
         rows?.forEach((r) => {
           if (r.photo) photoCache.set(r.id, r.photo);
         });
@@ -146,7 +145,6 @@ export const usePeople = () => {
         setPeopleData(contacts);
         saveToLocal(contacts);
 
-        // Categories still live in public.people
         const { data: peopleRow, error: catError } = await supabase
           .from("people")
           .select("categories")
@@ -158,31 +156,82 @@ export const usePeople = () => {
         const cats = peopleRow?.categories ?? DEFAULT_CATEGORIES;
         setCategories(cats);
         localStorage.setItem("peopleCategories", JSON.stringify(cats));
-      } catch (error) {
-        console.error("DB Load Error:", error);
-        loadFromLocal();
+      } catch (err) {
+        console.warn("[usePeople] DB fetch failed (offline?):", err.message);
+        // Already showing localStorage data — that's fine
       } finally {
         setIsDataLoading(false);
-        setIsHydrated(true);
       }
     };
 
     loadData();
   }, [user, authLoading]);
 
-  // ── savePeopleData ─────────────────────────────────────────────────────────
-  // Receives the full intended contacts array.
-  // Diffs against current state → upserts new/changed rows, deletes removed ones.
+  // ── contactToRow helper (needs user in scope) ────────────────────────────
+  const contactToRow = (contact) => {
+    const photo = photoCache.get(contact.id) || null;
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const id = uuidRegex.test(contact.id) ? contact.id : crypto.randomUUID();
+    return {
+      id,
+      user_id: user.id,
+      name: contact.name,
+      category: contact.category,
+      phones: contact.phones ?? [],
+      address: contact.address ?? "",
+      specialty: contact.specialty ?? "",
+      notes: contact.notes ?? "",
+      photo,
+      has_photo: !!photo,
+    };
+  };
 
+  // ── savePeopleData — offline-first ────────────────────────────────────────
   const savePeopleData = async (newContacts) => {
     if (!user) throw new Error("NOT_AUTHENTICATED");
 
+    // 1. Build the state shape we'll hold in memory / localStorage
+    //    (strips photo field, keeps hasPhoto flag — mirrors original)
+    const stateContacts = newContacts.map((c) => ({
+      id: c.id,
+      name: c.name,
+      category: c.category,
+      phones: c.phones ?? [],
+      address: c.address ?? "",
+      specialty: c.specialty ?? "",
+      notes: c.notes ?? "",
+      hasPhoto: !!photoCache.get(c.id),
+    }));
+
+    // 2. Compute diff against current state
     const newIds = new Set(newContacts.map((c) => c.id));
     const toDelete = peopleData
       .filter((p) => !newIds.has(p.id))
       .map((p) => p.id);
-    const rows = newContacts.map(contactToRow);
+    const rows = newContacts.map((c) => contactToRow(c));
 
+    // 3. Optimistic local write — UI updates instantly
+    setPeopleData(stateContacts);
+    saveToLocal(stateContacts);
+
+    // 4. If offline, enqueue and return
+    if (!navigator.onLine) {
+      if (rows.length > 0) {
+        enqueue(OP_TYPES.CONTACTS_UPSERT, { rows }, stateContacts, user.id);
+      }
+      if (toDelete.length > 0) {
+        enqueue(
+          OP_TYPES.CONTACTS_DELETE,
+          { ids: toDelete },
+          stateContacts,
+          user.id,
+        );
+      }
+      return;
+    }
+
+    // 5. Attempt DB write
     try {
       if (rows.length > 0) {
         const { error } = await supabase
@@ -192,9 +241,7 @@ export const usePeople = () => {
       }
 
       if (toDelete.length > 0) {
-        // Block deletion if any active (non-soft-deleted) transactions exist.
-        // The transactions table has a FK to contacts with no ON DELETE CASCADE,
-        // so we surface a clear, user-friendly error instead of a raw DB error.
+        // ── Preserve original FK-guard logic ──────────────────────────────
         const { data: linkedTxRows, error: txCheckErr } = await supabase
           .from("transactions")
           .select("contact_id")
@@ -210,67 +257,85 @@ export const usePeople = () => {
             .filter((p) => blockedIds.has(p.id))
             .map((p) => p.name)
             .join(", ");
+          // Roll back optimistic local write for the delete
+          setPeopleData(peopleData);
+          saveToLocal(peopleData);
           throw new Error(`CONTACT_HAS_TRANSACTIONS:${blockedNames}`);
         }
 
-        // BUG FIX: Soft-deleted transactions still hold a FK reference to the
-        // contact row. The active-transaction check above only excludes them,
-        // so a subsequent DELETE would hit a FK violation from the DB.
-        // Since soft-deleted transactions are already invisible to the user,
-        // we permanently remove them here to clear the FK reference, then
-        // safely delete the contact.
+        // Remove soft-deleted transactions first (FK guard)
         const { error: txDeleteErr } = await supabase
           .from("transactions")
           .delete()
           .in("contact_id", toDelete)
           .eq("status", "deleted");
-
         if (txDeleteErr) throw txDeleteErr;
 
-        const { error } = await supabase
+        const { error: deleteErr } = await supabase
           .from("contacts")
           .delete()
           .in("id", toDelete)
           .eq("user_id", user.id);
-        if (error) throw error;
+        if (deleteErr) throw deleteErr;
       }
-
-      // Update state — strip photo field, keep hasPhoto flag
-      const stateContacts = newContacts.map((c) => ({
-        id: c.id,
-        name: c.name,
-        category: c.category,
-        phones: c.phones ?? [],
-        address: c.address ?? "",
-        specialty: c.specialty ?? "",
-        notes: c.notes ?? "",
-        hasPhoto: !!photoCache.get(c.id),
-      }));
-
-      setPeopleData(stateContacts);
-      saveToLocal(stateContacts);
-    } catch (error) {
-      console.error("Save Error:", error);
-      throw error;
+    } catch (err) {
+      if (isNetworkError(err)) {
+        // Network dropped — enqueue, keep local write as-is
+        if (rows.length > 0) {
+          enqueue(OP_TYPES.CONTACTS_UPSERT, { rows }, stateContacts, user.id);
+        }
+        if (toDelete.length > 0) {
+          enqueue(
+            OP_TYPES.CONTACTS_DELETE,
+            { ids: toDelete },
+            stateContacts,
+            user.id,
+          );
+        }
+        return;
+      }
+      throw err; // Real error (FK violation etc.) — bubble up
     }
   };
 
-  // ── saveCategories — still writes to public.people ─────────────────────────
-
+  // ── saveCategories — offline-first ────────────────────────────────────────
   const saveCategories = async (newCategories) => {
     if (!user) throw new Error("NOT_AUTHENTICATED");
 
-    const { error } = await supabase
-      .from("people")
-      .upsert(
-        { user_id: user.id, categories: newCategories },
-        { onConflict: "user_id" },
-      );
-
-    if (error) throw error;
-
-    localStorage.setItem("peopleCategories", JSON.stringify(newCategories));
+    // Optimistic local write
     setCategories(newCategories);
+    localStorage.setItem("peopleCategories", JSON.stringify(newCategories));
+
+    if (!navigator.onLine) {
+      enqueue(
+        OP_TYPES.CATEGORIES_SAVE,
+        { categories: newCategories },
+        newCategories,
+        user.id,
+      );
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("people")
+        .upsert(
+          { user_id: user.id, categories: newCategories },
+          { onConflict: "user_id" },
+        );
+      if (error) throw error;
+    } catch (err) {
+      if (isNetworkError(err)) {
+        enqueue(
+          OP_TYPES.CATEGORIES_SAVE,
+          { categories: newCategories },
+          newCategories,
+          user.id,
+        );
+        return;
+      }
+      throw err;
+    }
   };
 
   return {

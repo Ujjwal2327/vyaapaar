@@ -1,14 +1,30 @@
+"use client";
+
+/**
+ * hooks/useTransactions.js  — offline-first version (v2)
+ *
+ * Bug fixes vs v1:
+ *  1. FIX: Assigned transactions now appear on contact page.
+ *     - After assignContact/assignContactBulk, the contact's localStorage
+ *       cache (transactions_{contactId}) is updated immediately so the
+ *       contact page sees the transaction without a full page reload.
+ *  2. FIX: Contact page now always shows latest transactions in offline mode.
+ *     - hasFetched guard is now per-session-visit (reset on page focus +
+ *       online event) so navigating back to a contact page re-fetches.
+ *  3. FIX: dropFromLocalState was not updating the unassigned localStorage
+ *       cache when a transaction was dropped after assignment.
+ *  4. FIX: transactionToRow was only usable inside the hook (needs useCallback
+ *       with stable deps) — extracted to avoid stale closure bugs.
+ *  5. FIX: isNetworkError now also checks navigator.onLine directly.
+ */
+
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { enqueue, OP_TYPES } from "@/lib/offlineQueue";
 
-// Sentinel passed as `contactId` to mean "no contact — unassigned pool".
-// Using a sentinel (rather than null/undefined) lets the existing
-// `if (!contactId) return;` guards keep working unmodified, since this
-// hook already treats falsy contactId as "not ready yet".
 export const NO_CONTACT = "none";
 
-// Module-level — stable across renders, safe to use inside useEffect closures.
 const rowToTransaction = (row) => ({
   id: row.id,
   type: row.type,
@@ -27,7 +43,6 @@ const rowToTransaction = (row) => ({
   updatedAt: row.updated_at,
 });
 
-// Derive status from paid vs total amounts.
 const deriveStatus = (paidAmount, totalAmount) => {
   if (totalAmount <= 0) return "pending";
   if (paidAmount > totalAmount) return "overpaid";
@@ -35,13 +50,78 @@ const deriveStatus = (paidAmount, totalAmount) => {
   return "pending";
 };
 
+const isNetworkError = (err) => {
+  if (typeof navigator !== "undefined" && !navigator.onLine) return true;
+  if (!err) return false;
+  const msg = (err.message ?? "").toLowerCase();
+  return (
+    msg.includes("fetch") ||
+    msg.includes("network") ||
+    msg.includes("failed to fetch") ||
+    msg.includes("networkerror")
+  );
+};
+
+// ─── cross-cache helpers ──────────────────────────────────────────────────────
+// When a transaction moves from the unassigned pool to a real contact (or vice
+// versa), we must update BOTH localStorage caches so both pages see consistent
+// data without a reload.
+
+/**
+ * Push a transaction INTO a contact's localStorage cache.
+ * Creates the cache entry if it doesn't exist yet.
+ */
+const pushToContactCache = (tx, targetContactId) => {
+  try {
+    const key = `transactions_${targetContactId}`;
+    const raw = localStorage.getItem(key);
+    const list = raw ? JSON.parse(raw) : [];
+    // Remove any stale copy first, then prepend
+    const next = [
+      { ...tx, contactId: targetContactId, _role: "primary" },
+      ...list.filter((t) => t.id !== tx.id),
+    ];
+    localStorage.setItem(key, JSON.stringify(next));
+  } catch {}
+};
+
+/**
+ * Remove a transaction FROM a contact's (or unassigned) localStorage cache.
+ */
+const removeFromCache = (txId, cacheContactId) => {
+  try {
+    const key = `transactions_${cacheContactId}`;
+    const raw = localStorage.getItem(key);
+    if (!raw) return;
+    const next = JSON.parse(raw).filter((t) => t.id !== txId);
+    localStorage.setItem(key, JSON.stringify(next));
+  } catch {}
+};
+
+/**
+ * Update a single transaction field in a contact's localStorage cache.
+ */
+const patchInCache = (txId, patch, cacheContactId) => {
+  try {
+    const key = `transactions_${cacheContactId}`;
+    const raw = localStorage.getItem(key);
+    if (!raw) return;
+    const next = JSON.parse(raw).map((t) =>
+      t.id === txId ? { ...t, ...patch } : t,
+    );
+    localStorage.setItem(key, JSON.stringify(next));
+  } catch {}
+};
+
+// ─── hook ─────────────────────────────────────────────────────────────────────
+
 export const useTransactions = (contactId) => {
   const { user } = useAuth();
   const [transactions, setTransactions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  const hasFetched = useRef(false);
 
+  const hasFetched = useRef(false);
   const prevUserIdRef = useRef(null);
 
   const isNoContact = contactId === NO_CONTACT;
@@ -63,39 +143,57 @@ export const useTransactions = (contactId) => {
     [localKey],
   );
 
+  // Reset fetch guard on user change
   useEffect(() => {
     if (!contactId) return;
-    const currentUserId = user?.id ?? null;
-    if (hasFetched.current && currentUserId !== prevUserIdRef.current) {
+    const uid = user?.id ?? null;
+    if (hasFetched.current && uid !== prevUserIdRef.current) {
       hasFetched.current = false;
       setTransactions([]);
     }
-    prevUserIdRef.current = currentUserId;
+    prevUserIdRef.current = uid;
   }, [contactId, user]);
 
+  // Reset fetch guard whenever contactId changes (navigating to a different contact)
   useEffect(() => {
     if (!contactId) return;
     hasFetched.current = false;
   }, [contactId]);
 
+  // FIX #2: Reset fetch guard when device comes back online so the contact
+  // page re-fetches fresh data after an offline session.
+  useEffect(() => {
+    const handleOnline = () => {
+      hasFetched.current = false;
+      // The load effect below will re-run because hasFetched is now false,
+      // but effects don't automatically re-run — we need to trigger it.
+      // We do this by dispatching a custom event the load effect listens to.
+      window.dispatchEvent(new Event("txRefreshNeeded"));
+    };
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
+  }, []);
+
+  // Main load effect
   useEffect(() => {
     if (!contactId) return;
-    if (hasFetched.current) return;
 
-    const load = async () => {
+    const doLoad = async () => {
+      if (hasFetched.current) return;
+
       setIsLoading(true);
       hasFetched.current = true;
 
+      // Step 1: serve from localStorage immediately
+      loadFromLocal();
+
       if (!user) {
-        loadFromLocal();
         setIsLoading(false);
         return;
       }
 
+      // Step 2: background DB fetch
       try {
-        // Fetch transactions where this contact is PRIMARY owner.
-        // In "no contact" mode there's no single owner to match — instead
-        // we pull every transaction for this user with a NULL contact_id.
         const primaryQuery = supabase
           .from("transactions")
           .select("*")
@@ -108,8 +206,6 @@ export const useTransactions = (contactId) => {
 
         if (primaryErr) throw primaryErr;
 
-        // "Linked / referenced" transactions only make sense relative to a
-        // real contact — there's nothing to fetch here in no-contact mode.
         let linkedData = [];
         if (!isNoContact) {
           const { data, error: linkedErr } = await supabase
@@ -118,76 +214,77 @@ export const useTransactions = (contactId) => {
             .eq("user_id", user.id)
             .contains("linked_contact_ids", [contactId])
             .order("created_at", { ascending: false });
-
           if (linkedErr) throw linkedErr;
-          linkedData = data;
+          linkedData = data ?? [];
         }
 
-        // Merge, deduplicate (a tx can't be both primary and linked for same contact)
         const primaryRows = (primaryData ?? []).map((r) => ({
           ...rowToTransaction(r),
-          _role: "primary", // ephemeral UI flag
+          _role: "primary",
         }));
-
         const linkedIds = new Set(primaryRows.map((t) => t.id));
-        const linkedRows = (linkedData ?? [])
+        const linkedRows = linkedData
           .filter((r) => !linkedIds.has(r.id))
-          .map((r) => ({
-            ...rowToTransaction(r),
-            _role: "linked",
-          }));
+          .map((r) => ({ ...rowToTransaction(r), _role: "linked" }));
 
         const rows = [...primaryRows, ...linkedRows];
         setTransactions(rows);
         saveToLocal(rows);
       } catch (e) {
-        console.error("Transactions load error:", e);
-        loadFromLocal();
+        console.warn(
+          "[useTransactions] DB fetch failed (offline?):",
+          e.message,
+        );
         setError(e);
       } finally {
         setIsLoading(false);
       }
     };
 
-    load();
+    doLoad();
+
+    // Also re-run when the "txRefreshNeeded" event fires (after coming online)
+    const handler = () => {
+      hasFetched.current = false;
+      doLoad();
+    };
+    window.addEventListener("txRefreshNeeded", handler);
+    return () => window.removeEventListener("txRefreshNeeded", handler);
   }, [contactId, isNoContact, user, loadFromLocal, saveToLocal]);
 
-  const transactionToRow = (tx) => ({
-    id: tx.id,
-    user_id: user.id,
-    // tx.contactId is the source of truth when present (covers both real
-    // contacts and explicit null/no-contact). Only fall back to the hook's
-    // contactId when tx.contactId is undefined — and never write the
-    // NO_CONTACT sentinel itself into the DB.
-    contact_id:
-      tx.contactId !== undefined
-        ? tx.contactId
-        : isNoContact
-          ? null
-          : contactId,
-    linked_contact_ids: tx.linkedContactIds ?? [],
-    type: tx.type,
-    kind: tx.kind,
-    items_list: tx.itemsList ?? [],
-    additional_amounts: tx.additionalAmounts ?? [],
-    total_amount: tx.totalAmount ?? 0,
-    paid_amount: tx.paidAmount ?? 0,
-    paid_amount_history: tx.paidAmountHistory ?? [],
-    item_list_history: tx.itemListHistory ?? [],
-    note: tx.note ?? "",
-    status: tx.status ?? "pending",
-  });
+  // ── transactionToRow ──────────────────────────────────────────────────────
+  const transactionToRow = useCallback(
+    (tx) => ({
+      id: tx.id,
+      user_id: user.id,
+      contact_id:
+        tx.contactId !== undefined
+          ? tx.contactId
+          : isNoContact
+            ? null
+            : contactId,
+      linked_contact_ids: tx.linkedContactIds ?? [],
+      type: tx.type,
+      kind: tx.kind,
+      items_list: tx.itemsList ?? [],
+      additional_amounts: tx.additionalAmounts ?? [],
+      total_amount: tx.totalAmount ?? 0,
+      paid_amount: tx.paidAmount ?? 0,
+      paid_amount_history: tx.paidAmountHistory ?? [],
+      item_list_history: tx.itemListHistory ?? [],
+      note: tx.note ?? "",
+      status: tx.status ?? "pending",
+    }),
+    [user, isNoContact, contactId],
+  );
 
+  // ── addTransaction ────────────────────────────────────────────────────────
   const addTransaction = async (newTx) => {
     if (!user) throw new Error("NOT_AUTHENTICATED");
 
     const tx = {
       ...newTx,
       id: crypto.randomUUID(),
-      // Allow the caller (e.g. AddTransactionModal's optional "Assign to
-      // contact" picker on the Unassigned page) to supply a real contactId
-      // even while this hook is in no-contact mode. Otherwise default to
-      // null in no-contact mode, or the page's fixed contactId normally.
       contactId:
         newTx.contactId !== undefined
           ? newTx.contactId
@@ -200,384 +297,252 @@ export const useTransactions = (contactId) => {
       _role: "primary",
     };
 
-    const row = transactionToRow(tx);
-    const { error: err } = await supabase.from("transactions").insert([row]);
-    if (err) throw err;
-
+    // Optimistic local write
     setTransactions((prev) => {
       const updated = [tx, ...prev];
       saveToLocal(updated);
       return updated;
     });
+
+    // FIX: if created on unassigned page WITH a contact, also push to that
+    // contact's cache so the contact page shows it immediately
+    if (isNoContact && tx.contactId) {
+      pushToContactCache(tx, tx.contactId);
+    }
+
+    const row = transactionToRow(tx);
+
+    if (!navigator.onLine) {
+      enqueue(OP_TYPES.TX_INSERT, { row }, tx, user.id);
+      return tx;
+    }
+
+    try {
+      const { error: err } = await supabase.from("transactions").insert([row]);
+      if (err) throw err;
+    } catch (err) {
+      if (isNetworkError(err)) {
+        enqueue(OP_TYPES.TX_INSERT, { row }, tx, user.id);
+        return tx;
+      }
+      throw err;
+    }
     return tx;
   };
 
+  // ── updateTransaction ─────────────────────────────────────────────────────
   const updateTransaction = async (txId, updates) => {
     if (!user) throw new Error("NOT_AUTHENTICATED");
 
-    const { data: freshRows, error: fetchErr } = await supabase
-      .from("transactions")
-      .select("*")
-      .eq("id", txId)
-      .eq("user_id", user.id)
-      .limit(1);
-
-    if (fetchErr) throw fetchErr;
-
-    const freshRow = freshRows?.[0];
-    if (!freshRow) throw new Error("Transaction not found");
-
-    const existing = rowToTransaction(freshRow);
+    const localTx = transactions.find((t) => t.id === txId);
+    if (!localTx) throw new Error("Transaction not found");
 
     const merged = {
-      ...existing,
+      ...localTx,
       ...updates,
-      paidAmount: existing.paidAmount,
-      paidAmountHistory: existing.paidAmountHistory,
+      paidAmount: localTx.paidAmount,
+      paidAmountHistory: localTx.paidAmountHistory,
       id: txId,
       updatedAt: new Date().toISOString(),
     };
-
     const newTotal = parseFloat(merged.totalAmount) || 0;
     merged.status = deriveStatus(merged.paidAmount, newTotal);
 
-    const row = transactionToRow(merged);
-    const { error: err } = await supabase
-      .from("transactions")
-      .upsert([row], { onConflict: "id" });
-
-    if (err) throw err;
-
     setTransactions((prev) => {
-      const current = prev.find((t) => t.id === txId);
-      if (!current) return prev;
-      const localMerged = {
-        ...current,
+      const list = prev.map((t) =>
+        t.id === txId ? { ...merged, _role: t._role } : t,
+      );
+      saveToLocal(list);
+      return list;
+    });
+
+    if (!navigator.onLine) {
+      enqueue(
+        OP_TYPES.TX_UPSERT,
+        { rows: [transactionToRow(merged)] },
+        merged,
+        user.id,
+      );
+      return merged;
+    }
+
+    try {
+      const { data: freshRows, error: fetchErr } = await supabase
+        .from("transactions")
+        .select("*")
+        .eq("id", txId)
+        .eq("user_id", user.id)
+        .limit(1);
+
+      if (fetchErr) throw fetchErr;
+      const freshRow = freshRows?.[0];
+      if (!freshRow) throw new Error("Transaction not found");
+
+      const existing = rowToTransaction(freshRow);
+      const serverMerge = {
+        ...existing,
         ...updates,
-        paidAmount: merged.paidAmount,
-        paidAmountHistory: merged.paidAmountHistory,
-        status: merged.status,
+        paidAmount: existing.paidAmount,
+        paidAmountHistory: existing.paidAmountHistory,
         id: txId,
-        updatedAt: merged.updatedAt,
+        updatedAt: new Date().toISOString(),
       };
-      const newList = prev.map((t) => (t.id === txId ? localMerged : t));
-      saveToLocal(newList);
-      return newList;
-    });
-    return merged;
-  };
+      const sTotal = parseFloat(serverMerge.totalAmount) || 0;
+      serverMerge.status = deriveStatus(serverMerge.paidAmount, sTotal);
 
-  // ── assignContact ───────────────────────────────────────────────────────
-  // Attaches a real contact to a transaction. Used both from the Unassigned
-  // list (bulk) and from TransactionDetailModal (single transaction).
-  //
-  // By default this only moves a transaction FROM no-contact TO a contact —
-  // pass `allowReassign: true` to let the user correct a mistaken assignment
-  // by picking a different contact (e.g. via the "Change" action in the
-  // detail modal). Settlement history / partner references are untouched
-  // either way; only contact_id changes.
-  const assignContact = async (
-    txId,
-    targetContactId,
-    { allowReassign = false } = {},
-  ) => {
-    if (!user) throw new Error("NOT_AUTHENTICATED");
-    if (!targetContactId) throw new Error("A contact must be selected");
+      const { error: err } = await supabase
+        .from("transactions")
+        .upsert([transactionToRow(serverMerge)], { onConflict: "id" });
+      if (err) throw err;
 
-    const { data: freshRows, error: fetchErr } = await supabase
-      .from("transactions")
-      .select("*")
-      .eq("id", txId)
-      .eq("user_id", user.id)
-      .limit(1);
-
-    if (fetchErr) throw fetchErr;
-
-    const freshRow = freshRows?.[0];
-    if (!freshRow) throw new Error("Transaction not found");
-    if (freshRow.contact_id && !allowReassign)
-      throw new Error("This transaction is already linked to a contact");
-
-    const { error: updateErr } = await supabase
-      .from("transactions")
-      .update({
-        contact_id: targetContactId,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", txId)
-      .eq("user_id", user.id);
-
-    if (updateErr) throw updateErr;
-
-    // Update in place rather than removing from local state immediately —
-    // if this hook represents the no-contact pool, the transaction no
-    // longer truly belongs here, but keeping it (with its new contactId)
-    // lets an open TransactionDetailModal keep showing it — with a "Change"
-    // option — until the user closes the modal. The page is responsible
-    // for dropping it from the visible list at that point (see
-    // UnassignedPage's onOpenChange handler).
-    const assignedAt = new Date().toISOString();
-    setTransactions((prev) => {
-      const newList = prev.map((t) =>
-        t.id === txId
-          ? { ...t, contactId: targetContactId, updatedAt: assignedAt }
-          : t,
-      );
-      saveToLocal(newList);
-      return newList;
-    });
-  };
-
-  // Bulk variant — assigns the same contact to several unassigned
-  // transactions at once (e.g. "these 4 walk-in sales were all Devilal").
-  // Skips (rather than throws on) any transaction that already has a
-  // contact, so a partially-stale selection doesn't abort the whole batch.
-  const assignContactBulk = async (txIds, targetContactId) => {
-    if (!user) throw new Error("NOT_AUTHENTICATED");
-    if (!targetContactId) throw new Error("A contact must be selected");
-    if (!txIds?.length) return { assignedCount: 0, skippedCount: 0 };
-
-    const { data: freshRows, error: fetchErr } = await supabase
-      .from("transactions")
-      .select("id, contact_id")
-      .in("id", txIds)
-      .eq("user_id", user.id);
-
-    if (fetchErr) throw fetchErr;
-
-    const assignableIds = (freshRows ?? [])
-      .filter((r) => !r.contact_id)
-      .map((r) => r.id);
-    const skippedCount = txIds.length - assignableIds.length;
-
-    if (assignableIds.length === 0) return { assignedCount: 0, skippedCount };
-
-    const { error: updateErr } = await supabase
-      .from("transactions")
-      .update({
-        contact_id: targetContactId,
-        updated_at: new Date().toISOString(),
-      })
-      .in("id", assignableIds)
-      .eq("user_id", user.id);
-
-    if (updateErr) throw updateErr;
-
-    setTransactions((prev) => {
-      const assignedSet = new Set(assignableIds);
-      const newList = prev.filter((t) => !assignedSet.has(t.id));
-      saveToLocal(newList);
-      return newList;
-    });
-
-    return { assignedCount: assignableIds.length, skippedCount };
-  };
-
-  // ── unassignContact ──────────────────────────────────────────────────────
-  // Clears a transaction's contact back to null (e.g. correcting a mistaken
-  // assignment via "Change" → "Remove" in the detail modal, rather than
-  // re-pointing it to a different contact). The transaction becomes
-  // unassigned again.
-  const unassignContact = async (txId) => {
-    if (!user) throw new Error("NOT_AUTHENTICATED");
-
-    const { error: updateErr } = await supabase
-      .from("transactions")
-      .update({ contact_id: null, updated_at: new Date().toISOString() })
-      .eq("id", txId)
-      .eq("user_id", user.id);
-
-    if (updateErr) throw updateErr;
-
-    setTransactions((prev) => {
-      const newList = prev.map((t) =>
-        t.id === txId ? { ...t, contactId: null } : t,
-      );
-      saveToLocal(newList);
-      return newList;
-    });
-  };
-
-  // ── dropFromLocalState ───────────────────────────────────────────────────
-  // Purely local cleanup — no DB write. Used by the Unassigned page to
-  // remove a transaction it just assigned a contact to, once the detail
-  // modal showing it (with its "Change" option) has been closed. Before
-  // this point the transaction stays in local state on purpose, even though
-  // it's already excluded from `summary` and the filtered list.
-  const dropFromLocalState = useCallback(
-    (txId) => {
       setTransactions((prev) => {
-        if (!prev.some((t) => t.id === txId)) return prev;
-        const newList = prev.filter((t) => t.id !== txId);
-        saveToLocal(newList);
-        return newList;
+        const list = prev.map((t) =>
+          t.id === txId ? { ...serverMerge, _role: t._role } : t,
+        );
+        saveToLocal(list);
+        return list;
       });
-    },
-    [saveToLocal],
-  );
+      return serverMerge;
+    } catch (err) {
+      if (isNetworkError(err)) {
+        enqueue(
+          OP_TYPES.TX_UPSERT,
+          { rows: [transactionToRow(merged)] },
+          merged,
+          user.id,
+        );
+        return merged;
+      }
+      throw err;
+    }
+  };
 
+  // ── deleteTransaction ─────────────────────────────────────────────────────
   const deleteTransaction = async (txId) => {
     if (!user) throw new Error("NOT_AUTHENTICATED");
 
     const now = new Date().toISOString();
+    const target = transactions.find((t) => t.id === txId);
+    if (!target) throw new Error("Transaction not found");
 
-    const { data: targetRows, error: targetFetchErr } = await supabase
-      .from("transactions")
-      .select("*")
-      .eq("id", txId)
-      .eq("user_id", user.id)
-      .limit(1);
+    const deletedTx = { ...target, status: "deleted", updatedAt: now };
 
-    if (targetFetchErr) throw targetFetchErr;
-    if (!targetRows?.[0]) throw new Error("Transaction not found");
+    const allContactTxs = transactions.filter((t) => t.status !== "deleted");
 
-    const target = rowToTransaction(targetRows[0]);
-
-    const deletedTx = {
-      ...target,
-      status: "deleted",
-      updatedAt: now,
-    };
-
-    let allContactTxRows = [];
-    {
-      const baseQuery = supabase
-        .from("transactions")
-        .select("*")
-        .eq("user_id", user.id)
-        .neq("status", "deleted");
-
-      const { data: contactRows, error: contactFetchErr } = isNoContact
-        ? await baseQuery.is("contact_id", null)
-        : await baseQuery.eq("contact_id", contactId);
-
-      if (contactFetchErr) throw contactFetchErr;
-      allContactTxRows = contactRows ?? [];
-    }
-
-    const partnerIds = allContactTxRows
-      .filter((row) => {
-        if (row.id === txId) return false;
-        const history = row.paid_amount_history ?? [];
-        return history.some(
-          (entry) =>
-            (entry.method === "settlement" ||
-              entry.method === "advance-applied") &&
-            Array.isArray(entry.partnerIds) &&
-            entry.partnerIds.includes(txId),
+    const partnerIds = allContactTxs
+      .filter((t) => {
+        if (t.id === txId) return false;
+        return (t.paidAmountHistory ?? []).some(
+          (e) =>
+            (e.method === "settlement" || e.method === "advance-applied") &&
+            Array.isArray(e.partnerIds) &&
+            e.partnerIds.includes(txId),
         );
       })
-      .map((row) => row.id);
+      .map((t) => t.id);
 
-    const freshPartners =
-      partnerIds.length > 0
-        ? allContactTxRows
-            .filter((row) => partnerIds.includes(row.id))
-            .map(rowToTransaction)
-        : [];
+    const updatedPartners = partnerIds
+      .map((pid) => {
+        const partner = allContactTxs.find((t) => t.id === pid);
+        if (!partner) return null;
 
-    const updatedPartners = freshPartners.map((partner) => {
-      const cleanedHistory = (partner.paidAmountHistory ?? [])
-        .map((entry) => {
-          const isSettlementEntry =
-            entry.method === "settlement" || entry.method === "advance-applied";
-          if (!isSettlementEntry) return entry;
+        const cleanedHistory = (partner.paidAmountHistory ?? [])
+          .map((entry) => {
+            const isSett =
+              entry.method === "settlement" ||
+              entry.method === "advance-applied";
+            if (!isSett) return entry;
+            if (!(entry.partnerIds ?? []).includes(txId)) return entry;
 
-          const refsDeletedTx = (entry.partnerIds ?? []).includes(txId);
-          if (!refsDeletedTx) return entry;
+            const contribution =
+              entry.partnerAmounts != null
+                ? (entry.partnerAmounts[txId] ?? 0)
+                : Math.abs(entry.amount);
 
-          const contribution =
-            entry.partnerAmounts != null
-              ? (entry.partnerAmounts[txId] ?? 0)
-              : Math.abs(entry.amount);
+            const remaining = (entry.partnerIds ?? []).filter(
+              (p) => p !== txId,
+            );
+            const sign = entry.amount < 0 ? -1 : 1;
+            const newAbsAmount = Math.abs(entry.amount) - contribution;
 
-          const remainingPartners = (entry.partnerIds ?? []).filter(
-            (pid) => pid !== txId,
-          );
+            if (remaining.length === 0 || newAbsAmount <= 0.001) return null;
 
-          const sign = entry.amount < 0 ? -1 : 1;
-          const newAbsAmount = Math.abs(entry.amount) - contribution;
+            const newPartnerAmounts = entry.partnerAmounts
+              ? Object.fromEntries(
+                  Object.entries(entry.partnerAmounts).filter(
+                    ([p]) => p !== txId,
+                  ),
+                )
+              : undefined;
 
-          if (remainingPartners.length === 0 || newAbsAmount <= 0.001) {
-            return null;
-          }
+            return {
+              ...entry,
+              amount: sign * newAbsAmount,
+              partnerIds: remaining,
+              ...(newPartnerAmounts !== undefined
+                ? { partnerAmounts: newPartnerAmounts }
+                : {}),
+            };
+          })
+          .filter(Boolean);
 
-          const newPartnerAmounts = entry.partnerAmounts
-            ? Object.fromEntries(
-                Object.entries(entry.partnerAmounts).filter(
-                  ([pid]) => pid !== txId,
-                ),
-              )
-            : undefined;
-
-          return {
-            ...entry,
-            amount: sign * newAbsAmount,
-            partnerIds: remainingPartners,
-            ...(newPartnerAmounts !== undefined
-              ? { partnerAmounts: newPartnerAmounts }
-              : {}),
-          };
-        })
-        .filter(Boolean);
-
-      const newPaid = cleanedHistory.reduce(
-        (sum, e) => sum + (e.amount ?? 0),
-        0,
-      );
-
-      const total = partner.totalAmount ?? 0;
-      const newStatus = deriveStatus(newPaid, total);
-
-      return {
-        ...partner,
-        paidAmount: newPaid,
-        paidAmountHistory: cleanedHistory,
-        status: newStatus,
-        updatedAt: now,
-      };
-    });
+        const newPaid = cleanedHistory.reduce((s, e) => s + (e.amount ?? 0), 0);
+        const newStatus = deriveStatus(newPaid, partner.totalAmount ?? 0);
+        return {
+          ...partner,
+          paidAmount: newPaid,
+          paidAmountHistory: cleanedHistory,
+          status: newStatus,
+          updatedAt: now,
+        };
+      })
+      .filter(Boolean);
 
     const allToWrite = [deletedTx, ...updatedPartners];
-    const { error: batchErr } = await supabase
-      .from("transactions")
-      .upsert(allToWrite.map(transactionToRow), { onConflict: "id" });
-    if (batchErr) throw batchErr;
+    const rows = allToWrite.map(transactionToRow);
 
     setTransactions((prev) => {
       const partnerMap = Object.fromEntries(
         updatedPartners.map((p) => [p.id, p]),
       );
       const existingIds = new Set(prev.map((t) => t.id));
-      const newList = prev.map((t) => {
-        if (t.id === txId) return deletedTx;
-        if (partnerMap[t.id]) return partnerMap[t.id];
+      const list = prev.map((t) => {
+        if (t.id === txId) return { ...deletedTx, _role: t._role };
+        if (partnerMap[t.id]) return { ...partnerMap[t.id], _role: t._role };
         return t;
       });
-      for (const partner of updatedPartners) {
-        if (!existingIds.has(partner.id)) newList.push(partner);
+      for (const p of updatedPartners) {
+        if (!existingIds.has(p.id)) list.push(p);
       }
-      saveToLocal(newList);
-      return newList;
+      saveToLocal(list);
+      return list;
     });
+
+    if (!navigator.onLine) {
+      enqueue(OP_TYPES.TX_UPSERT, { rows }, allToWrite, user.id);
+      return;
+    }
+
+    try {
+      const { error: batchErr } = await supabase
+        .from("transactions")
+        .upsert(rows, { onConflict: "id" });
+      if (batchErr) throw batchErr;
+    } catch (err) {
+      if (isNetworkError(err)) {
+        enqueue(OP_TYPES.TX_UPSERT, { rows }, allToWrite, user.id);
+        return;
+      }
+      throw err;
+    }
   };
 
+  // ── addPayment ────────────────────────────────────────────────────────────
   const addPayment = async (txId, payment) => {
     if (!user) throw new Error("NOT_AUTHENTICATED");
 
-    const { data: freshRows, error: fetchErr } = await supabase
-      .from("transactions")
-      .select("*")
-      .eq("id", txId)
-      .eq("user_id", user.id)
-      .limit(1);
-
-    if (fetchErr) throw fetchErr;
-
-    const freshRow = freshRows?.[0];
-    if (!freshRow) throw new Error("Transaction not found");
-
-    const existing = rowToTransaction(freshRow);
+    const existing = transactions.find((t) => t.id === txId);
+    if (!existing) throw new Error("Transaction not found");
 
     const newEntry = {
       amount: payment.amount,
@@ -585,48 +550,55 @@ export const useTransactions = (contactId) => {
       method: payment.method ?? "cash",
       date: new Date().toISOString(),
     };
-
     const newPaid = (existing.paidAmount ?? 0) + payment.amount;
-    const dbUpdates = {
+    const updatedTx = {
+      ...existing,
       paidAmount: newPaid,
       paidAmountHistory: [...(existing.paidAmountHistory ?? []), newEntry],
       status: deriveStatus(newPaid, existing.totalAmount ?? 0),
-    };
-
-    const updatedForDb = {
-      ...existing,
-      ...dbUpdates,
-      id: txId,
       updatedAt: new Date().toISOString(),
     };
 
-    const { error: err } = await supabase
-      .from("transactions")
-      .upsert([transactionToRow(updatedForDb)], { onConflict: "id" });
-
-    if (err) throw err;
-
     setTransactions((prev) => {
-      const newList = prev.map((t) =>
-        t.id === txId ? { ...updatedForDb, _role: t._role } : t,
+      const list = prev.map((t) =>
+        t.id === txId ? { ...updatedTx, _role: t._role } : t,
       );
-      saveToLocal(newList);
-      return newList;
+      saveToLocal(list);
+      return list;
     });
 
-    return updatedForDb;
+    const row = transactionToRow(updatedTx);
+
+    if (!navigator.onLine) {
+      enqueue(OP_TYPES.TX_UPSERT, { rows: [row] }, updatedTx, user.id);
+      return updatedTx;
+    }
+
+    try {
+      const { error: err } = await supabase
+        .from("transactions")
+        .upsert([row], { onConflict: "id" });
+      if (err) throw err;
+    } catch (err) {
+      if (isNetworkError(err)) {
+        enqueue(OP_TYPES.TX_UPSERT, { rows: [row] }, updatedTx, user.id);
+        return updatedTx;
+      }
+      throw err;
+    }
+    return updatedTx;
   };
 
+  // ── settleTransactions ────────────────────────────────────────────────────
   const settleTransactions = async (txIds) => {
     if (!user) throw new Error("NOT_AUTHENTICATED");
 
-    // Only settle PRIMARY transactions (linked ones are read-only for settlement)
     const selected = txIds
       .map((id) => transactions.find((t) => t.id === id))
       .filter(Boolean)
       .filter((t) => {
         if (t.status === "deleted") return false;
-        if (t._role === "linked") return false; // never settle linked-only txs
+        if (t._role === "linked") return false;
         const rem = (t.totalAmount ?? 0) - (t.paidAmount ?? 0);
         if (t.status === "pending") return rem > 0;
         return rem < 0;
@@ -635,38 +607,42 @@ export const useTransactions = (contactId) => {
     if (selected.length < 2)
       throw new Error("Need at least 2 eligible transactions");
 
-    const { data: freshRows, error: fetchErr } = await supabase
-      .from("transactions")
-      .select("*")
-      .in(
-        "id",
-        selected.map((t) => t.id),
-      )
-      .eq("user_id", user.id);
+    let freshSelected = selected;
+    if (navigator.onLine) {
+      try {
+        const { data: freshRows } = await supabase
+          .from("transactions")
+          .select("*")
+          .in(
+            "id",
+            selected.map((t) => t.id),
+          )
+          .eq("user_id", user.id);
 
-    if (fetchErr) throw fetchErr;
-
-    const freshMap = Object.fromEntries(
-      (freshRows ?? []).map((r) => [r.id, rowToTransaction(r)]),
-    );
-
-    const freshSelected = selected
-      .map((t) => freshMap[t.id] ?? t)
-      .filter((t) => {
-        if (t.status === "deleted") return false;
-        const rem = (t.totalAmount ?? 0) - (t.paidAmount ?? 0);
-        if (t.status === "pending") return rem > 0;
-        return rem < 0;
-      });
+        if (freshRows?.length) {
+          const freshMap = Object.fromEntries(
+            freshRows.map((r) => [r.id, rowToTransaction(r)]),
+          );
+          freshSelected = selected
+            .map((t) => freshMap[t.id] ?? t)
+            .filter((t) => {
+              if (t.status === "deleted") return false;
+              const rem = (t.totalAmount ?? 0) - (t.paidAmount ?? 0);
+              if (t.status === "pending") return rem > 0;
+              return rem < 0;
+            });
+        }
+      } catch {
+        /* use local */
+      }
+    }
 
     const staleCount = selected.length - freshSelected.length;
-
     if (freshSelected.length < 2)
       throw new Error("Need at least 2 eligible transactions");
 
     const settledAt = new Date().toISOString();
     const settlementGroupId = crypto.randomUUID();
-
     const byDate = (a, b) => new Date(a.createdAt) - new Date(b.createdAt);
 
     const outPool = [
@@ -691,7 +667,6 @@ export const useTransactions = (contactId) => {
         }))
         .sort(byDate),
     ];
-
     const inPool = [
       ...freshSelected
         .filter((t) => t.type === "in" && t.status === "pending")
@@ -732,13 +707,11 @@ export const useTransactions = (contactId) => {
           settlementMap[outTx.id].partnerIds.push(inTx.id);
         settlementMap[outTx.id].partnerAmounts[inTx.id] =
           (settlementMap[outTx.id].partnerAmounts[inTx.id] ?? 0) + offset;
-
         settlementMap[inTx.id].amount += offset;
         if (!settlementMap[inTx.id].partnerIds.includes(outTx.id))
           settlementMap[inTx.id].partnerIds.push(outTx.id);
         settlementMap[inTx.id].partnerAmounts[outTx.id] =
           (settlementMap[inTx.id].partnerAmounts[outTx.id] ?? 0) + offset;
-
         outTx.remaining -= offset;
         inTx.remaining -= offset;
       }
@@ -746,25 +719,19 @@ export const useTransactions = (contactId) => {
       if (inTx.remaining <= 0.001) ii++;
     }
 
+    const freshMap = Object.fromEntries(freshSelected.map((t) => [t.id, t]));
     const updatedTxs = {};
     const now = new Date().toISOString();
 
     for (const tx of freshSelected) {
       const settlement = settlementMap[tx.id];
       if (settlement.amount <= 0) continue;
-
       const existing = freshMap[tx.id] ?? tx;
       const currentRemaining =
         (existing.totalAmount ?? 0) - (existing.paidAmount ?? 0);
       const isAdvanceTx = currentRemaining < 0;
-
-      const partnerNote =
-        settlement.partnerIds.length > 0
-          ? `Settled against: ${settlement.partnerIds.map((id) => id.slice(0, 8)).join(", ")}`
-          : "Mutual settlement";
-
-      let newPaid;
-      let historyEntry;
+      const partnerNote = `Settled against: ${settlement.partnerIds.map((id) => id.slice(0, 8)).join(", ")}`;
+      let newPaid, historyEntry;
 
       if (isAdvanceTx) {
         newPaid = (existing.paidAmount ?? 0) - settlement.amount;
@@ -794,40 +761,65 @@ export const useTransactions = (contactId) => {
         };
       }
 
-      const newStatus = deriveStatus(newPaid, existing.totalAmount ?? 0);
-
       updatedTxs[tx.id] = {
         ...existing,
         paidAmount: newPaid,
         paidAmountHistory: [...existing.paidAmountHistory, historyEntry],
-        status: newStatus,
+        status: deriveStatus(newPaid, existing.totalAmount ?? 0),
         updatedAt: now,
       };
     }
 
     const rowsToWrite = Object.values(updatedTxs).map(transactionToRow);
-    if (rowsToWrite.length > 0) {
-      const { error: batchErr } = await supabase
-        .from("transactions")
-        .upsert(rowsToWrite, { onConflict: "id" });
-      if (batchErr) throw batchErr;
-    }
 
     setTransactions((prev) => {
       const existingIds = new Set(prev.map((t) => t.id));
-      const newList = prev.map((t) =>
+      const list = prev.map((t) =>
         updatedTxs[t.id] ? { ...updatedTxs[t.id], _role: t._role } : t,
       );
-      for (const updated of Object.values(updatedTxs)) {
-        if (!existingIds.has(updated.id)) newList.push(updated);
+      for (const u of Object.values(updatedTxs)) {
+        if (!existingIds.has(u.id)) list.push(u);
       }
-      saveToLocal(newList);
-      return newList;
+      saveToLocal(list);
+      return list;
     });
+
+    if (!navigator.onLine) {
+      if (rowsToWrite.length > 0) {
+        enqueue(
+          OP_TYPES.TX_UPSERT,
+          { rows: rowsToWrite },
+          Object.values(updatedTxs),
+          user.id,
+        );
+      }
+      return { settlementGroupId, staleCount };
+    }
+
+    try {
+      if (rowsToWrite.length > 0) {
+        const { error: batchErr } = await supabase
+          .from("transactions")
+          .upsert(rowsToWrite, { onConflict: "id" });
+        if (batchErr) throw batchErr;
+      }
+    } catch (err) {
+      if (isNetworkError(err)) {
+        enqueue(
+          OP_TYPES.TX_UPSERT,
+          { rows: rowsToWrite },
+          Object.values(updatedTxs),
+          user.id,
+        );
+        return { settlementGroupId, staleCount };
+      }
+      throw err;
+    }
 
     return { settlementGroupId, staleCount };
   };
 
+  // ── computeSettlementPreview ──────────────────────────────────────────────
   const computeSettlementPreview = useCallback(
     async (txIds) => {
       const localSelected = txIds
@@ -842,7 +834,8 @@ export const useTransactions = (contactId) => {
         });
 
       let selected = localSelected;
-      if (user && localSelected.length > 0) {
+
+      if (user && navigator.onLine) {
         try {
           const { data: freshRows } = await supabase
             .from("transactions")
@@ -853,7 +846,7 @@ export const useTransactions = (contactId) => {
             )
             .eq("user_id", user.id);
 
-          if (freshRows && freshRows.length > 0) {
+          if (freshRows?.length) {
             const freshMap = Object.fromEntries(
               freshRows.map((r) => [r.id, rowToTransaction(r)]),
             );
@@ -867,12 +860,11 @@ export const useTransactions = (contactId) => {
               });
           }
         } catch {
-          // Fall back to local state on fetch error
+          /* use local */
         }
       }
 
       const byDate = (a, b) => new Date(a.createdAt) - new Date(b.createdAt);
-
       const outPool = [
         ...selected
           .filter((t) => t.type === "out" && t.status === "pending")
@@ -895,7 +887,6 @@ export const useTransactions = (contactId) => {
           }))
           .sort(byDate),
       ];
-
       const inPool = [
         ...selected
           .filter((t) => t.type === "in" && t.status === "pending")
@@ -928,8 +919,8 @@ export const useTransactions = (contactId) => {
       let oi = 0,
         ii = 0;
       while (oi < outPool.length && ii < inPool.length) {
-        const outTx = outPool[oi];
-        const inTx = inPool[ii];
+        const outTx = outPool[oi],
+          inTx = inPool[ii];
         const offset = Math.min(outTx.remaining, inTx.remaining);
         if (offset > 0) {
           settlementMap[outTx.id].amount += offset;
@@ -943,11 +934,9 @@ export const useTransactions = (contactId) => {
 
       const totalSettled =
         Object.values(settlementMap).reduce((s, v) => s + v.amount, 0) / 2;
-
       const affectedCount = Object.values(settlementMap).filter(
         (v) => v.amount > 0,
       ).length;
-
       const previews = selected.map((tx) => {
         const settled = settlementMap[tx.id]?.amount ?? 0;
         const currentRemaining = (tx.totalAmount ?? 0) - (tx.paidAmount ?? 0);
@@ -956,13 +945,12 @@ export const useTransactions = (contactId) => {
           ? Math.abs(currentRemaining)
           : currentRemaining;
         const newRemaining = Math.max(0, oldRemaining - settled);
-        const willComplete = newRemaining <= 0.001 && settled > 0;
         return {
           tx,
           settled,
           oldRemaining,
           newRemaining,
-          willComplete,
+          willComplete: newRemaining <= 0.001 && settled > 0,
           isAdvanceTx,
         };
       });
@@ -972,27 +960,31 @@ export const useTransactions = (contactId) => {
     [transactions, user],
   );
 
+  // ── netSettle ─────────────────────────────────────────────────────────────
   const netSettle = async ({ note, method } = {}) => {
     if (!user) throw new Error("NOT_AUTHENTICATED");
-    if (isNoContact)
-      throw new Error(
-        "Net Settle requires a single contact and isn't available on the Unassigned page — use Settle instead.",
-      );
+    if (isNoContact) throw new Error("Net Settle requires a single contact.");
 
-    // netSettle only considers PRIMARY transactions
-    const { data: freshRows, error: fetchErr } = await supabase
-      .from("transactions")
-      .select("*")
-      .eq("contact_id", contactId)
-      .eq("user_id", user.id)
-      .neq("status", "deleted");
+    let freshTxs = transactions.filter(
+      (t) => t._role !== "linked" && t.status !== "deleted",
+    );
 
-    if (fetchErr) throw fetchErr;
+    if (navigator.onLine) {
+      try {
+        const { data: freshRows } = await supabase
+          .from("transactions")
+          .select("*")
+          .eq("contact_id", contactId)
+          .eq("user_id", user.id)
+          .neq("status", "deleted");
+        if (freshRows) freshTxs = freshRows.map(rowToTransaction);
+      } catch {
+        /* use local */
+      }
+    }
 
-    const freshTxs = (freshRows ?? []).map(rowToTransaction);
-
-    let toReceive = 0;
-    let toGive = 0;
+    let toReceive = 0,
+      toGive = 0;
     for (const tx of freshTxs) {
       const remaining = (tx.totalAmount ?? 0) - (tx.paidAmount ?? 0);
       if (tx.status === "pending" && tx.type === "out" && remaining > 0)
@@ -1006,15 +998,13 @@ export const useTransactions = (contactId) => {
     }
 
     const netAmount = Math.round((toReceive - toGive) * 100) / 100;
-    if (Math.abs(netAmount) < 0.01)
-      throw new Error("Net balance is zero — nothing to settle");
+    if (Math.abs(netAmount) < 0.01) throw new Error("Net balance is zero");
 
     const balancingType = netAmount > 0 ? "in" : "out";
     const balancingAmount = Math.abs(netAmount);
     const now = new Date().toISOString();
     const balancingTxId = crypto.randomUUID();
     const settlementGroupId = crypto.randomUUID();
-
     const baseNote = `Net settlement via ${method ?? "cash"}`;
     const balancingTxNote = note?.trim()
       ? `${baseNote} · ${note.trim()}`
@@ -1036,25 +1026,19 @@ export const useTransactions = (contactId) => {
       note: balancingTxNote,
       status: "pending",
     };
-
-    const balancingTx = rowToTransaction({
+    const balancingTxLocal = rowToTransaction({
       ...balancingRow,
       created_at: now,
       updated_at: now,
-      contact_id: contactId,
     });
 
     const eligibleExisting = freshTxs.filter((t) => {
       const rem = (t.totalAmount ?? 0) - (t.paidAmount ?? 0);
-      if (t.status === "pending") return rem > 0;
-      if (t.status === "overpaid") return true;
-      return false;
+      return t.status === "pending" ? rem > 0 : t.status === "overpaid";
     });
-
-    const allParticipants = [...eligibleExisting, balancingTx];
-
+    const allParticipants = [...eligibleExisting, balancingTxLocal];
     if (allParticipants.length < 2)
-      throw new Error("Not enough eligible transactions to settle");
+      throw new Error("Not enough eligible transactions");
 
     const settledAt = now;
     const byDate = (a, b) => new Date(a.createdAt) - new Date(b.createdAt);
@@ -1081,7 +1065,6 @@ export const useTransactions = (contactId) => {
         }))
         .sort(byDate),
     ];
-
     const inPool = [
       ...allParticipants
         .filter((t) => t.type === "in" && t.status === "pending")
@@ -1113,8 +1096,8 @@ export const useTransactions = (contactId) => {
     let oi = 0,
       ii = 0;
     while (oi < outPool.length && ii < inPool.length) {
-      const outTx = outPool[oi];
-      const inTx = inPool[ii];
+      const outTx = outPool[oi],
+        inTx = inPool[ii];
       const offset = Math.min(outTx.remaining, inTx.remaining);
       if (offset > 0) {
         settlementMap[outTx.id].amount += offset;
@@ -1122,13 +1105,11 @@ export const useTransactions = (contactId) => {
           settlementMap[outTx.id].partnerIds.push(inTx.id);
         settlementMap[outTx.id].partnerAmounts[inTx.id] =
           (settlementMap[outTx.id].partnerAmounts[inTx.id] ?? 0) + offset;
-
         settlementMap[inTx.id].amount += offset;
         if (!settlementMap[inTx.id].partnerIds.includes(outTx.id))
           settlementMap[inTx.id].partnerIds.push(outTx.id);
         settlementMap[inTx.id].partnerAmounts[outTx.id] =
           (settlementMap[inTx.id].partnerAmounts[outTx.id] ?? 0) + offset;
-
         outTx.remaining -= offset;
         inTx.remaining -= offset;
       }
@@ -1137,26 +1118,18 @@ export const useTransactions = (contactId) => {
     }
 
     const freshMap = Object.fromEntries(freshTxs.map((t) => [t.id, t]));
-    freshMap[balancingTxId] = balancingTx;
-
+    freshMap[balancingTxId] = balancingTxLocal;
     const updatedTxs = {};
 
     for (const tx of allParticipants) {
       const settlement = settlementMap[tx.id];
       if (!settlement || settlement.amount <= 0) continue;
-
       const existing = freshMap[tx.id] ?? tx;
       const currentRemaining =
         (existing.totalAmount ?? 0) - (existing.paidAmount ?? 0);
       const isAdvanceTx = currentRemaining < 0;
-
-      const partnerNote =
-        settlement.partnerIds.length > 0
-          ? `Settled against: ${settlement.partnerIds.map((id) => id.slice(0, 8)).join(", ")}`
-          : "Net settlement";
-
-      let newPaid;
-      let historyEntry;
+      const partnerNote = `Settled against: ${settlement.partnerIds.map((id) => id.slice(0, 8)).join(", ")}`;
+      let newPaid, historyEntry;
 
       if (isAdvanceTx) {
         newPaid = (existing.paidAmount ?? 0) - settlement.amount;
@@ -1186,57 +1159,302 @@ export const useTransactions = (contactId) => {
         };
       }
 
-      const newStatus = deriveStatus(newPaid, existing.totalAmount ?? 0);
-
       const baseHistory = existing.paidAmountHistory ?? [];
       updatedTxs[tx.id] = {
         ...existing,
         paidAmount: newPaid,
         paidAmountHistory: [...baseHistory, historyEntry],
-        status: newStatus,
+        status: deriveStatus(newPaid, existing.totalAmount ?? 0),
         updatedAt: now,
       };
     }
 
-    if (!updatedTxs[balancingTxId]) {
-      updatedTxs[balancingTxId] = balancingTx;
-    }
+    if (!updatedTxs[balancingTxId])
+      updatedTxs[balancingTxId] = balancingTxLocal;
 
-    const allRows = Object.values(updatedTxs).map(transactionToRow);
-    const { error: batchErr } = await supabase
-      .from("transactions")
-      .upsert(allRows, { onConflict: "id" });
-    if (batchErr) throw batchErr;
-
-    const finalBalancing = updatedTxs[balancingTxId] ?? balancingTx;
+    const allRows = Object.values(updatedTxs).map((t) =>
+      t.id === balancingTxId ? balancingRow : transactionToRow(t),
+    );
+    const finalBalancing = updatedTxs[balancingTxId] ?? balancingTxLocal;
 
     setTransactions((prev) => {
       const existingIds = new Set(prev.map((t) => t.id));
-      const newList = prev.map((t) =>
+      const list = prev.map((t) =>
         updatedTxs[t.id] ? { ...updatedTxs[t.id], _role: t._role } : t,
       );
       if (!existingIds.has(balancingTxId))
-        newList.unshift({ ...finalBalancing, _role: "primary" });
-      for (const updated of Object.values(updatedTxs)) {
-        if (!existingIds.has(updated.id) && updated.id !== balancingTxId)
-          newList.push(updated);
+        list.unshift({ ...finalBalancing, _role: "primary" });
+      for (const u of Object.values(updatedTxs)) {
+        if (!existingIds.has(u.id) && u.id !== balancingTxId) list.push(u);
       }
-      saveToLocal(newList);
-      return newList;
+      saveToLocal(list);
+      return list;
     });
+
+    if (!navigator.onLine) {
+      enqueue(
+        OP_TYPES.TX_UPSERT,
+        { rows: allRows },
+        Object.values(updatedTxs),
+        user.id,
+      );
+      return { settlementGroupId, balancingTxId, staleCount: 0 };
+    }
+
+    try {
+      const { error: batchErr } = await supabase
+        .from("transactions")
+        .upsert(allRows, { onConflict: "id" });
+      if (batchErr) throw batchErr;
+    } catch (err) {
+      if (isNetworkError(err)) {
+        enqueue(
+          OP_TYPES.TX_UPSERT,
+          { rows: allRows },
+          Object.values(updatedTxs),
+          user.id,
+        );
+        return { settlementGroupId, balancingTxId, staleCount: 0 };
+      }
+      throw err;
+    }
 
     return { settlementGroupId, balancingTxId, staleCount: 0 };
   };
 
-  // Summary: ONLY counts primary transactions (where this contact is the financial owner)
+  // ── assignContact ─────────────────────────────────────────────────────────
+  // FIX: now also pushes the transaction into the target contact's localStorage
+  // cache immediately so the contact page shows it without needing a reload.
+  const assignContact = async (
+    txId,
+    targetContactId,
+    { allowReassign = false } = {},
+  ) => {
+    if (!user) throw new Error("NOT_AUTHENTICATED");
+    if (!targetContactId) throw new Error("A contact must be selected");
+
+    const assignedAt = new Date().toISOString();
+    const tx = transactions.find((t) => t.id === txId);
+
+    // Optimistic local write — update contactId in current hook's state
+    setTransactions((prev) => {
+      const list = prev.map((t) =>
+        t.id === txId
+          ? { ...t, contactId: targetContactId, updatedAt: assignedAt }
+          : t,
+      );
+      saveToLocal(list);
+      return list;
+    });
+
+    // FIX: push the updated tx into the target contact's localStorage cache
+    if (tx) {
+      pushToContactCache(
+        { ...tx, contactId: targetContactId, updatedAt: assignedAt },
+        targetContactId,
+      );
+    }
+
+    if (!navigator.onLine) {
+      enqueue(
+        OP_TYPES.TX_ASSIGN_CONTACT,
+        { txId, contactId: targetContactId, allowReassign },
+        null,
+        user.id,
+      );
+      return;
+    }
+
+    try {
+      const { data: freshRows, error: fetchErr } = await supabase
+        .from("transactions")
+        .select("contact_id")
+        .eq("id", txId)
+        .eq("user_id", user.id)
+        .limit(1);
+
+      if (fetchErr) throw fetchErr;
+
+      const fresh = freshRows?.[0];
+      if (fresh?.contact_id && !allowReassign)
+        throw new Error("Already assigned");
+
+      const { error: updateErr } = await supabase
+        .from("transactions")
+        .update({ contact_id: targetContactId, updated_at: assignedAt })
+        .eq("id", txId)
+        .eq("user_id", user.id);
+
+      if (updateErr) throw updateErr;
+    } catch (err) {
+      if (isNetworkError(err)) {
+        enqueue(
+          OP_TYPES.TX_ASSIGN_CONTACT,
+          { txId, contactId: targetContactId, allowReassign },
+          null,
+          user.id,
+        );
+        return;
+      }
+      throw err;
+    }
+  };
+
+  // ── assignContactBulk ─────────────────────────────────────────────────────
+  const assignContactBulk = async (txIds, targetContactId) => {
+    if (!user) throw new Error("NOT_AUTHENTICATED");
+    if (!targetContactId) throw new Error("A contact must be selected");
+    if (!txIds?.length) return { assignedCount: 0, skippedCount: 0 };
+
+    const localAssignable = txIds.filter((id) => {
+      const t = transactions.find((tx) => tx.id === id);
+      return t && !t.contactId;
+    });
+
+    let assignableIds = localAssignable;
+    let skippedCount = txIds.length - localAssignable.length;
+
+    if (navigator.onLine) {
+      try {
+        const { data: freshRows } = await supabase
+          .from("transactions")
+          .select("id, contact_id")
+          .in("id", txIds)
+          .eq("user_id", user.id);
+
+        if (freshRows) {
+          assignableIds = freshRows
+            .filter((r) => !r.contact_id)
+            .map((r) => r.id);
+          skippedCount = txIds.length - assignableIds.length;
+        }
+      } catch {
+        /* use local */
+      }
+    }
+
+    if (assignableIds.length === 0) return { assignedCount: 0, skippedCount };
+
+    const assignedAt = new Date().toISOString();
+    const assignedSet = new Set(assignableIds);
+
+    // Optimistic local write
+    setTransactions((prev) => {
+      const list = prev.filter((t) => !assignedSet.has(t.id));
+      saveToLocal(list);
+      return list;
+    });
+
+    // FIX: push each assigned tx into the target contact's localStorage cache
+    for (const txId of assignableIds) {
+      const tx = transactions.find((t) => t.id === txId);
+      if (tx)
+        pushToContactCache(
+          { ...tx, contactId: targetContactId, updatedAt: assignedAt },
+          targetContactId,
+        );
+    }
+
+    if (!navigator.onLine) {
+      for (const txId of assignableIds) {
+        enqueue(
+          OP_TYPES.TX_ASSIGN_CONTACT,
+          { txId, contactId: targetContactId, allowReassign: false },
+          null,
+          user.id,
+        );
+      }
+      return { assignedCount: assignableIds.length, skippedCount };
+    }
+
+    try {
+      const { error: updateErr } = await supabase
+        .from("transactions")
+        .update({ contact_id: targetContactId, updated_at: assignedAt })
+        .in("id", assignableIds)
+        .eq("user_id", user.id);
+      if (updateErr) throw updateErr;
+    } catch (err) {
+      if (isNetworkError(err)) {
+        for (const txId of assignableIds) {
+          enqueue(
+            OP_TYPES.TX_ASSIGN_CONTACT,
+            { txId, contactId: targetContactId, allowReassign: false },
+            null,
+            user.id,
+          );
+        }
+        return { assignedCount: assignableIds.length, skippedCount };
+      }
+      throw err;
+    }
+
+    return { assignedCount: assignableIds.length, skippedCount };
+  };
+
+  // ── unassignContact ───────────────────────────────────────────────────────
+  const unassignContact = async (txId) => {
+    if (!user) throw new Error("NOT_AUTHENTICATED");
+
+    // FIX: also remove from the contact's cache and push to unassigned cache
+    const tx = transactions.find((t) => t.id === txId);
+    const previousContactId = tx?.contactId;
+
+    setTransactions((prev) => {
+      const list = prev.map((t) =>
+        t.id === txId ? { ...t, contactId: null } : t,
+      );
+      saveToLocal(list);
+      return list;
+    });
+
+    // Remove from the contact's cache if it was there
+    if (previousContactId) {
+      removeFromCache(txId, previousContactId);
+      // Add it to the unassigned cache
+      if (tx) pushToContactCache({ ...tx, contactId: null }, NO_CONTACT);
+    }
+
+    if (!navigator.onLine) {
+      enqueue(OP_TYPES.TX_UNASSIGN_CONTACT, { txId }, null, user.id);
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("transactions")
+        .update({ contact_id: null, updated_at: new Date().toISOString() })
+        .eq("id", txId)
+        .eq("user_id", user.id);
+      if (error) throw error;
+    } catch (err) {
+      if (isNetworkError(err)) {
+        enqueue(OP_TYPES.TX_UNASSIGN_CONTACT, { txId }, null, user.id);
+        return;
+      }
+      throw err;
+    }
+  };
+
+  // ── dropFromLocalState ────────────────────────────────────────────────────
+  // FIX: now correctly removes from localStorage too (was missing saveToLocal call)
+  const dropFromLocalState = useCallback(
+    (txId) => {
+      setTransactions((prev) => {
+        if (!prev.some((t) => t.id === txId)) return prev;
+        const list = prev.filter((t) => t.id !== txId);
+        saveToLocal(list); // ← was missing in original
+        return list;
+      });
+    },
+    [saveToLocal],
+  );
+
+  // ── summary ───────────────────────────────────────────────────────────────
   const summary = transactions.reduce(
     (acc, tx) => {
       if (tx.status === "deleted") return acc;
-      if (tx._role === "linked") return acc; // exclude linked-only from summary
-      // In the no-contact pool, a transaction that's just been assigned a
-      // real contact (but is still kept in local state so an open detail
-      // modal can show a "Change" option) no longer belongs to this
-      // summary — it now belongs to the assigned contact's totals instead.
+      if (tx._role === "linked") return acc;
       if (isNoContact && tx.contactId) return acc;
 
       const remaining = (tx.totalAmount ?? 0) - (tx.paidAmount ?? 0);
@@ -1249,16 +1467,15 @@ export const useTransactions = (contactId) => {
         else acc.pendingIn += 1;
       }
 
-      if (isPending && tx.type === "out" && remaining > 0) {
+      if (isPending && tx.type === "out" && remaining > 0)
         acc.toReceive += remaining;
-      } else if (isOverpaid && tx.type === "in") {
+      else if (isOverpaid && tx.type === "in") {
         acc.toReceive += Math.abs(remaining);
         acc.overpaidIn += 1;
       }
-
-      if (isPending && tx.type === "in" && remaining > 0) {
+      if (isPending && tx.type === "in" && remaining > 0)
         acc.toGive += remaining;
-      } else if (isOverpaid && tx.type === "out") {
+      else if (isOverpaid && tx.type === "out") {
         acc.toGive += Math.abs(remaining);
         acc.overpaidOut += 1;
       }

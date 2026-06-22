@@ -1,36 +1,61 @@
+"use client";
+
+/**
+ * hooks/usePriceList.js  — offline-first version
+ *
+ * Changes vs original:
+ *  1. savePriceData writes to localStorage + React state FIRST (optimistic),
+ *     then attempts the DB write.
+ *  2. If offline (or the DB write fails with a network-type error), the
+ *     operation is enqueued in offlineQueue instead of throwing.
+ *  3. Load path: always tries to serve from localStorage immediately so the
+ *     user sees data with zero delay, then hydrates from DB in the background.
+ */
+
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { sortData, buildSearchIndex } from "../lib/utils/priceListUtils";
+import { sortData, buildSearchIndex } from "@/lib/utils/priceListUtils";
+import { enqueue, OP_TYPES } from "@/lib/offlineQueue";
 
-// Helper function to recursively capture the object key order into an __orderKeys array
+// ─── helpers (unchanged from original) ───────────────────────────────────────
+
 const deepAddOrderKeys = (data) => {
   if (!data || typeof data !== "object") return data;
-
   const newData = {};
-
   Object.entries(data).forEach(([key, node]) => {
     if (node && node.type === "category" && node.children) {
       const sortedChildren = deepAddOrderKeys(node.children);
-      const orderKeys = Object.keys(sortedChildren);
-
       newData[key] = {
         ...node,
         children: sortedChildren,
-        __orderKeys: orderKeys,
+        __orderKeys: Object.keys(sortedChildren),
       };
     } else {
       newData[key] = node;
     }
   });
-
   return newData;
 };
+
+/** Returns true for errors that are clearly network/offline related */
+const isNetworkError = (err) => {
+  if (!err) return false;
+  const msg = (err.message ?? "").toLowerCase();
+  return (
+    msg.includes("fetch") ||
+    msg.includes("network") ||
+    msg.includes("failed to fetch") ||
+    msg.includes("networkerror") ||
+    (typeof navigator !== "undefined" && !navigator.onLine)
+  );
+};
+
+// ─── hook ─────────────────────────────────────────────────────────────────────
 
 export const usePriceList = () => {
   const { user, loading: authLoading } = useAuth();
 
-  // UI States
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [expandedCategories, setExpandedCategories] = useState({});
@@ -38,58 +63,33 @@ export const usePriceList = () => {
   const [priceView, setPriceView] = useState("sell");
   const [editMode, setEditMode] = useState(false);
 
-  // Data States
   const [priceData, setPriceData] = useState({});
   const [isHydrated, setIsHydrated] = useState(false);
   const [isDataLoading, setIsDataLoading] = useState(true);
 
   const hasFetchedDb = useRef(false);
-  // Track the last user ID so we can detect account switches within the same
-  // tab session and force a fresh DB fetch for the new user.
   const prevUserIdRef = useRef(null);
 
-  // Debounce searchTerm by 200ms so filterData doesn't run on every keystroke
+  // Debounce search
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearchTerm(searchTerm);
-    }, 200);
+    const timer = setTimeout(() => setDebouncedSearchTerm(searchTerm), 200);
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  // Build the search index once when priceData changes.
-  // flattenData + tokenize is expensive — doing it here (on save/load)
-  // instead of on every keystroke is the key performance fix.
   const searchIndex = useMemo(() => buildSearchIndex(priceData), [priceData]);
 
-  // Helper to load from local storage
-  const loadFromLocal = () => {
-    const saved = localStorage.getItem("priceListData");
-    if (saved) {
-      try {
-        setPriceData(JSON.parse(saved));
-      } catch (e) {
-        console.error("Local parse error", e);
-        setPriceData({});
-      }
-    }
-  };
-
-  // Load sellPriceMode from localStorage on mount
+  // Load sellPriceMode from localStorage
   useEffect(() => {
     const savedMode = localStorage.getItem("sellPriceMode");
-    if (savedMode === "bulk" || savedMode === "retail") {
+    if (savedMode === "bulk" || savedMode === "retail")
       setSellPriceMode(savedMode);
-    }
   }, []);
 
-  // Load data when auth finishes loading
+  // ── initial load ──────────────────────────────────────────────────────────
   useEffect(() => {
     const loadData = async () => {
       const currentUserId = user?.id ?? null;
 
-      // If the user changed since the last fetch (e.g. account switch in same
-      // tab), reset the guard so we fetch fresh data for the new user instead
-      // of serving the previous user's stale localStorage cache.
       if (hasFetchedDb.current && currentUserId !== prevUserIdRef.current) {
         hasFetchedDb.current = false;
         setPriceData({});
@@ -101,20 +101,35 @@ export const usePriceList = () => {
         setIsHydrated(true);
         return;
       }
-
       if (authLoading) return;
 
       setIsDataLoading(true);
       hasFetchedDb.current = true;
 
+      // ── Step 1: serve from localStorage immediately (zero-delay) ──────────
+      const local = localStorage.getItem("priceListData");
+      if (local) {
+        try {
+          const parsed = JSON.parse(local);
+          setPriceData(parsed);
+          setIsHydrated(true); // UI is usable right away
+        } catch {}
+      }
+
       if (!user) {
-        console.warn("No user found. Loading local data.");
-        loadFromLocal();
         setIsDataLoading(false);
         setIsHydrated(true);
         return;
       }
 
+      // Clear stale v1 localStorage format if migrating
+      if (localStorage.getItem("contactsMigrated") !== "v2") {
+        localStorage.removeItem("peopleData");
+        localStorage.removeItem("peoplePhotos");
+        localStorage.setItem("contactsMigrated", "v2");
+      }
+
+      // ── Step 2: background DB fetch ───────────────────────────────────────
       try {
         const { data, error } = await supabase
           .from("price_lists")
@@ -124,18 +139,14 @@ export const usePriceList = () => {
 
         if (error) throw error;
 
-        if (data && data.data) {
-          console.log("Data loaded from Supabase");
-          const sortedData = sortData(data.data, "none");
-          setPriceData(sortedData);
-          localStorage.setItem("priceListData", JSON.stringify(sortedData));
-        } else {
-          console.log("No DB entry found. Initializing...");
-          loadFromLocal();
+        if (data?.data) {
+          const sorted = sortData(data.data, "none");
+          setPriceData(sorted);
+          localStorage.setItem("priceListData", JSON.stringify(sorted));
         }
-      } catch (error) {
-        console.error("DB Load Error:", error);
-        loadFromLocal();
+      } catch (err) {
+        // Network offline — already showing localStorage data, that's fine
+        console.warn("[usePriceList] DB fetch failed (offline?):", err.message);
       } finally {
         setIsDataLoading(false);
         setIsHydrated(true);
@@ -145,89 +156,108 @@ export const usePriceList = () => {
     loadData();
   }, [user, authLoading]);
 
-  // Effect to reset priceView when showCostProfit setting changes
+  // Reset priceView if showCostProfit is toggled off
   useEffect(() => {
-    const checkShowCostProfit = () => {
-      const showCostProfit = localStorage.getItem("showCostProfit") === "true";
-      if (!showCostProfit && priceView !== "sell") {
+    const check = () => {
+      if (
+        localStorage.getItem("showCostProfit") !== "true" &&
+        priceView !== "sell"
+      ) {
         setPriceView("sell");
       }
     };
-
-    checkShowCostProfit();
-    window.addEventListener("storage", checkShowCostProfit);
-    return () => window.removeEventListener("storage", checkShowCostProfit);
+    check();
+    window.addEventListener("storage", check);
+    return () => window.removeEventListener("storage", check);
   }, [priceView]);
 
-  // Save data to DB and local storage - NO TOAST LOGIC
-  const savePriceData = async (newData) => {
-    if (!user) {
-      throw new Error("NOT_AUTHENTICATED");
-    }
+  // ── savePriceData — offline-first ─────────────────────────────────────────
+  const savePriceData = useCallback(
+    async (newData) => {
+      if (!user) throw new Error("NOT_AUTHENTICATED");
 
-    try {
       const dataToSave = deepAddOrderKeys(newData);
 
-      const { error } = await supabase.from("price_lists").upsert(
-        {
-          user_id: user.id,
-          data: dataToSave,
-        },
-        { onConflict: "user_id" },
-      );
-
-      if (error) throw error;
-
+      // 1. Write to localStorage + React state IMMEDIATELY (optimistic)
       localStorage.setItem("priceListData", JSON.stringify(dataToSave));
       setPriceData(dataToSave);
-    } catch (error) {
-      console.error("Save Error:", error);
-      throw error; // Re-throw for container to handle
-    }
-  };
 
-  // useCallback so consumers (e.g. PriceListContainer effects/memo deps)
-  // get a stable function reference across renders instead of a brand-new
-  // closure every time — unstable function refs in a dependency array are
-  // exactly what caused the earlier infinite-loop bug.
+      // 2. Attempt DB write
+      if (!navigator.onLine) {
+        // Offline — enqueue and return silently
+        enqueue(
+          OP_TYPES.PRICE_LIST_SAVE,
+          { data: dataToSave },
+          dataToSave,
+          user.id,
+        );
+        return;
+      }
+
+      try {
+        const { error } = await supabase
+          .from("price_lists")
+          .upsert(
+            { user_id: user.id, data: dataToSave },
+            { onConflict: "user_id" },
+          );
+        if (error) throw error;
+      } catch (err) {
+        if (isNetworkError(err)) {
+          // Network dropped mid-flight — enqueue for retry
+          enqueue(
+            OP_TYPES.PRICE_LIST_SAVE,
+            { data: dataToSave },
+            dataToSave,
+            user.id,
+          );
+          return; // Don't throw — user already sees the change locally
+        }
+        // Real DB error (e.g. auth) — still don't roll back the local write
+        // but do re-throw so the container can show an error toast
+        throw err;
+      }
+    },
+    [user],
+  );
+
+  // ── UI helpers (unchanged) ────────────────────────────────────────────────
   const toggleCategory = useCallback((path) => {
     setExpandedCategories((prev) => ({ ...prev, [path]: !prev[path] }));
   }, []);
 
   const expandAll = useCallback((data) => {
     const allPaths = {};
-    const collectPaths = (obj, parentPath = "") => {
+    const collect = (obj, parent = "") => {
       Object.entries(obj).forEach(([key, value]) => {
         if (key.startsWith("__")) return;
-        const currentPath = parentPath ? `${parentPath}.${key}` : key;
+        const p = parent ? `${parent}.${key}` : key;
         if (value.type === "category") {
-          allPaths[currentPath] = true;
-          if (value.children) collectPaths(value.children, currentPath);
+          allPaths[p] = true;
+          if (value.children) collect(value.children, p);
         }
       });
     };
-    collectPaths(data);
+    collect(data);
     setExpandedCategories(allPaths);
   }, []);
 
   const collapseAll = useCallback(() => setExpandedCategories({}), []);
 
   const toggleSellPriceMode = useCallback(() => {
-    setSellPriceMode((prevMode) => {
-      const newMode = prevMode === "retail" ? "bulk" : "retail";
-      localStorage.setItem("sellPriceMode", newMode);
-      return newMode;
+    setSellPriceMode((prev) => {
+      const next = prev === "retail" ? "bulk" : "retail";
+      localStorage.setItem("sellPriceMode", next);
+      return next;
     });
   }, []);
 
   const cyclePriceView = useCallback(() => {
     const showCostProfit = localStorage.getItem("showCostProfit") === "true";
-
     if (!showCostProfit) {
       setPriceView("sell");
       return;
     }
-
     setPriceView((prev) => {
       if (prev === "sell") return "cost";
       if (prev === "cost") return "profit";
