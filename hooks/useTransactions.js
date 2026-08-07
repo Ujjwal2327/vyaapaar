@@ -1,21 +1,14 @@
 "use client";
 
 /**
- * hooks/useTransactions.js  — offline-first version (v2)
+ * hooks/useTransactions.js  — offline-first version (v3)
  *
- * Bug fixes vs v1:
- *  1. FIX: Assigned transactions now appear on contact page.
- *     - After assignContact/assignContactBulk, the contact's localStorage
- *       cache (transactions_{contactId}) is updated immediately so the
- *       contact page sees the transaction without a full page reload.
- *  2. FIX: Contact page now always shows latest transactions in offline mode.
- *     - hasFetched guard is now per-session-visit (reset on page focus +
- *       online event) so navigating back to a contact page re-fetches.
- *  3. FIX: dropFromLocalState was not updating the unassigned localStorage
- *       cache when a transaction was dropped after assignment.
- *  4. FIX: transactionToRow was only usable inside the hook (needs useCallback
- *       with stable deps) — extracted to avoid stale closure bugs.
- *  5. FIX: isNetworkError now also checks navigator.onLine directly.
+ * Bug fixes vs v2:
+ *  1. FIX #3: deleteTransaction now fetches partner transactions from the DB
+ *     when they are not present in the local transactions array (cross-contact
+ *     settlement partners). Previously, only partners visible in the current
+ *     hook's array had their settlement history reversed; partners belonging
+ *     to other contacts were silently left with stale/inflated paidAmount.
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -63,20 +56,12 @@ const isNetworkError = (err) => {
 };
 
 // ─── cross-cache helpers ──────────────────────────────────────────────────────
-// When a transaction moves from the unassigned pool to a real contact (or vice
-// versa), we must update BOTH localStorage caches so both pages see consistent
-// data without a reload.
 
-/**
- * Push a transaction INTO a contact's localStorage cache.
- * Creates the cache entry if it doesn't exist yet.
- */
 const pushToContactCache = (tx, targetContactId) => {
   try {
     const key = `transactions_${targetContactId}`;
     const raw = localStorage.getItem(key);
     const list = raw ? JSON.parse(raw) : [];
-    // Remove any stale copy first, then prepend
     const next = [
       { ...tx, contactId: targetContactId, _role: "primary" },
       ...list.filter((t) => t.id !== tx.id),
@@ -85,9 +70,6 @@ const pushToContactCache = (tx, targetContactId) => {
   } catch {}
 };
 
-/**
- * Remove a transaction FROM a contact's (or unassigned) localStorage cache.
- */
 const removeFromCache = (txId, cacheContactId) => {
   try {
     const key = `transactions_${cacheContactId}`;
@@ -98,9 +80,6 @@ const removeFromCache = (txId, cacheContactId) => {
   } catch {}
 };
 
-/**
- * Update a single transaction field in a contact's localStorage cache.
- */
 const patchInCache = (txId, patch, cacheContactId) => {
   try {
     const key = `transactions_${cacheContactId}`;
@@ -143,7 +122,6 @@ export const useTransactions = (contactId) => {
     [localKey],
   );
 
-  // Reset fetch guard on user change
   useEffect(() => {
     if (!contactId) return;
     const uid = user?.id ?? null;
@@ -154,27 +132,20 @@ export const useTransactions = (contactId) => {
     prevUserIdRef.current = uid;
   }, [contactId, user]);
 
-  // Reset fetch guard whenever contactId changes (navigating to a different contact)
   useEffect(() => {
     if (!contactId) return;
     hasFetched.current = false;
   }, [contactId]);
 
-  // FIX #2: Reset fetch guard when device comes back online so the contact
-  // page re-fetches fresh data after an offline session.
   useEffect(() => {
     const handleOnline = () => {
       hasFetched.current = false;
-      // The load effect below will re-run because hasFetched is now false,
-      // but effects don't automatically re-run — we need to trigger it.
-      // We do this by dispatching a custom event the load effect listens to.
       window.dispatchEvent(new Event("txRefreshNeeded"));
     };
     window.addEventListener("online", handleOnline);
     return () => window.removeEventListener("online", handleOnline);
   }, []);
 
-  // Main load effect
   useEffect(() => {
     if (!contactId) return;
 
@@ -184,7 +155,6 @@ export const useTransactions = (contactId) => {
       setIsLoading(true);
       hasFetched.current = true;
 
-      // Step 1: serve from localStorage immediately
       loadFromLocal();
 
       if (!user) {
@@ -192,7 +162,6 @@ export const useTransactions = (contactId) => {
         return;
       }
 
-      // Step 2: background DB fetch
       try {
         const primaryQuery = supabase
           .from("transactions")
@@ -243,7 +212,6 @@ export const useTransactions = (contactId) => {
 
     doLoad();
 
-    // Also re-run when the "txRefreshNeeded" event fires (after coming online)
     const handler = () => {
       hasFetched.current = false;
       doLoad();
@@ -297,15 +265,12 @@ export const useTransactions = (contactId) => {
       _role: "primary",
     };
 
-    // Optimistic local write
     setTransactions((prev) => {
       const updated = [tx, ...prev];
       saveToLocal(updated);
       return updated;
     });
 
-    // FIX: if created on unassigned page WITH a contact, also push to that
-    // contact's cache so the contact page shows it immediately
     if (isNoContact && tx.contactId) {
       pushToContactCache(tx, tx.contactId);
     }
@@ -427,9 +392,13 @@ export const useTransactions = (contactId) => {
 
     const deletedTx = { ...target, status: "deleted", updatedAt: now };
 
-    const allContactTxs = transactions.filter((t) => t.status !== "deleted");
+    // All transactions currently loaded in this hook's state (primary + linked,
+    // excluding already-deleted ones).
+    const allLocalTxs = transactions.filter((t) => t.status !== "deleted");
 
-    const partnerIds = allContactTxs
+    // Find partner IDs that reference txId in their settlement history.
+    // This covers partners visible in local state (same contact).
+    const localPartnerIds = allLocalTxs
       .filter((t) => {
         if (t.id === txId) return false;
         return (t.paidAmountHistory ?? []).some(
@@ -441,69 +410,139 @@ export const useTransactions = (contactId) => {
       })
       .map((t) => t.id);
 
-    const updatedPartners = partnerIds
-      .map((pid) => {
-        const partner = allContactTxs.find((t) => t.id === pid);
-        if (!partner) return null;
+    // FIX #3: Also fetch cross-contact partner transactions from the DB.
+    // When a transaction from contact A is settled against one from contact B,
+    // the partner from contact B is NOT in this hook's local transactions array.
+    // Without this fetch, the partner's paidAmount is never corrected on delete.
+    //
+    // Efficiency: instead of fetching ALL user transactions, we extract the
+    // known partner IDs directly from the deleted transaction's own payment
+    // history (each settlement entry lists its partnerIds). We then fetch only
+    // those specific IDs that are not already present in local state.
+    let crossContactPartners = [];
+    if (navigator.onLine) {
+      try {
+        const localIds = new Set(allLocalTxs.map((t) => t.id));
 
-        const cleanedHistory = (partner.paidAmountHistory ?? [])
-          .map((entry) => {
-            const isSett =
-              entry.method === "settlement" ||
-              entry.method === "advance-applied";
-            if (!isSett) return entry;
-            if (!(entry.partnerIds ?? []).includes(txId)) return entry;
+        // Collect all partner IDs referenced in the deleted tx's settlement history.
+        const knownPartnerIds = [
+          ...new Set(
+            (target.paidAmountHistory ?? [])
+              .filter(
+                (e) =>
+                  (e.method === "settlement" ||
+                    e.method === "advance-applied") &&
+                  Array.isArray(e.partnerIds),
+              )
+              .flatMap((e) => e.partnerIds),
+          ),
+        ].filter((id) => !localIds.has(id));
 
-            const contribution =
-              entry.partnerAmounts != null
-                ? (entry.partnerAmounts[txId] ?? 0)
-                : Math.abs(entry.amount);
+        if (knownPartnerIds.length > 0) {
+          const { data: dbPartners } = await supabase
+            .from("transactions")
+            .select("*")
+            .in("id", knownPartnerIds)
+            .eq("user_id", user.id)
+            .neq("status", "deleted");
 
-            const remaining = (entry.partnerIds ?? []).filter(
-              (p) => p !== txId,
-            );
-            const sign = entry.amount < 0 ? -1 : 1;
-            const newAbsAmount = Math.abs(entry.amount) - contribution;
+          if (dbPartners) {
+            // Double-check each fetched row actually references txId in its
+            // history (guards against stale partnerIds from prior edits).
+            crossContactPartners = dbPartners
+              .filter((row) => {
+                const hist = row.paid_amount_history ?? [];
+                return hist.some(
+                  (e) =>
+                    (e.method === "settlement" ||
+                      e.method === "advance-applied") &&
+                    Array.isArray(e.partnerIds) &&
+                    e.partnerIds.includes(txId),
+                );
+              })
+              .map((row) => rowToTransaction(row));
+          }
+        }
+      } catch {
+        // Offline or DB error — we'll still process local partners. Cross-contact
+        // partners will be corrected on next full load of that contact's page.
+      }
+    }
 
-            if (remaining.length === 0 || newAbsAmount <= 0.001) return null;
+    // Build the full set of partner transactions (local + cross-contact).
+    const allPartnerTxs = [
+      ...allLocalTxs.filter((t) => localPartnerIds.includes(t.id)),
+      ...crossContactPartners,
+    ];
 
-            const newPartnerAmounts = entry.partnerAmounts
-              ? Object.fromEntries(
-                  Object.entries(entry.partnerAmounts).filter(
-                    ([p]) => p !== txId,
-                  ),
-                )
-              : undefined;
+    // Compute updated partner state for each partner.
+    const buildUpdatedPartner = (partner) => {
+      const cleanedHistory = (partner.paidAmountHistory ?? [])
+        .map((entry) => {
+          const isSett =
+            entry.method === "settlement" || entry.method === "advance-applied";
+          if (!isSett) return entry;
+          if (!(entry.partnerIds ?? []).includes(txId)) return entry;
 
-            return {
-              ...entry,
-              amount: sign * newAbsAmount,
-              partnerIds: remaining,
-              ...(newPartnerAmounts !== undefined
-                ? { partnerAmounts: newPartnerAmounts }
-                : {}),
-            };
-          })
-          .filter(Boolean);
+          const contribution =
+            entry.partnerAmounts != null
+              ? (entry.partnerAmounts[txId] ?? 0)
+              : Math.abs(entry.amount);
 
-        const newPaid = cleanedHistory.reduce((s, e) => s + (e.amount ?? 0), 0);
-        const newStatus = deriveStatus(newPaid, partner.totalAmount ?? 0);
-        return {
-          ...partner,
-          paidAmount: newPaid,
-          paidAmountHistory: cleanedHistory,
-          status: newStatus,
-          updatedAt: now,
-        };
-      })
-      .filter(Boolean);
+          const remaining = (entry.partnerIds ?? []).filter((p) => p !== txId);
+          const sign = entry.amount < 0 ? -1 : 1;
+          const newAbsAmount = Math.abs(entry.amount) - contribution;
+
+          if (remaining.length === 0 || newAbsAmount <= 0.001) return null;
+
+          const newPartnerAmounts = entry.partnerAmounts
+            ? Object.fromEntries(
+                Object.entries(entry.partnerAmounts).filter(
+                  ([p]) => p !== txId,
+                ),
+              )
+            : undefined;
+
+          return {
+            ...entry,
+            amount: sign * newAbsAmount,
+            partnerIds: remaining,
+            ...(newPartnerAmounts !== undefined
+              ? { partnerAmounts: newPartnerAmounts }
+              : {}),
+          };
+        })
+        .filter(Boolean);
+
+      const newPaid = cleanedHistory.reduce((s, e) => s + (e.amount ?? 0), 0);
+      const newStatus = deriveStatus(newPaid, partner.totalAmount ?? 0);
+      return {
+        ...partner,
+        paidAmount: newPaid,
+        paidAmountHistory: cleanedHistory,
+        status: newStatus,
+        updatedAt: now,
+      };
+    };
+
+    const updatedPartners = allPartnerTxs.map(buildUpdatedPartner);
+
+    // Separate into local-state partners and cross-contact (DB-only) partners.
+    const localPartnerSet = new Set(localPartnerIds);
+    const updatedLocalPartners = updatedPartners.filter((p) =>
+      localPartnerSet.has(p.id),
+    );
+    const updatedCrossPartners = updatedPartners.filter(
+      (p) => !localPartnerSet.has(p.id),
+    );
 
     const allToWrite = [deletedTx, ...updatedPartners];
     const rows = allToWrite.map(transactionToRow);
 
+    // Update React state for transactions visible in this hook.
     setTransactions((prev) => {
       const partnerMap = Object.fromEntries(
-        updatedPartners.map((p) => [p.id, p]),
+        updatedLocalPartners.map((p) => [p.id, p]),
       );
       const existingIds = new Set(prev.map((t) => t.id));
       const list = prev.map((t) => {
@@ -511,12 +550,29 @@ export const useTransactions = (contactId) => {
         if (partnerMap[t.id]) return { ...partnerMap[t.id], _role: t._role };
         return t;
       });
-      for (const p of updatedPartners) {
+      for (const p of updatedLocalPartners) {
         if (!existingIds.has(p.id)) list.push(p);
       }
       saveToLocal(list);
       return list;
     });
+
+    // Also patch the cross-contact partners in their own localStorage caches
+    // so those contact pages reflect the reversal immediately without a reload.
+    for (const p of updatedCrossPartners) {
+      if (p.contactId) {
+        patchInCache(
+          p.id,
+          {
+            paidAmount: p.paidAmount,
+            paidAmountHistory: p.paidAmountHistory,
+            status: p.status,
+            updatedAt: p.updatedAt,
+          },
+          p.contactId,
+        );
+      }
+    }
 
     if (!navigator.onLine) {
       enqueue(OP_TYPES.TX_UPSERT, { rows }, allToWrite, user.id);
@@ -1223,8 +1279,6 @@ export const useTransactions = (contactId) => {
   };
 
   // ── assignContact ─────────────────────────────────────────────────────────
-  // FIX: now also pushes the transaction into the target contact's localStorage
-  // cache immediately so the contact page shows it without needing a reload.
   const assignContact = async (
     txId,
     targetContactId,
@@ -1236,7 +1290,6 @@ export const useTransactions = (contactId) => {
     const assignedAt = new Date().toISOString();
     const tx = transactions.find((t) => t.id === txId);
 
-    // Optimistic local write — update contactId in current hook's state
     setTransactions((prev) => {
       const list = prev.map((t) =>
         t.id === txId
@@ -1247,7 +1300,6 @@ export const useTransactions = (contactId) => {
       return list;
     });
 
-    // FIX: push the updated tx into the target contact's localStorage cache
     if (tx) {
       pushToContactCache(
         { ...tx, contactId: targetContactId, updatedAt: assignedAt },
@@ -1338,14 +1390,12 @@ export const useTransactions = (contactId) => {
     const assignedAt = new Date().toISOString();
     const assignedSet = new Set(assignableIds);
 
-    // Optimistic local write
     setTransactions((prev) => {
       const list = prev.filter((t) => !assignedSet.has(t.id));
       saveToLocal(list);
       return list;
     });
 
-    // FIX: push each assigned tx into the target contact's localStorage cache
     for (const txId of assignableIds) {
       const tx = transactions.find((t) => t.id === txId);
       if (tx)
@@ -1396,7 +1446,6 @@ export const useTransactions = (contactId) => {
   const unassignContact = async (txId) => {
     if (!user) throw new Error("NOT_AUTHENTICATED");
 
-    // FIX: also remove from the contact's cache and push to unassigned cache
     const tx = transactions.find((t) => t.id === txId);
     const previousContactId = tx?.contactId;
 
@@ -1408,10 +1457,8 @@ export const useTransactions = (contactId) => {
       return list;
     });
 
-    // Remove from the contact's cache if it was there
     if (previousContactId) {
       removeFromCache(txId, previousContactId);
-      // Add it to the unassigned cache
       if (tx) pushToContactCache({ ...tx, contactId: null }, NO_CONTACT);
     }
 
@@ -1437,13 +1484,12 @@ export const useTransactions = (contactId) => {
   };
 
   // ── dropFromLocalState ────────────────────────────────────────────────────
-  // FIX: now correctly removes from localStorage too (was missing saveToLocal call)
   const dropFromLocalState = useCallback(
     (txId) => {
       setTransactions((prev) => {
         if (!prev.some((t) => t.id === txId)) return prev;
         const list = prev.filter((t) => t.id !== txId);
-        saveToLocal(list); // ← was missing in original
+        saveToLocal(list);
         return list;
       });
     },

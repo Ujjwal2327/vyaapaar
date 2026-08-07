@@ -1,22 +1,15 @@
 "use client";
 
 /**
- * hooks/useSyncManager.js  (v2)
+ * hooks/useSyncManager.js  (v3)
  *
- * Fixes vs v1:
- *  1. resolveConflict now supports choice = "both"
- *     - For contacts: merges local phones/notes/specialty into server version
- *       then writes that merged record back to DB + localStorage.
- *     - For price_list: deep-merges categories (union, local wins on conflict).
- *     - For transactions: merges payment history arrays (union by date).
- *  2. refreshLocalCache now handles TX_UPSERT, TX_ASSIGN_CONTACT,
- *     TX_UNASSIGN_CONTACT so transaction caches are refreshed after remote wins.
- *  3. All import paths use @/ aliases (not relative ./).
- *  4. runSync no longer swallows the syncLock when an op throws —
- *     the lock is always released in a finally block.
- *  5. "both" merge for contacts does field-level resolution: for each
- *     conflicting field the user already chose a winner in the modal, so
- *     we apply those per-field choices here.
+ * Fixes vs v2:
+ *  1. runSync now only dequeues ops that SUCCEEDED. Failed ops remain in the
+ *     queue so they are retried on the next online event (was: always dequeued
+ *     everything in finally, losing data on DB errors).
+ *  2. CONTACTS_DELETE in replayOp now checks for live (non-deleted) transactions
+ *     before deleting contacts, matching the FK guard in savePeopleData.
+ *     Previously the offline path bypassed this check entirely.
  */
 
 import {
@@ -218,18 +211,69 @@ export const useSyncManager = () => {
     const newConflicts = [];
     const collapsed = collapseQueue(allOps);
 
+    // FIX #2 (was: always dequeue everything in finally, losing data on errors).
+    // Track which original ops correspond to each collapsed op so we can
+    // selectively dequeue only the ones that succeeded.
+    //
+    // collapseQueue merges many ops into fewer; we map each collapsed op back
+    // to the original op ids it represents. For contact upserts/deletes the
+    // collapsed op has a synthesised id — we map all originals of that type.
+    // For TX ops they pass through 1-to-1 with their original id.
+    const succeededOriginalIds = new Set();
+
+    // Build a reverse map: collapsed op id → original op ids it represents.
+    // For contact upserts/deletes (which are merged into a single synthesised
+    // op), ALL originals of that type are represented by the single collapsed op.
+    const upsertOriginalIds = allOps
+      .filter((o) => o.type === OP_TYPES.CONTACTS_UPSERT)
+      .map((o) => o.id);
+    const deleteOriginalIds = allOps
+      .filter((o) => o.type === OP_TYPES.CONTACTS_DELETE)
+      .map((o) => o.id);
+    const priceListOriginalIds = allOps
+      .filter((o) => o.type === OP_TYPES.PRICE_LIST_SAVE)
+      .map((o) => o.id);
+    const categoriesOriginalIds = allOps
+      .filter((o) => o.type === OP_TYPES.CATEGORIES_SAVE)
+      .map((o) => o.id);
+
     try {
       for (const op of collapsed) {
         try {
           await replayOp(op, user, newConflicts);
+          // Mark originals that this collapsed op represents as succeeded.
+          switch (op.type) {
+            case OP_TYPES.CONTACTS_UPSERT:
+              upsertOriginalIds.forEach((id) => succeededOriginalIds.add(id));
+              break;
+            case OP_TYPES.CONTACTS_DELETE:
+              deleteOriginalIds.forEach((id) => succeededOriginalIds.add(id));
+              break;
+            case OP_TYPES.PRICE_LIST_SAVE:
+              priceListOriginalIds.forEach((id) =>
+                succeededOriginalIds.add(id),
+              );
+              break;
+            case OP_TYPES.CATEGORIES_SAVE:
+              categoriesOriginalIds.forEach((id) =>
+                succeededOriginalIds.add(id),
+              );
+              break;
+            default:
+              // TX ops pass through 1-to-1; the collapsed op's id IS the original id.
+              succeededOriginalIds.add(op.id);
+          }
         } catch (err) {
-          console.error("[SyncManager] op failed", op.type, err);
-          // Leave original ops in queue — will retry on next online event
+          console.error("[SyncManager] op failed, will retry:", op.type, err);
+          // Do NOT add to succeededOriginalIds — these stay in the queue.
         }
       }
     } finally {
-      // Always dequeue originals and release lock, even if some ops failed
-      dequeue(allOps.map((o) => o.id));
+      // Only dequeue ops that actually succeeded.
+      const toDequeue = allOps
+        .filter((o) => succeededOriginalIds.has(o.id))
+        .map((o) => o.id);
+      if (toDequeue.length > 0) dequeue(toDequeue);
 
       if (newConflicts.length > 0) {
         setConflicts((prev) => [...prev, ...newConflicts]);
@@ -401,11 +445,39 @@ async function replayOp(op, user, conflictsOut) {
 
     case OP_TYPES.CONTACTS_DELETE: {
       const { ids } = op.payload;
+
+      // FIX #5: Apply the same FK guard as the online path. If any of the
+      // contacts to be deleted now have live (non-deleted) transactions,
+      // throw so the op stays in queue and the user sees the error toast.
+      const { data: linkedTxRows, error: txCheckErr } = await supabase
+        .from("transactions")
+        .select("contact_id")
+        .in("contact_id", ids)
+        .neq("status", "deleted")
+        .limit(1);
+
+      if (txCheckErr) throw txCheckErr;
+
+      if (linkedTxRows && linkedTxRows.length > 0) {
+        // Fetch contact names for the error message.
+        const blockedIds = new Set(linkedTxRows.map((r) => r.contact_id));
+        const { data: blockedContacts } = await supabase
+          .from("contacts")
+          .select("id, name")
+          .in("id", Array.from(blockedIds));
+        const names = (blockedContacts ?? []).map((c) => c.name).join(", ");
+        throw new Error(
+          `CONTACT_HAS_TRANSACTIONS:${names} — delete or reassign their transactions first`,
+        );
+      }
+
+      // Safe to delete: remove soft-deleted transactions first (FK cleanup).
       await supabase
         .from("transactions")
         .delete()
         .in("contact_id", ids)
         .eq("status", "deleted");
+
       const { error } = await supabase
         .from("contacts")
         .delete()
@@ -745,7 +817,7 @@ const removeFromLocalCache = (txId, cacheKey) => {
 // Scan ALL transaction localStorage keys and update the tx wherever it appears
 const refreshTxInAllCaches = (row, preferredKey) => {
   try {
-    const txId = row.id ?? row.id;
+    const txId = row.id;
     const prefix = "transactions_";
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);

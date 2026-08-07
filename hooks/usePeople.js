@@ -1,15 +1,14 @@
 "use client";
 
 /**
- * hooks/usePeople.js  — offline-first version
+ * hooks/usePeople.js  — offline-first version (v2)
  *
- * Changes vs original:
- *  1. Load: serves localStorage immediately, DB fetch runs in background.
- *  2. savePeopleData: writes local state + localStorage FIRST, then attempts
- *     DB upsert/delete. If offline or network error → enqueues instead of throwing.
- *  3. saveCategories: same pattern.
- *  4. All business logic (duplicate contacts guard, FK check, photo cache) is
- *     preserved exactly.
+ * Fix vs v1:
+ *  FIX #4: The FK-guard rollback used `peopleData` captured by the closure at
+ *  call time. If another save completed between the optimistic write and the
+ *  async DB check, the rollback restored a stale snapshot. Fixed by keeping a
+ *  ref (`peopleDataRef`) that always points to the latest state value, so the
+ *  rollback always restores whatever is current at the moment it fires.
  */
 
 import { useState, useEffect, useRef } from "react";
@@ -37,7 +36,7 @@ const isNetworkError = (err) => {
   );
 };
 
-// ─── row ↔ contact converters (unchanged from original) ──────────────────────
+// ─── row ↔ contact converters ─────────────────────────────────────────────────
 
 const rowToContact = (row) => ({
   id: row.id,
@@ -65,6 +64,13 @@ export const usePeople = () => {
 
   const hasFetchedDb = useRef(false);
   const prevUserIdRef = useRef(null);
+
+  // FIX #4: Always-current ref to peopleData so async callbacks (FK rollback)
+  // never use a stale closure value.
+  const peopleDataRef = useRef(peopleData);
+  useEffect(() => {
+    peopleDataRef.current = peopleData;
+  }, [peopleData]);
 
   // ── localStorage helpers ─────────────────────────────────────────────────
   const loadFromLocal = () => {
@@ -192,7 +198,6 @@ export const usePeople = () => {
     if (!user) throw new Error("NOT_AUTHENTICATED");
 
     // 1. Build the state shape we'll hold in memory / localStorage
-    //    (strips photo field, keeps hasPhoto flag — mirrors original)
     const stateContacts = newContacts.map((c) => ({
       id: c.id,
       name: c.name,
@@ -206,7 +211,7 @@ export const usePeople = () => {
 
     // 2. Compute diff against current state
     const newIds = new Set(newContacts.map((c) => c.id));
-    const toDelete = peopleData
+    const toDelete = peopleDataRef.current
       .filter((p) => !newIds.has(p.id))
       .map((p) => p.id);
     const rows = newContacts.map((c) => contactToRow(c));
@@ -241,7 +246,7 @@ export const usePeople = () => {
       }
 
       if (toDelete.length > 0) {
-        // ── Preserve original FK-guard logic ──────────────────────────────
+        // ── FK guard: block delete if live transactions exist ─────────────
         const { data: linkedTxRows, error: txCheckErr } = await supabase
           .from("transactions")
           .select("contact_id")
@@ -253,17 +258,21 @@ export const usePeople = () => {
 
         if (linkedTxRows && linkedTxRows.length > 0) {
           const blockedIds = new Set(linkedTxRows.map((r) => r.contact_id));
-          const blockedNames = peopleData
+          // FIX #4: Use the ref (always current) instead of the closure value
+          // (`peopleData`) which may be stale if another save completed while
+          // we were awaiting the DB check above.
+          const currentPeopleData = peopleDataRef.current;
+          const blockedNames = currentPeopleData
             .filter((p) => blockedIds.has(p.id))
             .map((p) => p.name)
             .join(", ");
-          // Roll back optimistic local write for the delete
-          setPeopleData(peopleData);
-          saveToLocal(peopleData);
+          // Roll back to whatever the current state is (not the pre-call snapshot)
+          setPeopleData(currentPeopleData);
+          saveToLocal(currentPeopleData);
           throw new Error(`CONTACT_HAS_TRANSACTIONS:${blockedNames}`);
         }
 
-        // Remove soft-deleted transactions first (FK guard)
+        // Remove soft-deleted transactions first (FK cleanup)
         const { error: txDeleteErr } = await supabase
           .from("transactions")
           .delete()

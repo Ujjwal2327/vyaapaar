@@ -299,7 +299,14 @@ export default function UnassignedPage() {
     }
   };
 
-  const activeTxs = transactions.filter((t) => t.status !== "deleted");
+  // FIX #6: Only consider truly-unassigned transactions (no contactId) for
+  // canAutoSettle, unassignedCount, and the SettleTransactionsModal.
+  // Previously `activeTxs` included transactions that had been assigned a
+  // contact during this session (kept in local state until the modal closes),
+  // which caused the Settle button to appear incorrectly and the settle modal
+  // to include already-assigned transactions.
+  const trulyUnassignedTxs = transactions.filter((t) => !t.contactId);
+  const activeTxs = trulyUnassignedTxs.filter((t) => t.status !== "deleted");
   const pendingTxs = activeTxs.filter(
     (t) =>
       t.status === "pending" && (t.totalAmount ?? 0) - (t.paidAmount ?? 0) > 0,
@@ -312,7 +319,7 @@ export default function UnassignedPage() {
     (pendingTxs.some((t) => t.type === "in") ||
       overpaidTxs.some((t) => t.type === "out"));
 
-  const unassignedCount = activeTxs.filter((t) => !t.contactId).length;
+  const unassignedCount = activeTxs.length;
 
   return (
     <main className="min-h-screen">
@@ -454,10 +461,12 @@ export default function UnassignedPage() {
         onSave={handleAddPayment}
       />
 
+      {/* FIX #6: Pass only trulyUnassignedTxs to the settle modal so
+          session-assigned transactions are never included in settlement. */}
       <SettleTransactionsModal
         open={showSettleModal}
         onOpenChange={setShowSettleModal}
-        transactions={transactions}
+        transactions={trulyUnassignedTxs}
         computeSettlementPreview={computeSettlementPreview}
         onSettle={handleSettle}
       />
