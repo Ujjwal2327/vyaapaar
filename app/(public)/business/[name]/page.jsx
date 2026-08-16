@@ -26,6 +26,14 @@ import {
   filterData,
   buildSearchIndex,
 } from "@/lib/utils/priceListUtils";
+import { toast } from "sonner";
+import { useCart } from "@/hooks/useCart";
+import { MaterialCalculator } from "@/components/marketplace/MaterialCalculator";
+import { QuantityStepper } from "@/components/marketplace/QuantityStepper";
+import {
+  CartDrawer,
+  CartTriggerButton,
+} from "@/components/marketplace/CartDrawer";
 
 // Helper function to create Google Maps link
 const getGoogleMapsLink = (address) => {
@@ -63,6 +71,10 @@ export default function PublicBusinessPage() {
   // Debounced term drives the actual filtering (doesn't hang)
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [expandedCategories, setExpandedCategories] = useState({});
+
+  // ── Marketplace cart — new. Everything above this line is unchanged. ──
+  const { addItem, setItemQty, getQty } = useCart();
+  const [showCart, setShowCart] = useState(false);
 
   useEffect(() => {
     loadBusinessData();
@@ -143,6 +155,35 @@ export default function PublicBusinessPage() {
       setExpandedCategories(collectAllPaths(filteredData));
     }
   }, [filteredData]); // filteredData already depends on debouncedSearchTerm
+
+  // ── Marketplace cart — new. vendorMeta is the shape useCart() expects.
+  // handleSetQty (absolute) drives the inline stepper on every catalog
+  // row; handleAddFromCalculator (additive) is only reachable through the
+  // Material Calculator's own explicit action — see hooks/useCart.js for
+  // why those stay two different functions instead of one. ──
+  const vendorMeta = businessData
+    ? {
+        businessId: businessData.id,
+        businessName: businessData.business_name,
+        businessPhone: businessData.phone,
+        businessAddress: businessData.business_address,
+      }
+    : null;
+
+  const handleSetQty = (vendor, item, qty) => {
+    setItemQty(vendor, item, qty);
+  };
+
+  const handleAddFromCalculator = (vendor, item, qty) => {
+    addItem(vendor, {
+      key: item.key,
+      name: item.name,
+      price: item.price,
+      unit: item.unit,
+      qty,
+    });
+    toast.success(`Added ${qty} ${item.unit} of ${item.name}`);
+  };
 
   if (loading) {
     return <Loader content="Loading business catalog..." />;
@@ -258,6 +299,12 @@ export default function PublicBusinessPage() {
                 </button>
               )}
             </div>
+
+            {/* Inline, not floating — a fixed overlay button collided
+                with where toast notifications appear. */}
+            {vendorMeta && (
+              <CartTriggerButton onClick={() => setShowCart(true)} />
+            )}
           </div>
         </div>
       </header>
@@ -269,6 +316,10 @@ export default function PublicBusinessPage() {
             data={filteredData}
             expandedCategories={expandedCategories}
             onToggleCategory={toggleCategory}
+            vendor={vendorMeta}
+            onSetQty={vendorMeta ? handleSetQty : undefined}
+            onAddToCart={vendorMeta ? handleAddFromCalculator : undefined}
+            getQty={getQty}
           />
         ) : (
           <div className="bg-card rounded-lg border p-8 text-center">
@@ -286,6 +337,8 @@ export default function PublicBusinessPage() {
           </p>
         </div>
       </footer>
+
+      <CartDrawer open={showCart} onOpenChange={setShowCart} />
     </div>
   );
 }
@@ -295,6 +348,10 @@ const CatalogContent = ({
   data,
   expandedCategories,
   onToggleCategory,
+  vendor,
+  onSetQty,
+  onAddToCart,
+  getQty,
   parentPath = "",
   level = 0,
 }) => {
@@ -341,17 +398,48 @@ const CatalogContent = ({
           value.retailSell !== undefined ? value.retailSell : value.sell || 0;
         const sellUnit = value.sellUnit || "piece";
 
+        // currentPath (dot-separated) already uniquely identifies this item
+        // within the vendor's tree, so it doubles as the cart line's key —
+        // same idea as the private catalog's `path` prop.
+        const cartItemKey = currentPath;
+        const itemForCart = {
+          key: cartItemKey,
+          name: key,
+          price: retailSell,
+          unit: sellUnit,
+        };
+        const inCartQty =
+          getQty && vendor ? getQty(vendor.businessId, cartItemKey) : 0;
+
         return (
           <div
             key={currentPath}
-            className={`rounded-lg px-1 py-2.5 flex justify-between items-center ${
+            className={`rounded-lg px-1 py-2.5 ${
               index === entries.length - 1 ? "" : "border-b"
             }`}
           >
-            <span className="flex-1">{key}</span>
-            <span className="font-semibold">
-              ₹{retailSell}/{sellUnit}
-            </span>
+            <div className="flex justify-between items-center gap-2">
+              <span className="flex-1 min-w-0">{key}</span>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="font-semibold whitespace-nowrap">
+                  ₹{retailSell}/{sellUnit}
+                </span>
+                {onSetQty && (
+                  <QuantityStepper
+                    qty={inCartQty}
+                    unit={sellUnit}
+                    onAdd={() => onSetQty(vendor, itemForCart, 1)}
+                    onChange={(qty) => onSetQty(vendor, itemForCart, qty)}
+                  />
+                )}
+              </div>
+            </div>
+            {onAddToCart && (
+              <MaterialCalculator
+                item={{ name: key, price: retailSell, unit: sellUnit }}
+                onAddToCart={(qty) => onAddToCart(vendor, itemForCart, qty)}
+              />
+            )}
           </div>
         );
       }

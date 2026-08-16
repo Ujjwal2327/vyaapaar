@@ -33,6 +33,11 @@ import {
   MapPin,
   Menu,
   X,
+  RefreshCw,
+  GitMerge,
+  UserPlus,
+  ShoppingCart,
+  MessageCircle,
 } from "lucide-react";
 import Link from "next/link";
 import Loader from "@/components/Loader";
@@ -432,6 +437,7 @@ const ModulesSection = ({ router }) => {
         "Instant search across everything",
         "Bulk edit in text format",
         "Cost price & profit tracking",
+        "Customers cart items & enquire on WhatsApp",
       ],
       demo: "/business/Maheshwari Sanitary Store",
       demoLabel: "View live catalog",
@@ -450,6 +456,8 @@ const ModulesSection = ({ router }) => {
         "Net settle with one payment",
         "Full payment history per transaction",
         "Contact-wise balance summary",
+        "Walk-in sales without a contact",
+        "Link other contacts, bill just one",
       ],
       demo: null,
       demoLabel: null,
@@ -469,6 +477,7 @@ const ModulesSection = ({ router }) => {
         "Import from .vcf / device contacts",
         "Export to professional PDF",
         "Find & merge duplicate contacts",
+        "Bulk edit contacts as plain text",
       ],
       demo: null,
       demoLabel: null,
@@ -653,7 +662,7 @@ const FeaturesSection = () => {
     {
       icon: Globe,
       title: "Public catalog link",
-      desc: "Share a beautiful, searchable catalog page with customers. No app download required.",
+      desc: "Share a beautiful, searchable catalog page with customers. They can cart items and send you a WhatsApp enquiry — no app required.",
       gradient: "from-blue-500 to-cyan-500",
     },
     {
@@ -703,6 +712,24 @@ const FeaturesSection = () => {
       title: "Payment history",
       desc: "Every payment is logged with method, date, and note. Settlements are traced across linked transactions.",
       gradient: "from-violet-500 to-purple-500",
+    },
+    {
+      icon: RefreshCw,
+      title: "Offline-first sync",
+      desc: "Keep working with zero signal — sales, prices, and contacts queue locally and sync the instant you're back online.",
+      gradient: "from-sky-500 to-blue-500",
+    },
+    {
+      icon: GitMerge,
+      title: "Smart conflict resolution",
+      desc: "Edited the same item on two devices? Keep yours, keep the synced version, or merge both — right down to the field.",
+      gradient: "from-fuchsia-500 to-purple-500",
+    },
+    {
+      icon: UserPlus,
+      title: "Walk-in sales",
+      desc: "Record a sale or purchase without picking a contact first, then assign the right person later — solo or in bulk.",
+      gradient: "from-teal-500 to-green-500",
     },
   ];
 
@@ -761,14 +788,17 @@ const PublicCatalogSection = ({ router }) => (
             Share your prices without picking up the phone
           </h2>
           <p className="text-muted-foreground mb-6 leading-relaxed">
-            Every business gets a public URL. Send it to customers on WhatsApp
-            and they can search your full catalog instantly — no app, no login.
-            Your address links to Google Maps. Your phone is tap-to-call.
+            Every business gets a public URL. Customers browse and search your
+            full catalog, add items to a cart, and send an itemised enquiry
+            straight to your WhatsApp — no app, no login. Your address links to
+            Google Maps, and your phone is still just a tap away.
           </p>
           <ul className="space-y-3 mb-6">
             {[
               "Instant search with typo tolerance",
               "Retail prices only — cost stays private",
+              "Customers build a cart, no login needed",
+              "One-tap itemised enquiry, straight to WhatsApp",
               "Works on any mobile browser",
               "Updates automatically when you edit",
             ].map((item) => (
@@ -794,12 +824,15 @@ const PublicCatalogSection = ({ router }) => (
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
               <Store className="w-6 h-6 text-primary-foreground" />
             </div>
-            <div>
+            <div className="flex-1">
               <p className="font-bold text-base">Maheshwari Sanitary Store</p>
               <div className="flex items-center gap-1 text-xs text-muted-foreground">
                 <MapPin className="w-3 h-3" />
                 Tappal Road Jewar
               </div>
+            </div>
+            <div className="flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs font-semibold px-2.5 py-1 shrink-0">
+              <ShoppingCart className="w-3.5 h-3.5" />2
             </div>
           </div>
 
@@ -812,15 +845,20 @@ const PublicCatalogSection = ({ router }) => (
                 Vectus
               </div>
               <div className="ml-3 border-l-2 border-border pl-3">
-                <div className="flex justify-between py-1.5 text-xs border-b">
+                <div className="flex justify-between items-center py-1.5 text-xs border-b">
                   <span>Bib Cock</span>
                   <span className="font-semibold">₹180/piece</span>
                 </div>
-                <div className="flex justify-between py-1.5 text-xs border-b">
+                <div className="flex justify-between items-center py-1.5 text-xs border-b">
                   <span>Angle Valve</span>
-                  <span className="font-semibold">₹95/piece</span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="font-semibold">₹95/piece</span>
+                    <span className="text-[10px] font-bold text-primary-foreground bg-primary rounded-full px-1.5 leading-[1.4]">
+                      ×3
+                    </span>
+                  </span>
                 </div>
-                <div className="flex justify-between py-1.5 text-xs">
+                <div className="flex justify-between items-center py-1.5 text-xs">
                   <span>Sink Cock</span>
                   <span className="font-semibold">₹380/piece</span>
                 </div>
@@ -828,9 +866,18 @@ const PublicCatalogSection = ({ router }) => (
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
-            <Phone className="w-3 h-3" />
-            <span>7900831551 — tap to call</span>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
+              <Phone className="w-3 h-3" />
+              <span>7900831551 — tap to call</span>
+            </div>
+            <div className="flex items-center justify-between gap-2 rounded-lg bg-green-600 px-3 py-2 text-xs font-medium text-white">
+              <span className="flex items-center gap-1.5">
+                <MessageCircle className="w-3.5 h-3.5" />
+                Send enquiry on WhatsApp
+              </span>
+              <span className="opacity-90">2 items</span>
+            </div>
           </div>
         </div>
       </div>
