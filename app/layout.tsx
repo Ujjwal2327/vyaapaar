@@ -14,10 +14,42 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// Falls back to a placeholder if NEXT_PUBLIC_SITE_URL isn't set in the
+// deployment environment — set that env var to the real production domain
+// so canonical links and Open Graph/Twitter preview images resolve to
+// correct absolute URLs instead of this placeholder.
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://vyaapaar.app";
+
+const description =
+  "The modern way to manage inventory, prices, and business contacts. Track products, customers, suppliers—all in one place. No spreadsheets, no complexity.";
+
+// "Vyaapaar" alone is 8 characters — far short of the ~30 character /
+// ~200px guideline, leaving no room to communicate what the product does.
+const title = "Vyaapaar – Catalog, Contacts & Ledger for Indian Businesses";
+
 export const metadata: Metadata = {
-  title: "Vyaapaar",
-  description:
-    "The modern way to manage inventory, prices, and business contacts. Track products, customers, suppliers—all in one place. No spreadsheets, no complexity.",
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: title,
+    template: "%s | Vyaapaar",
+  },
+  description,
+  robots: {
+    index: true,
+    follow: true,
+  },
+  openGraph: {
+    title,
+    description,
+    url: "/",
+    siteName: "Vyaapaar",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title,
+    description,
+  },
 };
 
 export default function RootLayout({
