@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { normalizeUnit } from "@/lib/units-config";
+import { isStockTracked, getStockStatus } from "@/lib/utils/stockUtils";
 
 // Helper function to convert prices between units (same as in PriceItem)
 const convertPrice = (pricePerUnit, fromUnit, toUnit) => {
@@ -317,6 +318,39 @@ export const ItemDetailModal = ({
                   : formatPrice(retailSell, sellUnit)}
               </span>
             </div>
+          )}
+
+          {/* Stock - only shown for items that have opted into tracking */}
+          {isStockTracked(itemData) && (
+            <>
+              <Separator />
+              <div className="flex justify-between items-center">
+                <span className="text-lg font-semibold">Stock</span>
+                <div className="text-right">
+                  <span
+                    className={`text-lg font-bold ${
+                      getStockStatus(itemData) === "out"
+                        ? "text-red-600 dark:text-red-400"
+                        : getStockStatus(itemData) === "low"
+                          ? "text-amber-600 dark:text-amber-400"
+                          : ""
+                    }`}
+                  >
+                    {itemData.stockQty} {sellUnit}
+                  </span>
+                  {getStockStatus(itemData) === "out" && (
+                    <p className="text-sm text-red-600 dark:text-red-400">
+                      Out of stock
+                    </p>
+                  )}
+                  {getStockStatus(itemData) === "low" && (
+                    <p className="text-sm text-amber-600 dark:text-amber-400">
+                      At or below alert threshold ({itemData.lowStockThreshold})
+                    </p>
+                  )}
+                </div>
+              </div>
+            </>
           )}
 
           {/* Cost Price - Only show if showCostProfit is enabled */}

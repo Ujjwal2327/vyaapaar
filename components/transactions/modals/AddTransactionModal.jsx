@@ -38,6 +38,8 @@ import {
   User,
 } from "lucide-react";
 import { usePriceList } from "@/hooks/usePriceList";
+import { StockBadge } from "@/components/price-list/StockBadge";
+import { getOversellProjection } from "@/lib/utils/stockUtils";
 
 // ─── constants ────────────────────────────────────────────────────────────────
 const STEPS_ITEM = ["Type", "Items", "Extras", "Payment", "Review"];
@@ -326,6 +328,8 @@ const flattenPriceItems = (data, path = []) => {
         cost: value.cost ?? 0,
         sellUnit: value.sellUnit ?? "piece",
         costUnit: value.costUnit ?? value.sellUnit ?? "piece",
+        stockQty: value.stockQty,
+        lowStockThreshold: value.lowStockThreshold,
       });
     } else if (value?.type === "category" && value.children) {
       out.push(...flattenPriceItems(value.children, [...path, key]));
@@ -722,6 +726,23 @@ const PriceItemSearch = ({
       )
     : false;
 
+  // How much of this exact item is already sitting in the cart from an
+  // earlier "add" action, so adding it again in a second pass still gets
+  // caught if the combined quantity oversells it — not just this one line.
+  const alreadyInCartQty = pending
+    ? (itemsList ?? [])
+        .filter((it) => it.name === pending.fullPath)
+        .reduce((sum, it) => sum + (parseFloat(it.quantity) || 0), 0)
+    : 0;
+  const oversellProjection = pending
+    ? getOversellProjection(
+        pending,
+        parseFloat(pendingQty) || 0,
+        txType,
+        alreadyInCartQty,
+      )
+    : null;
+
   const confirmAdd = () => {
     if (!pending) return;
     const qty = parseFloat(pendingQty);
@@ -807,6 +828,7 @@ const PriceItemSearch = ({
                           {item.pathParts.slice(0, -1).join(" › ")}
                         </p>
                       )}
+                      <StockBadge item={item} className="mt-1" />
                     </div>
                     <p className="font-semibold text-sm shrink-0 text-right">
                       {fmt(item[priceKey])}
@@ -830,6 +852,7 @@ const PriceItemSearch = ({
                 {pending.pathParts.slice(0, -1).join(" › ")}
               </p>
             )}
+            <StockBadge item={pending} className="mt-1" />
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex flex-col gap-0.5">
@@ -890,6 +913,17 @@ const PriceItemSearch = ({
               create a duplicate row.
             </div>
           )}
+          {oversellProjection !== null && (
+            <div className="flex items-center gap-1.5 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-2 text-sm text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              Only {pending.stockQty} {pending.sellUnit} in stock
+              {alreadyInCartQty > 0
+                ? ` (${alreadyInCartQty} already in this cart)`
+                : ""}
+              — this will leave it {Math.abs(oversellProjection)} short. You can
+              still add it.
+            </div>
+          )}
           <div className="flex gap-2">
             <button
               type="button"
@@ -922,6 +956,9 @@ const CollapsibleCartItem = ({
   onRemove,
   isExpanded,
   onToggle,
+  allPriceItems,
+  itemsList,
+  type,
 }) => {
   const qty = parseFloat(item.quantity) || 0;
   const price = parseFloat(item.price) || 0;
@@ -931,6 +968,18 @@ const CollapsibleCartItem = ({
     <span className="italic text-muted-foreground">Unnamed</span>
   );
   const cat = parts.length > 1 ? parts.slice(0, -1).join(" › ") : "";
+
+  // Nothing's been saved yet for a brand-new transaction, so the check
+  // here is simpler than the edit-modal's delta version: does the total
+  // quantity requested across every OTHER line for this same item, plus
+  // this line's own quantity, still fit in current stock.
+  const catalogItem = allPriceItems?.find((p) => p.fullPath === item.name);
+  const otherLinesQty = (itemsList ?? [])
+    .filter((it, idx) => idx !== index && it.name === item.name)
+    .reduce((sum, it) => sum + (parseFloat(it.quantity) || 0), 0);
+  const oversellProjection = catalogItem
+    ? getOversellProjection(catalogItem, qty, type, otherLinesQty)
+    : null;
 
   if (!isExpanded) {
     return (
@@ -953,6 +1002,7 @@ const CollapsibleCartItem = ({
               {fmtNum(item.quantity)}
               {item.unit ? ` ${item.unit}` : ""} × {fmt(price)}
             </span>
+            <StockBadge item={catalogItem} />
           </div>
         </div>
         <div className="shrink-0 text-right pt-0.5">
@@ -980,9 +1030,10 @@ const CollapsibleCartItem = ({
             className="w-full bg-background border border-input rounded px-2 py-1.5 text-sm font-medium outline-none focus:ring-1 focus:ring-primary transition-colors"
             autoFocus
           />
-          <p className="text-sm text-muted-foreground truncate px-1 min-h-[1.2em] mt-0.5">
-            {cat}
-          </p>
+          <div className="flex items-center gap-1.5 flex-wrap px-1 min-h-[1.2em] mt-0.5">
+            <p className="text-sm text-muted-foreground truncate">{cat}</p>
+            <StockBadge item={catalogItem} />
+          </div>
         </div>
         <button
           type="button"
@@ -1039,6 +1090,16 @@ const CollapsibleCartItem = ({
           </>
         )}
       </div>
+      {oversellProjection !== null && (
+        <div className="flex items-center gap-1.5 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-2 text-sm text-amber-700 dark:text-amber-400">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          Only {catalogItem.stockQty} {catalogItem.sellUnit} in stock
+          {otherLinesQty > 0
+            ? ` (${otherLinesQty} on another line in this cart)`
+            : ""}
+          — this will leave it {Math.abs(oversellProjection)} short.
+        </div>
+      )}
       <button
         type="button"
         onClick={onToggle}
@@ -1252,6 +1313,9 @@ const ItemsTabPanel = ({
                     onToggle={() =>
                       setExpandedIndex(expandedIndex === i ? null : i)
                     }
+                    allPriceItems={allPriceItems}
+                    itemsList={itemsList}
+                    type={type}
                   />
                 ))}
               </div>
@@ -2086,12 +2150,17 @@ export const AddTransactionModal = ({
                                           {cat}
                                         </p>
                                       )}
-                                      <div className="flex items-center gap-1 mt-1">
+                                      <div className="flex items-center gap-1 mt-1 flex-wrap">
                                         <span className="text-sm text-muted-foreground font-mono">
                                           {fmtNum(it.quantity)}
                                           {it.unit ? ` ${it.unit}` : ""} ×{" "}
                                           {fmt(price)}
                                         </span>
+                                        <StockBadge
+                                          item={allPriceItems.find(
+                                            (p) => p.fullPath === it.name,
+                                          )}
+                                        />
                                       </div>
                                     </div>
                                     <div className="shrink-0 text-right pt-0.5">

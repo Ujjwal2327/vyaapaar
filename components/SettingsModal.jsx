@@ -17,6 +17,7 @@ import {
   FolderTree,
   Check,
   ChevronRight,
+  AlertTriangle,
 } from "lucide-react";
 import {
   Dialog,
@@ -46,6 +47,7 @@ import { supabase } from "@/lib/supabase";
 import UserProfile from "@/components/UserProfile";
 import ShareBusinessLink from "@/components/ShareBusinessLink";
 import { countItemsAndCategories } from "@/lib/utils/priceListStats";
+import { findLowStockItems } from "@/lib/utils/stockUtils";
 import { sortCategories } from "@/lib/utils/categoryUtils";
 import Accordion from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
@@ -98,6 +100,7 @@ const SettingsModal = ({
   const [showCostProfit, setShowCostProfit] = useState(false);
   const [totalItems, setTotalItems] = useState(0);
   const [totalCategories, setTotalCategories] = useState(0);
+  const [lowStockItems, setLowStockItems] = useState([]);
 
   // People-specific states
   const [contactCategories, setContactCategories] = useState(
@@ -169,6 +172,7 @@ const SettingsModal = ({
         const { itemCount, categoryCount } = countItemsAndCategories(data.data);
         setTotalItems(itemCount);
         setTotalCategories(categoryCount);
+        setLowStockItems(findLowStockItems(data.data));
       }
     }
   };
@@ -679,6 +683,70 @@ const SettingsModal = ({
                     )}
                   </div>
                 </div>
+              </Accordion>
+            )}
+
+            {/* Stock Alerts - Only for Catalog */}
+            {isCatalogPage && (
+              <Accordion
+                title="Stock Alerts"
+                badge={
+                  lowStockItems.length > 0
+                    ? `${lowStockItems.length} low`
+                    : undefined
+                }
+              >
+                {lowStockItems.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No low-stock alerts right now. Turn on stock tracking for an
+                    item from its Edit screen to start seeing alerts here once
+                    it runs low.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {lowStockItems.map((item) => (
+                      <div
+                        key={item.path}
+                        className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5 ${
+                          item.status === "out"
+                            ? "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30"
+                            : "border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <AlertTriangle
+                            className={`w-4 h-4 shrink-0 ${
+                              item.status === "out"
+                                ? "text-red-500"
+                                : "text-amber-500"
+                            }`}
+                          />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">
+                              {item.name}
+                            </p>
+                            {item.categoryPath && (
+                              <p className="text-xs text-muted-foreground truncate">
+                                {item.categoryPath}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <Badge
+                          className={`shrink-0 border-0 ${
+                            item.status === "out"
+                              ? "bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300"
+                              : "bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300"
+                          }`}
+                        >
+                          {item.status === "out"
+                            ? "Out of stock"
+                            : `${item.stockQty} left`}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </Accordion>
             )}
 

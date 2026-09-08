@@ -18,6 +18,18 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { sortData, buildSearchIndex } from "@/lib/utils/priceListUtils";
 import { enqueue, OP_TYPES } from "@/lib/offlineQueue";
 
+// Fired whenever something outside this hook's own savePriceData writes new
+// price-list data straight to localStorage — currently just the stock
+// adjustment path in hooks/useTransactions.js, which intentionally bypasses
+// savePriceData so it can apply against a freshly-fetched server copy (see
+// the comment on applyStockAdjustments there). usePriceList() has no shared
+// Context — AddTransactionModal, TransactionDetailModal, and the catalog
+// page each get their OWN independent copy of priceData in React state — so
+// without this, a stock change made from one of those instances would sit
+// invisible in another until it happened to remount. Same same-tab-event +
+// cross-tab-storage-event pattern hooks/useCart.js already uses.
+export const PRICE_LIST_UPDATED_EVENT = "priceListDataChanged";
+
 // ─── helpers (unchanged from original) ───────────────────────────────────────
 
 const deepAddOrderKeys = (data) => {
@@ -83,6 +95,33 @@ export const usePriceList = () => {
     const savedMode = localStorage.getItem("sellPriceMode");
     if (savedMode === "bulk" || savedMode === "retail")
       setSellPriceMode(savedMode);
+  }, []);
+
+  // Cross-instance sync: pick up price-list writes made by OTHER hook
+  // instances or code paths (currently: stock adjustments from
+  // hooks/useTransactions.js) that update localStorage directly rather
+  // than through this hook's own savePriceData. The custom event covers
+  // same-tab writes (the native "storage" event never fires in the tab
+  // that made the change); the "storage" listener covers other tabs.
+  useEffect(() => {
+    const refreshFromLocalCache = () => {
+      try {
+        const raw = localStorage.getItem("priceListData");
+        if (raw) setPriceData(JSON.parse(raw));
+      } catch {}
+    };
+    const handleStorage = (e) => {
+      if (e.key === "priceListData") refreshFromLocalCache();
+    };
+    window.addEventListener(PRICE_LIST_UPDATED_EVENT, refreshFromLocalCache);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener(
+        PRICE_LIST_UPDATED_EVENT,
+        refreshFromLocalCache,
+      );
+      window.removeEventListener("storage", handleStorage);
+    };
   }, []);
 
   // ── initial load ──────────────────────────────────────────────────────────

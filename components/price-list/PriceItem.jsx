@@ -1,6 +1,7 @@
 import { Edit2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { normalizeUnit } from "@/lib/units-config";
+import { StockBadge } from "./StockBadge";
 import { memo } from "react";
 
 const convertPrice = (pricePerUnit, fromUnit, toUnit) => {
@@ -271,7 +272,10 @@ const PriceItemImpl = ({
       }`}
       onClick={() => isClickable && onViewDetails(name, item)}
     >
-      <span className="flex-1">{name}</span>
+      <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+        <span className="truncate">{name}</span>
+        <StockBadge item={item} />
+      </div>
       <div className="flex items-center gap-3">
         <span className="font-semibold">{displayValue}</span>
         {editMode && (

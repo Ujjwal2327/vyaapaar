@@ -15,6 +15,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { enqueue, OP_TYPES } from "@/lib/offlineQueue";
+import { computeStockDeltas, applyStockDeltas } from "@/lib/utils/stockUtils";
+import { PRICE_LIST_UPDATED_EVENT } from "@/hooks/usePriceList";
 
 export const NO_CONTACT = "none";
 
@@ -90,6 +92,98 @@ const patchInCache = (txId, patch, cacheContactId) => {
     );
     localStorage.setItem(key, JSON.stringify(next));
   } catch {}
+};
+
+// ─── stock adjustment ──────────────────────────────────────────────────────
+//
+// Catalog stock lives inside the same price_lists.data JSONB blob as the
+// rest of the catalog (see hooks/usePriceList.js), which syncs with
+// whole-document last-write-wins semantics: on conflict, the person picks
+// "keep mine" / "keep server" / "merge", and "merge" only resolves at the
+// top-level category key, not per item. That's a fine model for
+// deliberate, occasional catalog edits, but it's the wrong model for
+// something that happens on every single sale — two devices decrementing
+// the same item around the same time would have one decrement silently
+// clobber the other if both just recomputed a new snapshot from local
+// state and pushed it through the ordinary save path.
+//
+// To narrow (not fully eliminate — that needs a server-side atomic
+// increment, which this schema doesn't have) that race window, stock
+// changes are expressed as DELTAS rather than new snapshots, and — when
+// online — applied against a copy of the price list fetched fresh right
+// before writing, instead of whatever this hook's `usePriceList()`
+// sibling instance last had sitting in React state. When offline (or if
+// that fetch/write fails for any reason) it falls back to applying the
+// delta against the local cache and queuing it through the exact same
+// PRICE_LIST_SAVE offline-queue path as any other catalog edit — no new
+// queue op type, no new conflict-review UI — so it still converges, and a
+// genuine collision between two devices still surfaces through the
+// conflict review the app already has, same as any other catalog
+// conflict would.
+const applyStockAdjustments = async (itemDeltas, userId) => {
+  if (!itemDeltas || itemDeltas.length === 0 || !userId) return;
+
+  const readLocalTree = () => {
+    try {
+      const raw = localStorage.getItem("priceListData");
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const applyLocallyAndQueue = (baseTree) => {
+    const { tree, changed } = applyStockDeltas(baseTree, itemDeltas);
+    if (!changed) return;
+    localStorage.setItem("priceListData", JSON.stringify(tree));
+    window.dispatchEvent(new Event(PRICE_LIST_UPDATED_EVENT));
+    enqueue(OP_TYPES.PRICE_LIST_SAVE, { data: tree }, tree, userId);
+  };
+
+  if (!navigator.onLine) {
+    applyLocallyAndQueue(readLocalTree());
+    return;
+  }
+
+  try {
+    const { data: row, error } = await supabase
+      .from("price_lists")
+      .select("data")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) throw error;
+
+    const { tree, changed } = applyStockDeltas(row?.data ?? {}, itemDeltas);
+    if (!changed) return;
+
+    const { error: upsertErr } = await supabase
+      .from("price_lists")
+      .upsert({ user_id: userId, data: tree }, { onConflict: "user_id" });
+    if (upsertErr) throw upsertErr;
+
+    localStorage.setItem("priceListData", JSON.stringify(tree));
+    window.dispatchEvent(new Event(PRICE_LIST_UPDATED_EVENT));
+  } catch (err) {
+    console.warn(
+      "[useTransactions] Stock adjustment couldn't reach the server, applying locally and queuing for later sync:",
+      err?.message,
+    );
+    applyLocallyAndQueue(readLocalTree());
+  }
+};
+
+// Best-effort wrapper: an item-kind transaction's stock side effect should
+// never be the reason the transaction itself appears to fail — it's a
+// derived bookkeeping step, not the primary write. kind !== "item"
+// (financial transactions, which never carry line items) is a silent no-op.
+const runStockAdjustment = async (oldItems, newItems, type, kind, userId) => {
+  if (kind !== "item") return;
+  try {
+    const deltas = computeStockDeltas(oldItems, newItems, type);
+    await applyStockAdjustments(deltas, userId);
+  } catch (err) {
+    console.warn("[useTransactions] Stock adjustment failed:", err?.message);
+  }
 };
 
 // ─── hook ─────────────────────────────────────────────────────────────────────
@@ -279,19 +373,25 @@ export const useTransactions = (contactId) => {
 
     if (!navigator.onLine) {
       enqueue(OP_TYPES.TX_INSERT, { row }, tx, user.id);
-      return tx;
+    } else {
+      try {
+        const { error: err } = await supabase
+          .from("transactions")
+          .insert([row]);
+        if (err) throw err;
+      } catch (err) {
+        if (isNetworkError(err)) {
+          enqueue(OP_TYPES.TX_INSERT, { row }, tx, user.id);
+        } else {
+          throw err;
+        }
+      }
     }
 
-    try {
-      const { error: err } = await supabase.from("transactions").insert([row]);
-      if (err) throw err;
-    } catch (err) {
-      if (isNetworkError(err)) {
-        enqueue(OP_TYPES.TX_INSERT, { row }, tx, user.id);
-        return tx;
-      }
-      throw err;
-    }
+    // Stock effect of a brand new item-kind transaction: no "before" state,
+    // so this is just computeStockDeltas' create case (empty oldItems).
+    await runStockAdjustment([], tx.itemsList, tx.type, tx.kind, user.id);
+
     return tx;
   };
 
@@ -326,6 +426,16 @@ export const useTransactions = (contactId) => {
         OP_TYPES.TX_UPSERT,
         { rows: [transactionToRow(merged)] },
         merged,
+        user.id,
+      );
+      // Offline: reconcile against the last state THIS device knew about
+      // (localTx) — the true fresh-from-server "before" isn't reachable
+      // right now, same constraint the rest of this offline branch is under.
+      await runStockAdjustment(
+        localTx.itemsList,
+        merged.itemsList,
+        merged.type,
+        merged.kind,
         user.id,
       );
       return merged;
@@ -367,6 +477,18 @@ export const useTransactions = (contactId) => {
         saveToLocal(list);
         return list;
       });
+
+      // Online success: reconcile against the server's own pre-edit copy
+      // (existing), not the possibly-stale local one — same reason this
+      // whole branch re-fetches before merging in the first place.
+      await runStockAdjustment(
+        existing.itemsList,
+        serverMerge.itemsList,
+        serverMerge.type,
+        serverMerge.kind,
+        user.id,
+      );
+
       return serverMerge;
     } catch (err) {
       if (isNetworkError(err)) {
@@ -374,6 +496,13 @@ export const useTransactions = (contactId) => {
           OP_TYPES.TX_UPSERT,
           { rows: [transactionToRow(merged)] },
           merged,
+          user.id,
+        );
+        await runStockAdjustment(
+          localTx.itemsList,
+          merged.itemsList,
+          merged.type,
+          merged.kind,
           user.id,
         );
         return merged;
@@ -576,21 +705,33 @@ export const useTransactions = (contactId) => {
 
     if (!navigator.onLine) {
       enqueue(OP_TYPES.TX_UPSERT, { rows }, allToWrite, user.id);
-      return;
+    } else {
+      try {
+        const { error: batchErr } = await supabase
+          .from("transactions")
+          .upsert(rows, { onConflict: "id" });
+        if (batchErr) throw batchErr;
+      } catch (err) {
+        if (isNetworkError(err)) {
+          enqueue(OP_TYPES.TX_UPSERT, { rows }, allToWrite, user.id);
+        } else {
+          throw err;
+        }
+      }
     }
 
-    try {
-      const { error: batchErr } = await supabase
-        .from("transactions")
-        .upsert(rows, { onConflict: "id" });
-      if (batchErr) throw batchErr;
-    } catch (err) {
-      if (isNetworkError(err)) {
-        enqueue(OP_TYPES.TX_UPSERT, { rows }, allToWrite, user.id);
-        return;
-      }
-      throw err;
-    }
+    // Deleting a transaction reverses ITS OWN item effect entirely. The
+    // partner transactions whose settlement history got adjusted above only
+    // ever had payment fields touched (see buildUpdatedPartner above) —
+    // their itemsList, and so their own stock effect, is untouched by this,
+    // so they need no stock reversal of their own.
+    await runStockAdjustment(
+      target.itemsList,
+      [],
+      target.type,
+      target.kind,
+      user.id,
+    );
   };
 
   // ── addPayment ────────────────────────────────────────────────────────────

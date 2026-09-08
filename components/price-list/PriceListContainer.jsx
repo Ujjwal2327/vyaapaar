@@ -21,6 +21,7 @@ import {
   importFromText,
   toTitleCase,
 } from "@/lib/utils/dataTransform";
+import { preserveStockFields } from "@/lib/utils/stockUtils";
 import { toast } from "sonner";
 import { EditCategoryModal } from "./modals/EditCategoryModal";
 import { CategoryDetailModal } from "./modals/CategoryDetailModal";
@@ -325,7 +326,11 @@ export const PriceListContainer = () => {
 
       try {
         const newData = importFromText(bulkText);
-        await savePriceData(newData);
+        // Bulk edit's plain-text format doesn't represent stock tracking at
+        // all, so without this every item it touches would silently come
+        // back untracked — see preserveStockFields in lib/utils/stockUtils.js.
+        const preservedData = preserveStockFields(newData, priceData);
+        await savePriceData(preservedData);
         toast.success("Data imported successfully", { id: loadingToast });
         setShowBulkModal(false);
       } catch (error) {
@@ -334,7 +339,7 @@ export const PriceListContainer = () => {
         // Modal stays open on error
       }
     },
-    [savePriceData],
+    [savePriceData, priceData],
   );
 
   const handleViewDetails = useCallback((itemName, itemData) => {

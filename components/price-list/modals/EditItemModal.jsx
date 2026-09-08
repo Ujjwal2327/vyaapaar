@@ -16,6 +16,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Boxes } from "lucide-react";
 import { DEFAULT_ACTIVE_UNITS, UNIT_CATEGORIES } from "@/lib/units-config";
 
 // Helper function to create the nested structure of active units
@@ -25,7 +27,7 @@ const getNestedActiveUnits = (activeUnits) => {
   // Iterate through all categories
   Object.entries(UNIT_CATEGORIES).forEach(([category, units]) => {
     const activeUnitsInCategory = units.filter((unit) =>
-      activeUnits.includes(unit.name)
+      activeUnits.includes(unit.name),
     );
 
     if (activeUnitsInCategory.length > 0) {
@@ -43,7 +45,7 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
   // Initialize state as null/empty default for safe conditional rendering
   const [formData, setFormData] = useState(null);
   const [initialFormData, setInitialFormData] = useState(null);
-  
+
   // Store the bulk discount percentage for real-time calculation
   const [bulkDiscountPercent, setBulkDiscountPercent] = useState(0);
 
@@ -53,27 +55,39 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
     if (editingItem && editingItem.data) {
       // Handle backward compatibility: convert old 'sell' to 'retailSell'
       const itemData = editingItem.data;
-      const retailSell = itemData.retailSell !== undefined ? itemData.retailSell : itemData.sell || 0;
-      const bulkSell = itemData.bulkSell !== undefined ? itemData.bulkSell : retailSell;
-      
+      const retailSell =
+        itemData.retailSell !== undefined
+          ? itemData.retailSell
+          : itemData.sell || 0;
+      const bulkSell =
+        itemData.bulkSell !== undefined ? itemData.bulkSell : retailSell;
+
       // Calculate existing discount percentage
       let existingDiscount = 0;
       if (retailSell > 0 && bulkSell < retailSell) {
         existingDiscount = ((retailSell - bulkSell) / retailSell) * 100;
       }
       // Use stored discount if available, otherwise calculate
-      const discount = itemData.bulkDiscountPercent !== undefined 
-        ? itemData.bulkDiscountPercent 
-        : existingDiscount;
-      
+      const discount =
+        itemData.bulkDiscountPercent !== undefined
+          ? itemData.bulkDiscountPercent
+          : existingDiscount;
+
       setBulkDiscountPercent(discount);
-      
+
       const currentFormData = {
         ...itemData,
         retailSell,
         bulkSell,
+        trackStock: typeof itemData.stockQty === "number",
+        stockQty:
+          typeof itemData.stockQty === "number" ? itemData.stockQty : "",
+        lowStockThreshold:
+          typeof itemData.lowStockThreshold === "number"
+            ? itemData.lowStockThreshold
+            : 5,
       };
-      
+
       setFormData(currentFormData);
       setInitialFormData(currentFormData);
     } else if (!editingItem && formData !== null) {
@@ -104,17 +118,21 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
   // Handle retail sell price change - auto-update bulk price based on discount %
   const handleRetailSellChange = (value) => {
     const numValue = Math.max(0, parseFloat(value) || 0);
-    
+
     setFormData((prev) => {
       // Calculate new bulk price based on stored discount %
-      const newBulkSell = bulkDiscountPercent > 0 
-        ? numValue * (1 - bulkDiscountPercent / 100)
-        : prev.bulkSell;
+      const newBulkSell =
+        bulkDiscountPercent > 0
+          ? numValue * (1 - bulkDiscountPercent / 100)
+          : prev.bulkSell;
 
       return {
         ...prev,
         retailSell: value,
-        bulkSell: typeof newBulkSell === 'number' ? newBulkSell.toFixed(2) : newBulkSell,
+        bulkSell:
+          typeof newBulkSell === "number"
+            ? newBulkSell.toFixed(2)
+            : newBulkSell,
       };
     });
   };
@@ -122,10 +140,10 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
   // Handle bulk sell price change - recalculate and store new discount %
   const handleBulkSellChange = (value) => {
     const numValue = Math.max(0, parseFloat(value) || 0);
-    
+
     setFormData((prev) => {
       const retailNum = parseFloat(prev.retailSell) || 0;
-      
+
       // Calculate new discount percentage
       if (retailNum > 0 && numValue < retailNum) {
         const discount = ((retailNum - numValue) / retailNum) * 100;
@@ -152,14 +170,14 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
 
   const handleSubmit = () => {
     if (!isFormValid) return;
-    
+
     // Ensure all prices are >= 0
     const retailSell = Math.max(0, parseFloat(formData.retailSell) || 0);
-    const bulkSell = formData.bulkSell 
+    const bulkSell = formData.bulkSell
       ? Math.max(0, parseFloat(formData.bulkSell))
       : retailSell;
     const cost = Math.max(0, parseFloat(formData.cost) || 0);
-    
+
     const dataToSubmit = {
       ...formData,
       retailSell,
@@ -167,7 +185,7 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
       cost,
       bulkDiscountPercent, // Store the current discount % for future edits
     };
-    
+
     onSave(dataToSubmit);
   };
 
@@ -182,14 +200,24 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
     if (!formData.retailSell) return false;
 
     // Check if any changes were made
-    const hasChanges = 
+    const hasChanges =
       formData.name !== initialFormData.name ||
-      parseFloat(formData.retailSell) !== parseFloat(initialFormData.retailSell) ||
-      parseFloat(formData.bulkSell || formData.retailSell) !== parseFloat(initialFormData.bulkSell || initialFormData.retailSell) ||
-      parseFloat(formData.cost || 0) !== parseFloat(initialFormData.cost || 0) ||
+      parseFloat(formData.retailSell) !==
+        parseFloat(initialFormData.retailSell) ||
+      parseFloat(formData.bulkSell || formData.retailSell) !==
+        parseFloat(initialFormData.bulkSell || initialFormData.retailSell) ||
+      parseFloat(formData.cost || 0) !==
+        parseFloat(initialFormData.cost || 0) ||
       formData.sellUnit !== initialFormData.sellUnit ||
       formData.costUnit !== initialFormData.costUnit ||
-      (formData.notes || "") !== (initialFormData.notes || "");
+      (formData.notes || "") !== (initialFormData.notes || "") ||
+      formData.trackStock !== initialFormData.trackStock ||
+      (formData.trackStock &&
+        parseFloat(formData.stockQty || 0) !==
+          parseFloat(initialFormData.stockQty || 0)) ||
+      (formData.trackStock &&
+        parseFloat(formData.lowStockThreshold || 0) !==
+          parseFloat(initialFormData.lowStockThreshold || 0));
 
     return hasChanges;
   })();
@@ -254,9 +282,7 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
 
             {/* Bulk Sell Price */}
             <div className="space-y-2 flex-1">
-              <Label htmlFor="bulkSell">
-                Bulk Sell Price
-              </Label>
+              <Label htmlFor="bulkSell">Bulk Sell Price</Label>
               <Input
                 id="bulkSell"
                 type="number"
@@ -323,6 +349,73 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
             </Select>
           </div>
 
+          {/* Stock Tracking - opt-in, off by default */}
+          <div className="space-y-3 rounded-lg border p-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Boxes className="w-4 h-4 text-muted-foreground" />
+                <Label htmlFor="trackStock" className="cursor-pointer">
+                  Track stock for this item
+                </Label>
+              </div>
+              <Switch
+                id="trackStock"
+                checked={formData.trackStock}
+                onCheckedChange={(checked) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    trackStock: checked,
+                    stockQty:
+                      checked && prev.stockQty === "" ? "0" : prev.stockQty,
+                    lowStockThreshold:
+                      checked && prev.lowStockThreshold === ""
+                        ? "5"
+                        : prev.lowStockThreshold,
+                  }))
+                }
+              />
+            </div>
+
+            {formData.trackStock ? (
+              <div className="flex gap-x-5">
+                <div className="space-y-2 flex-1">
+                  <Label htmlFor="stockQty">Current stock</Label>
+                  <Input
+                    id="stockQty"
+                    type="number"
+                    step="any"
+                    placeholder="0"
+                    value={formData.stockQty}
+                    onChange={(e) =>
+                      setFormData({ ...formData, stockQty: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="space-y-2 flex-1">
+                  <Label htmlFor="lowStockThreshold">Low stock alert at</Label>
+                  <Input
+                    id="lowStockThreshold"
+                    type="number"
+                    step="any"
+                    placeholder="5"
+                    value={formData.lowStockThreshold}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        lowStockThreshold: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Off by default — turn on to get low-stock alerts and automatic
+                updates as sales and purchases come in.
+              </p>
+            )}
+          </div>
+
           {/* Notes/Textarea */}
           <div className="space-y-2">
             <Label htmlFor="notes">Notes</Label>
@@ -336,8 +429,8 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
             />
           </div>
 
-          <Button 
-            onClick={handleSubmit} 
+          <Button
+            onClick={handleSubmit}
             className="w-full"
             disabled={!isFormValid}
           >

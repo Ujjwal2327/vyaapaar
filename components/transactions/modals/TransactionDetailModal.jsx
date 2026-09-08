@@ -41,9 +41,16 @@ import {
   Link2,
   User,
   UserPlus,
+  RotateCcw,
 } from "lucide-react";
 import { format } from "date-fns";
 import { usePriceList } from "@/hooks/usePriceList";
+import { StockBadge } from "@/components/price-list/StockBadge";
+import {
+  getOversellProjection,
+  projectStockAfterDelta,
+  computeStockDeltas,
+} from "@/lib/utils/stockUtils";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 const fmtC = (n) =>
@@ -254,6 +261,8 @@ const flattenPrice = (data, path = []) => {
         cost: v.cost ?? 0,
         sellUnit: v.sellUnit ?? "piece",
         costUnit: v.costUnit ?? v.sellUnit ?? "piece",
+        stockQty: v.stockQty,
+        lowStockThreshold: v.lowStockThreshold,
       });
     } else if (v?.type === "category" && v.children) {
       out.push(...flattenPrice(v.children, [...path, k]));
@@ -323,6 +332,95 @@ const diffFinancial = (before, after) => {
   return lines;
 };
 
+// ─── per-line change tracking (edit mode) ──────────────────────────────────────
+//
+// A narrower, row-oriented sibling of diffItems() above: instead of a flat
+// list of display strings for the "Unsaved changes" summary further down
+// this modal, this answers "what's the story for JUST this one row" so it
+// can be shown right on the row itself — no scrolling down to that summary
+// needed to see what changed on the line you're currently editing. Matches
+// a line back to its pre-edit counterpart by name, the same convention
+// diffItems already uses, so a renamed line reads as "New" here too rather
+// than as an edited version of the old one.
+const getLineChangeInfo = (item, originalItemsList) => {
+  const original = (originalItemsList ?? []).find((o) => o.name === item.name);
+  if (!original) return { status: "new" };
+
+  const oldQty = parseFloat(original.quantity) || 0;
+  const newQty = parseFloat(item.quantity) || 0;
+  const oldPrice = parseFloat(original.price) || 0;
+  const newPrice = parseFloat(item.price) || 0;
+  const oldUnit = original.unit || "";
+  const newUnit = item.unit || "";
+
+  const qtyChanged = oldQty !== newQty;
+  const priceChanged = oldPrice !== newPrice;
+  const unitChanged = oldUnit !== newUnit;
+
+  if (!qtyChanged && !priceChanged && !unitChanged) {
+    return { status: "unchanged" };
+  }
+
+  return {
+    status: "changed",
+    original,
+    qtyChanged,
+    oldQty,
+    newQty,
+    priceChanged,
+    oldPrice,
+    newPrice,
+    unitChanged,
+    oldUnit,
+    newUnit,
+  };
+};
+
+// "11 - 6 → 5" for a decrease, "5 + 3 → 8" for an increase — the arithmetic
+// that gets you from the original value to the current one, not just the
+// two endpoints.
+const formatFieldDelta = (oldVal, newVal, fmt) => {
+  const delta = newVal - oldVal;
+  const sign = delta > 0 ? "+" : "-";
+  return `${fmt(oldVal)} ${sign} ${fmt(Math.abs(delta))} → ${fmt(newVal)}`;
+};
+
+const ChangeBadges = ({ changeInfo }) => {
+  if (!changeInfo || changeInfo.status === "unchanged") return null;
+
+  if (changeInfo.status === "new") {
+    return (
+      <span className="text-[0.7em] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300 font-medium shrink-0 whitespace-nowrap">
+        New
+      </span>
+    );
+  }
+
+  const pillCls =
+    "text-[0.7em] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 font-medium shrink-0 whitespace-nowrap";
+
+  return (
+    <>
+      {changeInfo.qtyChanged && (
+        <span className={pillCls}>
+          Qty: {formatFieldDelta(changeInfo.oldQty, changeInfo.newQty, fmtNum)}
+        </span>
+      )}
+      {changeInfo.priceChanged && (
+        <span className={pillCls}>
+          Price:{" "}
+          {formatFieldDelta(changeInfo.oldPrice, changeInfo.newPrice, fmtC)}
+        </span>
+      )}
+      {changeInfo.unitChanged && (
+        <span className={pillCls}>
+          Unit: {changeInfo.oldUnit || "—"} → {changeInfo.newUnit || "—"}
+        </span>
+      )}
+    </>
+  );
+};
+
 // ─── shared input style ──────────────────────────────────────────────────────
 const inputCls =
   "bg-muted border-0 rounded px-2 py-1 text-sm font-mono outline-none focus:bg-primary/10 focus:ring-1 focus:ring-primary min-w-0 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
@@ -376,6 +474,23 @@ const CatalogSearch = ({
           (it.unit || "") === (pendingUnit || ""),
       )
     : false;
+
+  // How much of this exact item is already sitting in the cart from an
+  // earlier "add" action, so adding it again in a second pass still gets
+  // caught if the combined quantity oversells it — not just this one line.
+  const alreadyInCartQty = pending
+    ? (itemsList ?? [])
+        .filter((it) => it.name === pending.fullPath)
+        .reduce((sum, it) => sum + (parseFloat(it.quantity) || 0), 0)
+    : 0;
+  const oversellProjection = pending
+    ? getOversellProjection(
+        pending,
+        parseFloat(pendingQty) || 0,
+        txType,
+        alreadyInCartQty,
+      )
+    : null;
 
   const confirmAdd = () => {
     if (!pending) return;
@@ -451,6 +566,7 @@ const CatalogSearch = ({
                             {item.pathParts.slice(0, -1).join(" › ")}
                           </p>
                         )}
+                        <StockBadge item={item} className="mt-1" />
                       </div>
                       <p className="font-semibold text-sm shrink-0">
                         {fmtC(item[pk])}
@@ -486,6 +602,7 @@ const CatalogSearch = ({
                 {pending.pathParts.slice(0, -1).join(" › ")}
               </p>
             )}
+            <StockBadge item={pending} className="mt-1" />
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex flex-col gap-0.5">
@@ -546,6 +663,17 @@ const CatalogSearch = ({
               create a duplicate row.
             </div>
           )}
+          {oversellProjection !== null && (
+            <div className="flex items-center gap-1.5 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-2 text-sm text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              Only {pending.stockQty} {pending.sellUnit} in stock
+              {alreadyInCartQty > 0
+                ? ` (${alreadyInCartQty} already in this cart)`
+                : ""}
+              — this will leave it {Math.abs(oversellProjection)} short. You can
+              still add it.
+            </div>
+          )}
           <div className="flex gap-2">
             <button
               type="button"
@@ -580,6 +708,7 @@ const ItemsEditTabPanel = ({
   txType,
   sellPriceMode,
   allPriceItems,
+  originalItemsList,
   liveTotal,
   liveRemaining,
   saveBlockedZeroTotal,
@@ -590,6 +719,18 @@ const ItemsEditTabPanel = ({
   const blankNameRef = useRef(null);
   const itemsList = editedTx?.itemsList ?? [];
   const namedCount = itemsList.filter((it) => it.name?.trim()).length;
+
+  // Same formula the actual save runs (see runStockAdjustment in
+  // useTransactions.js), computed here purely as a live preview so a
+  // warning can show BEFORE Save is pressed rather than only after.
+  const liveStockDeltas = useMemo(
+    () => computeStockDeltas(originalItemsList, itemsList, txType),
+    [originalItemsList, itemsList, txType],
+  );
+  const deltaByPath = useMemo(
+    () => new Map(liveStockDeltas.map((d) => [d.path, d.delta])),
+    [liveStockDeltas],
+  );
 
   const handleAddBlank = () => {
     setBlankPending({ name: "", qty: "1", price: "", unit: "" });
@@ -785,6 +926,9 @@ const ItemsEditTabPanel = ({
                   onToggle={() =>
                     setExpandedIndex(expandedIndex === i ? null : i)
                   }
+                  allPriceItems={allPriceItems}
+                  deltaByPath={deltaByPath}
+                  originalItemsList={originalItemsList}
                 />
               ))
             )}
@@ -843,6 +987,9 @@ const CollapsibleCartItemDetail = ({
   onRemove,
   isExpanded,
   onToggle,
+  allPriceItems,
+  deltaByPath,
+  originalItemsList,
 }) => {
   const qty = parseFloat(item.quantity) || 0;
   const price = parseFloat(item.price) || 0;
@@ -852,6 +999,19 @@ const CollapsibleCartItemDetail = ({
     <span className="italic text-muted-foreground">Unnamed</span>
   );
   const cat = parts.length > 1 ? parts.slice(0, -1).join(" › ") : "";
+
+  const changeInfo = getLineChangeInfo(item, originalItemsList);
+
+  // Current catalog stock for this line, plus what saving the edit AS IT
+  // STANDS RIGHT NOW would do to it. deltaByPath already nets out this
+  // line's ORIGINAL quantity against its CURRENT (being-typed) quantity —
+  // see the computeStockDeltas call in ItemsEditTabPanel — so this is the
+  // same math the actual save applies, just previewed before Save is hit.
+  const catalogItem = allPriceItems?.find((p) => p.fullPath === item.name);
+  const delta = deltaByPath?.get(item.name) ?? 0;
+  const projectedStock = catalogItem
+    ? projectStockAfterDelta(catalogItem, delta)
+    : null;
 
   if (!isExpanded) {
     return (
@@ -869,11 +1029,13 @@ const CollapsibleCartItemDetail = ({
               {cat}
             </p>
           )}
-          <div className="flex items-center gap-1 mt-1">
+          <div className="flex items-center gap-1 mt-1 flex-wrap">
             <span className="text-sm text-muted-foreground font-mono">
               {fmtNum(item.quantity)}
               {item.unit ? ` ${item.unit}` : ""} × {fmtC(price)}
             </span>
+            <StockBadge item={catalogItem} />
+            <ChangeBadges changeInfo={changeInfo} />
           </div>
         </div>
         <div className="shrink-0 text-right pt-0.5">
@@ -901,9 +1063,11 @@ const CollapsibleCartItemDetail = ({
             className="w-full bg-background border border-input rounded px-2 py-1.5 text-sm font-medium outline-none focus:ring-1 focus:ring-primary transition-colors"
             autoFocus
           />
-          <p className="text-sm text-muted-foreground truncate px-1 min-h-[1.2em] mt-0.5">
-            {cat}
-          </p>
+          <div className="flex items-center gap-1.5 flex-wrap px-1 min-h-[1.2em] mt-0.5">
+            <p className="text-sm text-muted-foreground truncate">{cat}</p>
+            <StockBadge item={catalogItem} />
+            <ChangeBadges changeInfo={changeInfo} />
+          </div>
         </div>
         <button
           type="button"
@@ -926,6 +1090,21 @@ const CollapsibleCartItemDetail = ({
             className={`${inputCls} w-16`}
           />
         </div>
+        {changeInfo.status === "changed" && (
+          <button
+            type="button"
+            onClick={() => {
+              onUpdate(index, "quantity", String(changeInfo.original.quantity));
+              onUpdate(index, "price", String(changeInfo.original.price));
+              onUpdate(index, "unit", changeInfo.original.unit || "");
+            }}
+            title="Reset this line back to how it was before editing"
+            aria-label="Reset line to original values"
+            className="mt-4 h-8 w-8 flex items-center justify-center rounded-md border border-input bg-background hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+          </button>
+        )}
         <div className="flex flex-col gap-0.5">
           <span className="text-[0.7em] text-muted-foreground uppercase tracking-wide font-medium">
             Unit
@@ -960,6 +1139,13 @@ const CollapsibleCartItemDetail = ({
           </>
         )}
       </div>
+      {projectedStock !== null && (
+        <div className="flex items-center gap-1.5 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-2 text-sm text-amber-700 dark:text-amber-400">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          Current stock is {catalogItem.stockQty} {catalogItem.sellUnit} —
+          saving this change will leave it {Math.abs(projectedStock)} short.
+        </div>
+      )}
       <button
         type="button"
         onClick={onToggle}
@@ -973,13 +1159,14 @@ const CollapsibleCartItemDetail = ({
 };
 
 // ─── ItemViewRow ──────────────────────────────────────────────────────────────
-const ItemViewRow = ({ item, index, isLast }) => {
+const ItemViewRow = ({ item, index, isLast, allPriceItems }) => {
   const qty = parseFloat(item.quantity) || 0,
     price = parseFloat(item.price) || 0;
   const total = qty * price;
   const parts = item.name ? item.name.split(" › ") : [""];
   const name = parts[parts.length - 1];
   const cat = parts.slice(0, -1).join(" › ");
+  const catalogItem = allPriceItems?.find((p) => p.fullPath === item.name);
   return (
     <div
       className={`flex items-start gap-2 px-3 py-3 overflow-hidden ${!isLast ? "border-b" : ""}`}
@@ -993,11 +1180,12 @@ const ItemViewRow = ({ item, index, isLast }) => {
         {cat && (
           <p className="text-sm text-muted-foreground truncate mt-0.5">{cat}</p>
         )}
-        <div className="flex items-center gap-1 mt-1">
+        <div className="flex items-center gap-1 mt-1 flex-wrap">
           <span className="text-sm text-muted-foreground font-mono">
             {fmtNum(item.quantity)}
             {item.unit ? ` ${item.unit}` : ""} × {fmtC(price)}
           </span>
+          <StockBadge item={catalogItem} />
         </div>
       </div>
       <div className="shrink-0 text-right pt-0.5">
@@ -1813,6 +2001,7 @@ export const TransactionDetailModal = ({
                           item={it}
                           index={i}
                           isLast={i === (tx.itemsList ?? []).length - 1}
+                          allPriceItems={allPriceItems}
                         />
                       ))}
                       {tx.additionalAmounts
@@ -1860,6 +2049,7 @@ export const TransactionDetailModal = ({
                     txType={tx.type}
                     sellPriceMode={sellPriceMode}
                     allPriceItems={allPriceItems}
+                    originalItemsList={tx.itemsList}
                     liveTotal={liveTotal}
                     liveRemaining={liveRemaining}
                     saveBlockedZeroTotal={saveBlockedZeroTotal}

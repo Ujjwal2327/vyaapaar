@@ -16,6 +16,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Boxes } from "lucide-react";
 import { DEFAULT_ACTIVE_UNITS, UNIT_CATEGORIES } from "@/lib/units-config";
 
 // Helper function to create the nested structure of active units
@@ -25,7 +27,7 @@ const getNestedActiveUnits = (activeUnits) => {
   // Iterate through all categories
   Object.entries(UNIT_CATEGORIES).forEach(([category, units]) => {
     const activeUnitsInCategory = units.filter((unit) =>
-      activeUnits.includes(unit.name)
+      activeUnits.includes(unit.name),
     );
 
     if (activeUnitsInCategory.length > 0) {
@@ -50,6 +52,9 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
     sellUnit: "piece",
     costUnit: "piece",
     notes: "",
+    trackStock: false,
+    stockQty: "",
+    lowStockThreshold: "",
   });
 
   // Store the discount percentage (retailSell - bulkSell) / retailSell * 100
@@ -91,6 +96,9 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
         sellUnit: activeUnits[0] || "piece",
         costUnit: activeUnits[0] || "piece",
         notes: "",
+        trackStock: false,
+        stockQty: "",
+        lowStockThreshold: "",
       });
       setBulkDiscountPercent(0);
     }
@@ -99,13 +107,14 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
   // Handle retail sell price change - auto-update bulk price based on discount %
   const handleRetailSellChange = (value) => {
     const numValue = Math.max(0, parseFloat(value) || 0);
-    
+
     setFormData((prev) => {
       // If bulk is empty, it will auto-populate on submit
       // If bulk discount % exists, calculate new bulk price
-      const newBulkSell = bulkDiscountPercent > 0 
-        ? numValue * (1 - bulkDiscountPercent / 100)
-        : "";
+      const newBulkSell =
+        bulkDiscountPercent > 0
+          ? numValue * (1 - bulkDiscountPercent / 100)
+          : "";
 
       return {
         ...prev,
@@ -118,10 +127,10 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
   // Handle bulk sell price change - calculate and store discount %
   const handleBulkSellChange = (value) => {
     const numValue = Math.max(0, parseFloat(value) || 0);
-    
+
     setFormData((prev) => {
       const retailNum = parseFloat(prev.retailSell) || 0;
-      
+
       // Calculate discount percentage if retail price exists
       if (retailNum > 0 && numValue < retailNum) {
         const discount = ((retailNum - numValue) / retailNum) * 100;
@@ -151,7 +160,7 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
 
     // Ensure all prices are >= 0
     const retailSell = Math.max(0, parseFloat(formData.retailSell) || 0);
-    const bulkSell = formData.bulkSell 
+    const bulkSell = formData.bulkSell
       ? Math.max(0, parseFloat(formData.bulkSell))
       : retailSell; // If bulk is empty, default to retail
     const cost = Math.max(0, parseFloat(formData.cost) || 0);
@@ -175,6 +184,9 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
       sellUnit: activeUnits[0] || "piece",
       costUnit: activeUnits[0] || "piece",
       notes: "",
+      trackStock: false,
+      stockQty: "",
+      lowStockThreshold: "",
     });
     setBulkDiscountPercent(0);
   };
@@ -235,9 +247,7 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
             <>
               {/* Category Notes */}
               <div className="space-y-2">
-                <Label htmlFor="category-notes">
-                  Notes
-                </Label>
+                <Label htmlFor="category-notes">Notes</Label>
                 <Textarea
                   id="category-notes"
                   placeholder="Add any notes about this category..."
@@ -270,9 +280,7 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
 
                 {/* Bulk Sell Price */}
                 <div className="space-y-2 flex-1">
-                  <Label htmlFor="bulkSell">
-                    Bulk Sell Price
-                  </Label>
+                  <Label htmlFor="bulkSell">Bulk Sell Price</Label>
                   <Input
                     id="bulkSell"
                     type="number"
@@ -340,6 +348,75 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
                 </Select>
               </div>
 
+              {/* Stock Tracking - opt-in, off by default */}
+              <div className="space-y-3 rounded-lg border p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Boxes className="w-4 h-4 text-muted-foreground" />
+                    <Label htmlFor="trackStock" className="cursor-pointer">
+                      Track stock for this item
+                    </Label>
+                  </div>
+                  <Switch
+                    id="trackStock"
+                    checked={formData.trackStock}
+                    onCheckedChange={(checked) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        trackStock: checked,
+                        stockQty:
+                          checked && prev.stockQty === "" ? "0" : prev.stockQty,
+                        lowStockThreshold:
+                          checked && prev.lowStockThreshold === ""
+                            ? "5"
+                            : prev.lowStockThreshold,
+                      }))
+                    }
+                  />
+                </div>
+
+                {formData.trackStock ? (
+                  <div className="flex gap-x-5">
+                    <div className="space-y-2 flex-1">
+                      <Label htmlFor="stockQty">Current stock</Label>
+                      <Input
+                        id="stockQty"
+                        type="number"
+                        step="any"
+                        placeholder="0"
+                        value={formData.stockQty}
+                        onChange={(e) =>
+                          setFormData({ ...formData, stockQty: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2 flex-1">
+                      <Label htmlFor="lowStockThreshold">
+                        Low stock alert at
+                      </Label>
+                      <Input
+                        id="lowStockThreshold"
+                        type="number"
+                        step="any"
+                        placeholder="5"
+                        value={formData.lowStockThreshold}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            lowStockThreshold: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Off by default — turn on to get low-stock alerts and
+                    automatic updates as sales and purchases come in.
+                  </p>
+                )}
+              </div>
+
               {/* Notes/Textarea */}
               <div className="space-y-2">
                 <Label htmlFor="notes">Notes</Label>
@@ -355,8 +432,8 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
             </>
           )}
 
-          <Button 
-            onClick={handleSubmit} 
+          <Button
+            onClick={handleSubmit}
             className="w-full"
             disabled={!isFormValid}
           >
