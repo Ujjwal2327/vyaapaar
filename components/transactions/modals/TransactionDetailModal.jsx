@@ -42,15 +42,24 @@ import {
   User,
   UserPlus,
   RotateCcw,
+  FileDown,
+  Share2,
+  Loader2,
 } from "lucide-react";
 import { format } from "date-fns";
+import { toast } from "sonner";
 import { usePriceList } from "@/hooks/usePriceList";
+import { useBusinessProfile } from "@/hooks/useBusinessProfile";
 import { StockBadge } from "@/components/price-list/StockBadge";
 import {
   getOversellProjection,
   projectStockAfterDelta,
   computeStockDeltas,
 } from "@/lib/utils/stockUtils";
+import {
+  downloadTransactionInvoice,
+  shareTransactionInvoice,
+} from "@/lib/utils/invoicePdfGenerator";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 const fmtC = (n) =>
@@ -1732,9 +1741,12 @@ export const TransactionDetailModal = ({
   peopleData = [],
 }) => {
   const { priceData, sellPriceMode } = usePriceList();
+  const { profile: businessProfile, refresh: refreshBusinessProfile } =
+    useBusinessProfile();
 
   const [editMode, setEditMode] = useState(false);
   const [editedTx, setEditedTx] = useState(null);
+  const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
   const lastTxIdRef = useRef(null);
 
   useEffect(() => {
@@ -1903,6 +1915,67 @@ export const TransactionDetailModal = ({
     setEditMode(false);
   };
 
+  // ── invoice / receipt PDF ──────────────────────────────────────────────
+  // Bill-to is always resolved from assignedContact (tx.contactId), never
+  // from the `contact` prop — the prop is the page's own fixed contact,
+  // which is wrong for a transaction being viewed via its linked/reference
+  // role (see the read-only notice further down). assignedContact resolves
+  // correctly either way.
+  const handleDownloadInvoice = async () => {
+    if (isGeneratingInvoice) return;
+    setIsGeneratingInvoice(true);
+    const loadingToast = toast.loading("Preparing invoice PDF...");
+    try {
+      const business = (await refreshBusinessProfile()) ?? businessProfile;
+      await downloadTransactionInvoice({
+        transaction: tx,
+        business,
+        contact: assignedContact,
+      });
+      toast.success("Invoice downloaded", { id: loadingToast });
+    } catch (err) {
+      console.error("Failed to generate invoice PDF:", err);
+      toast.error("Couldn't generate the invoice PDF", {
+        id: loadingToast,
+        description: "Please try again.",
+      });
+    } finally {
+      setIsGeneratingInvoice(false);
+    }
+  };
+
+  const handleShareInvoice = async () => {
+    if (isGeneratingInvoice) return;
+    setIsGeneratingInvoice(true);
+    const loadingToast = toast.loading("Preparing invoice PDF...");
+    try {
+      const business = (await refreshBusinessProfile()) ?? businessProfile;
+      const result = await shareTransactionInvoice({
+        transaction: tx,
+        business,
+        contact: assignedContact,
+      });
+      if (result.method === "cancelled") {
+        toast.dismiss(loadingToast);
+      } else {
+        toast.success(
+          result.method === "share"
+            ? "Invoice ready to share"
+            : "Invoice downloaded",
+          { id: loadingToast },
+        );
+      }
+    } catch (err) {
+      console.error("Failed to share invoice PDF:", err);
+      toast.error("Couldn't prepare the invoice PDF", {
+        id: loadingToast,
+        description: "Please try again.",
+      });
+    } finally {
+      setIsGeneratingInvoice(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-full max-w-lg p-0 gap-0 flex flex-col h-[90svh] overflow-hidden">
@@ -1983,6 +2056,39 @@ export const TransactionDetailModal = ({
                     This record is kept for audit purposes only.
                   </p>
                 </div>
+              </div>
+            )}
+
+            {/* INVOICE / RECEIPT — hidden for deleted or reference-only
+                (linked) views, same as the write actions further down */}
+            {!isDeleted && tx._role !== "linked" && (
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 gap-1.5"
+                  onClick={handleDownloadInvoice}
+                  disabled={isGeneratingInvoice}
+                >
+                  {isGeneratingInvoice ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <FileDown className="w-4 h-4" />
+                  )}
+                  Download PDF
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 gap-1.5"
+                  onClick={handleShareInvoice}
+                  disabled={isGeneratingInvoice}
+                >
+                  <Share2 className="w-4 h-4" />
+                  Share invoice
+                </Button>
               </div>
             )}
 
