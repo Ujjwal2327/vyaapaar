@@ -29,6 +29,8 @@ import {
   Zap,
   AlertCircle,
 } from "lucide-react";
+import { useBusinessProfile } from "@/hooks/useBusinessProfile";
+import { UpiPayCard } from "@/components/transactions/UpiPayCard";
 
 const PAYMENT_METHODS = ["cash", "UPI", "bank transfer", "cheque", "credit"];
 
@@ -80,10 +82,12 @@ export const NetSettleModal = ({
   transactions,
   summary,
   onNetSettle,
+  contact,
 }) => {
   const [method, setMethod] = useState("cash");
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { profile: businessProfile } = useBusinessProfile();
 
   const { toReceive, toGive } = summary;
   const netAmount = toReceive - toGive;
@@ -274,6 +278,48 @@ export const NetSettleModal = ({
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Only once UPI is chosen. Direction follows which way the
+                  net balance actually runs — netPositive means the contact
+                  owes us (we receive, our own VPA), otherwise we owe them
+                  (we send, their VPA). */}
+              {method === "UPI" &&
+                (netPositive ? (
+                  <UpiPayCard
+                    direction="receive"
+                    vpa={businessProfile?.upiId}
+                    payeeName={businessProfile?.businessName}
+                    dueAmount={Math.abs(netAmount)}
+                    note="Net settlement"
+                    missingVpaMessage={
+                      <>
+                        Add a UPI ID in{" "}
+                        <strong className="text-foreground">
+                          Settings → User Profile
+                        </strong>{" "}
+                        to let {contact?.name ?? "the contact"} pay this by
+                        scanning a QR code.
+                      </>
+                    }
+                  />
+                ) : (
+                  <UpiPayCard
+                    direction="send"
+                    vpa={contact?.upiId}
+                    payeeName={contact?.name}
+                    dueAmount={Math.abs(netAmount)}
+                    note="Net settlement"
+                    missingVpaMessage={
+                      <>
+                        Add a UPI ID for{" "}
+                        <strong className="text-foreground">
+                          {contact?.name ?? "this contact"}
+                        </strong>{" "}
+                        in Contacts to pay them directly from here.
+                      </>
+                    }
+                  />
+                ))}
 
               <div>
                 <Label className="text-base font-medium mb-1 block">

@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Plus, X, Upload, User, Star, AlertCircle } from "lucide-react";
+import { Plus, X, Upload, User, Star, AlertCircle, QrCode } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toTitleCase } from "@/lib/utils/dataTransform";
 import { sortCategories } from "@/lib/utils/categoryUtils";
@@ -29,6 +29,7 @@ import {
   getBase64Size,
 } from "@/lib/utils/imageCompression";
 import { photoCache } from "@/lib/utils/photoCache";
+import { isValidUpiId } from "@/lib/utils/upi";
 
 // Phone validation with real-time cleaning
 const cleanAndValidatePhone = (phone) => {
@@ -81,6 +82,7 @@ export const EditPersonModal = ({
   const [initialFormData, setInitialFormData] = useState(null);
   const [photoPreview, setPhotoPreview] = useState("");
   const [phoneErrors, setPhoneErrors] = useState([]);
+  const [upiIdError, setUpiIdError] = useState(null);
   const [isCompressing, setIsCompressing] = useState(false);
   const [photoChanged, setPhotoChanged] = useState(false);
 
@@ -106,6 +108,7 @@ export const EditPersonModal = ({
         specialty: editingPerson.specialty || "",
         photo: cachedPhoto || "",
         notes: editingPerson.notes || "",
+        upiId: editingPerson.upiId || "",
       };
       setFormData(currentFormData);
       setInitialFormData(currentFormData);
@@ -115,6 +118,7 @@ export const EditPersonModal = ({
       setPhoneErrors(
         new Array(phones.length > 0 ? phones.length : 1).fill(null),
       );
+      setUpiIdError(null);
       setIsCompressing(false);
       setPhotoChanged(false);
     } else if (!editingPerson && formData !== null) {
@@ -122,6 +126,7 @@ export const EditPersonModal = ({
       setInitialFormData(null);
       setPhotoPreview("");
       setPhoneErrors([]);
+      setUpiIdError(null);
       setIsCompressing(false);
       setPhotoChanged(false);
     }
@@ -164,6 +169,16 @@ export const EditPersonModal = ({
 
     setFormData({ ...formData, phones: newPhones });
     setPhoneErrors(newErrors);
+  };
+
+  const handleUpiIdChange = (value) => {
+    setFormData({ ...formData, upiId: value });
+    const trimmed = value.trim();
+    setUpiIdError(
+      trimmed && !isValidUpiId(trimmed)
+        ? "Should look like name@bank, e.g. supplier@okhdfcbank"
+        : null,
+    );
   };
 
   const addPhoneField = () => {
@@ -268,6 +283,7 @@ export const EditPersonModal = ({
       address: formData.address.trim(),
       specialty: formData.specialty.trim(),
       notes: formData.notes.trim(),
+      upiId: formData.upiId?.trim() || "",
       phones: cleanedAndDedupedPhones,
     };
 
@@ -303,6 +319,9 @@ export const EditPersonModal = ({
     const hasAnyPhoneError = phoneErrors.some((error) => error !== null);
     if (hasAnyPhoneError) return false;
 
+    // Check for UPI ID format error
+    if (upiIdError) return false;
+
     // Check if anything changed
     const hasChanges =
       formData.name !== initialFormData.name ||
@@ -312,7 +331,8 @@ export const EditPersonModal = ({
       formData.address !== initialFormData.address ||
       formData.specialty !== initialFormData.specialty ||
       photoChanged ||
-      formData.notes !== initialFormData.notes;
+      formData.notes !== initialFormData.notes ||
+      (formData.upiId || "") !== (initialFormData.upiId || "");
 
     return hasChanges;
   })();
@@ -542,6 +562,37 @@ export const EditPersonModal = ({
                 setFormData({ ...formData, specialty: e.target.value })
               }
             />
+          </div>
+
+          {/* UPI ID — mainly useful for suppliers/helpers you pay, so a
+              purchase transaction can offer a direct "pay them" QR/link
+              instead of just a plain reminder of what's owed. */}
+          <div className="space-y-2">
+            <Label htmlFor="upiId" className="flex items-center gap-2">
+              <QrCode className="w-4 h-4" />
+              UPI ID (VPA)
+              <span className="text-xs text-muted-foreground ml-auto">
+                Optional
+              </span>
+            </Label>
+            <Input
+              id="upiId"
+              value={formData.upiId}
+              onChange={(e) => handleUpiIdChange(e.target.value)}
+              placeholder="supplier@okhdfcbank"
+              className={upiIdError ? "border-destructive" : ""}
+            />
+            {upiIdError ? (
+              <div className="flex items-start gap-1 text-xs text-destructive">
+                <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
+                <span>{upiIdError}</span>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Lets you pay this contact directly via UPI when recording a
+                purchase payment
+              </p>
+            )}
           </div>
 
           {/* Notes */}

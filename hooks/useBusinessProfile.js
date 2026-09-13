@@ -30,6 +30,7 @@ const rowToProfile = (row, fallbackEmail) => ({
   businessAddress: row?.business_address || "",
   phone: row?.phone || "",
   email: row?.email || fallbackEmail || "",
+  upiId: row?.upi_id || "",
 });
 
 export const useBusinessProfile = () => {
@@ -77,7 +78,7 @@ export const useBusinessProfile = () => {
       try {
         const { data, error } = await supabase
           .from("users")
-          .select("business_name, business_address, phone, email")
+          .select("business_name, business_address, phone, email, upi_id")
           .eq("id", user.id)
           .single();
         if (error) throw error;
@@ -106,7 +107,7 @@ export const useBusinessProfile = () => {
     try {
       const { data, error } = await supabase
         .from("users")
-        .select("business_name, business_address, phone, email")
+        .select("business_name, business_address, phone, email, upi_id")
         .eq("id", user.id)
         .single();
       if (error) throw error;

@@ -18,6 +18,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CreditCard, AlertTriangle } from "lucide-react";
+import { useBusinessProfile } from "@/hooks/useBusinessProfile";
+import { UpiPayCard } from "@/components/transactions/UpiPayCard";
 
 const PAYMENT_METHODS = ["cash", "UPI", "bank transfer", "cheque", "credit"];
 
@@ -33,11 +35,13 @@ export const AddPaymentModal = ({
   onOpenChange,
   transaction,
   onSave,
+  peopleData = [],
 }) => {
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState("cash");
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { profile: businessProfile } = useBusinessProfile();
 
   if (!transaction) return null;
 
@@ -46,6 +50,15 @@ export const AddPaymentModal = ({
   const paidNow = parseFloat(amount) || 0;
   const isOverpaid = paidNow > 0 && paidNow > remaining;
   const afterPayment = remaining - paidNow;
+
+  // Only meaningful on a purchase (type "in") — the contact this money
+  // would actually go to. Resolved from peopleData rather than requiring a
+  // fixed `contact` prop since this modal is also opened from the
+  // Unassigned page, where a transaction's contactId can be set mid-session
+  // (see TransactionDetailModal's AssignContactPanel) rather than fixed.
+  const payeeContact = transaction.contactId
+    ? (peopleData.find((p) => p.id === transaction.contactId) ?? null)
+    : null;
 
   const handleSubmit = async () => {
     if (isSubmitting) return;
@@ -135,6 +148,65 @@ export const AddPaymentModal = ({
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Only once UPI is the chosen method — cash/bank transfer/
+                cheque/credit have no use for a QR sitting here. The amount
+                encoded always follows what's actually typed above (the
+                amount the customer wants to pay right now), not the full
+                remaining balance — so a partial payment gets a QR for the
+                partial amount. */}
+            {method === "UPI" && transaction.type === "out" && (
+              <UpiPayCard
+                direction="receive"
+                vpa={businessProfile?.upiId}
+                payeeName={businessProfile?.businessName}
+                dueAmount={paidNow}
+                note={
+                  transaction.id
+                    ? `Txn ${transaction.id.slice(0, 8)}`
+                    : undefined
+                }
+                missingVpaMessage={
+                  <>
+                    Add a UPI ID in{" "}
+                    <strong className="text-foreground">
+                      Settings → User Profile
+                    </strong>{" "}
+                    to let customers pay this by scanning a QR code.
+                  </>
+                }
+              />
+            )}
+            {method === "UPI" && transaction.type === "in" && (
+              <UpiPayCard
+                direction="send"
+                vpa={payeeContact?.upiId}
+                payeeName={payeeContact?.name}
+                dueAmount={paidNow}
+                note={
+                  transaction.id
+                    ? `Txn ${transaction.id.slice(0, 8)}`
+                    : undefined
+                }
+                missingVpaMessage={
+                  payeeContact ? (
+                    <>
+                      Add a UPI ID for{" "}
+                      <strong className="text-foreground">
+                        {payeeContact.name}
+                      </strong>{" "}
+                      in Contacts to pay them directly from here.
+                    </>
+                  ) : (
+                    <>
+                      This transaction isn't linked to a contact, so there's no
+                      UPI ID to pay automatically. You can still send{" "}
+                      {fmt(paidNow)} from your own UPI app.
+                    </>
+                  )
+                }
+              />
+            )}
 
             <div>
               <Label className="text-base font-medium mb-1 block">

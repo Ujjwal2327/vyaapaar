@@ -38,7 +38,9 @@ import {
   User,
 } from "lucide-react";
 import { usePriceList } from "@/hooks/usePriceList";
+import { useBusinessProfile } from "@/hooks/useBusinessProfile";
 import { StockBadge } from "@/components/price-list/StockBadge";
+import { UpiPayCard } from "@/components/transactions/UpiPayCard";
 import { getOversellProjection } from "@/lib/utils/stockUtils";
 
 // ─── constants ────────────────────────────────────────────────────────────────
@@ -378,7 +380,6 @@ const LinkedContactsPicker = memo(function LinkedContactsPicker({
         return [...prev, person.id];
       });
       setQuery("");
-      setHoveredId(null);
       // Keep open=true so dropdown stays showing remaining contacts immediately.
       // Don't refocus — user can click another contact directly from the list.
     },
@@ -1359,6 +1360,7 @@ export const AddTransactionModal = ({
   currentContactId,
 }) => {
   const { priceData, sellPriceMode } = usePriceList();
+  const { profile: businessProfile } = useBusinessProfile();
   // On the contact page, contact is always provided and contactId is its id.
   // On the Unassigned page, no `contact` prop is passed — fall back to a
   // fixed key so drafts still save/restore (rather than silently disabling
@@ -1437,6 +1439,18 @@ export const AddTransactionModal = ({
     type === "out"
       ? `Customer is paying ${fmt(paidNow - totalAmount)} extra — they'll have a credit with us`
       : `We're paying ${fmt(paidNow - totalAmount)} extra — supplier will owe us change`;
+
+  // Whoever this transaction is with — the fixed `contact` prop on the
+  // per-contact page, or whichever contact was picked via
+  // PrimaryContactPicker on the Unassigned page. Used to resolve a
+  // supplier's UPI ID for the "Paid now" QR on a purchase (type "in") —
+  // the business's own VPA doesn't apply there, since the business is the
+  // one paying, not receiving.
+  const payeeContact =
+    contact ??
+    (selectedContactId
+      ? (peopleData.find((p) => p.id === selectedContactId) ?? null)
+      : null);
 
   const applyState = (s) => {
     setStep(s.step ?? 0);
@@ -2038,6 +2052,52 @@ export const AddTransactionModal = ({
                             </SelectContent>
                           </Select>
                         </div>
+
+                        {/* Only once UPI is chosen, and the amount encoded
+                            always follows what's actually typed above. */}
+                        {initialPayment.method === "UPI" && type === "out" && (
+                          <UpiPayCard
+                            direction="receive"
+                            vpa={businessProfile?.upiId}
+                            payeeName={businessProfile?.businessName}
+                            dueAmount={paidNow}
+                            missingVpaMessage={
+                              <>
+                                Add a UPI ID in{" "}
+                                <strong className="text-foreground">
+                                  Settings → User Profile
+                                </strong>{" "}
+                                to let customers pay this by scanning a QR code.
+                              </>
+                            }
+                          />
+                        )}
+                        {initialPayment.method === "UPI" && type === "in" && (
+                          <UpiPayCard
+                            direction="send"
+                            vpa={payeeContact?.upiId}
+                            payeeName={payeeContact?.name}
+                            dueAmount={paidNow}
+                            missingVpaMessage={
+                              payeeContact ? (
+                                <>
+                                  Add a UPI ID for{" "}
+                                  <strong className="text-foreground">
+                                    {payeeContact.name}
+                                  </strong>{" "}
+                                  in Contacts to pay them directly from here.
+                                </>
+                              ) : (
+                                <>
+                                  Pick a contact for this transaction to pay
+                                  them directly, or send {fmt(paidNow)} from
+                                  your own UPI app.
+                                </>
+                              )
+                            }
+                          />
+                        )}
+
                         <div>
                           <Label className="text-base font-medium mb-1 block">
                             Payment note (optional)

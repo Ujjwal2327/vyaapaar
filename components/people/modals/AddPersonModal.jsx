@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Plus, X, Upload, User, Star, AlertCircle } from "lucide-react";
+import { Plus, X, Upload, User, Star, AlertCircle, QrCode } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toTitleCase } from "@/lib/utils/dataTransform";
 import { sortCategories } from "@/lib/utils/categoryUtils";
@@ -28,6 +28,7 @@ import {
   validateAndCompressImage,
   getBase64Size,
 } from "@/lib/utils/imageCompression";
+import { isValidUpiId } from "@/lib/utils/upi";
 
 // Phone validation with real-time cleaning
 const cleanAndValidatePhone = (phone) => {
@@ -83,10 +84,12 @@ export const AddPersonModal = ({
     specialty: "",
     photo: "", // Base64 or URL
     notes: "",
+    upiId: "",
   });
 
   const [photoPreview, setPhotoPreview] = useState("");
   const [phoneErrors, setPhoneErrors] = useState([null]); // Array of validation error messages per phone
+  const [upiIdError, setUpiIdError] = useState(null);
   const [isCompressing, setIsCompressing] = useState(false); // Track compression state
 
   useEffect(() => {
@@ -99,9 +102,11 @@ export const AddPersonModal = ({
         specialty: "",
         photo: "",
         notes: "",
+        upiId: "",
       });
       setPhotoPreview("");
       setPhoneErrors([null]);
+      setUpiIdError(null);
       setIsCompressing(false);
     }
   }, [open, CATEGORIES]);
@@ -134,6 +139,16 @@ export const AddPersonModal = ({
 
     setFormData({ ...formData, phones: newPhones });
     setPhoneErrors(newErrors);
+  };
+
+  const handleUpiIdChange = (value) => {
+    setFormData({ ...formData, upiId: value });
+    const trimmed = value.trim();
+    setUpiIdError(
+      trimmed && !isValidUpiId(trimmed)
+        ? "Should look like name@bank, e.g. supplier@okhdfcbank"
+        : null,
+    );
   };
 
   const addPhoneField = () => {
@@ -237,6 +252,7 @@ export const AddPersonModal = ({
       specialty: formData.specialty.trim(),
       photo: formData.photo.trim() !== "" ? formData.photo.trim() : null,
       notes: formData.notes.trim(),
+      upiId: formData.upiId.trim(),
       phones: cleanedAndDedupedPhones, // Use cleaned and deduplicated phones
     };
 
@@ -246,7 +262,10 @@ export const AddPersonModal = ({
   // Form validation
   const hasAnyPhoneError = phoneErrors.some((error) => error !== null);
   const isFormValid =
-    formData.name.trim() !== "" && !hasAnyPhoneError && !isCompressing;
+    formData.name.trim() !== "" &&
+    !hasAnyPhoneError &&
+    !upiIdError &&
+    !isCompressing;
 
   const getInitials = (name) => {
     return name
@@ -467,6 +486,37 @@ export const AddPersonModal = ({
                 setFormData({ ...formData, specialty: e.target.value })
               }
             />
+          </div>
+
+          {/* UPI ID — mainly useful for suppliers/helpers you pay, so a
+              purchase transaction can offer a direct "pay them" QR/link
+              instead of just a plain reminder of what's owed. */}
+          <div className="space-y-2">
+            <Label htmlFor="upiId" className="flex items-center gap-2">
+              <QrCode className="w-4 h-4" />
+              UPI ID (VPA)
+              <span className="text-xs text-muted-foreground ml-auto">
+                Optional
+              </span>
+            </Label>
+            <Input
+              id="upiId"
+              value={formData.upiId}
+              onChange={(e) => handleUpiIdChange(e.target.value)}
+              placeholder="supplier@okhdfcbank"
+              className={upiIdError ? "border-destructive" : ""}
+            />
+            {upiIdError ? (
+              <div className="flex items-start gap-1 text-xs text-destructive">
+                <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
+                <span>{upiIdError}</span>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Lets you pay this contact directly via UPI when recording a
+                purchase payment
+              </p>
+            )}
           </div>
 
           {/* Notes */}

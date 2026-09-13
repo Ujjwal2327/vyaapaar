@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { User, Building2, Phone, Mail, MapPin } from "lucide-react";
+import { User, Building2, Phone, Mail, MapPin, QrCode } from "lucide-react";
+import { isValidUpiId } from "@/lib/utils/upi";
 
 export default function UserProfile() {
   const { user } = useAuth();
@@ -22,6 +23,7 @@ export default function UserProfile() {
     business_address: "",
     phone: "",
     email: "",
+    upi_id: "",
   });
 
   const [initialProfile, setInitialProfile] = useState(null);
@@ -58,6 +60,7 @@ export default function UserProfile() {
           business_address: data.business_address || "",
           phone: data.phone || "",
           email: data.email || user.email || "",
+          upi_id: data.upi_id || "",
         };
 
         setProfile(loadedProfile);
@@ -98,6 +101,14 @@ export default function UserProfile() {
       return;
     }
 
+    const trimmedUpiId = profile.upi_id?.trim() || "";
+    if (trimmedUpiId && !isValidUpiId(trimmedUpiId)) {
+      toast.error("That doesn't look like a valid UPI ID", {
+        description: "It should look like name@bank, e.g. shop@okhdfcbank",
+      });
+      return;
+    }
+
     setSaving(true);
     try {
       const { error } = await supabase
@@ -107,6 +118,7 @@ export default function UserProfile() {
           business_name: profile.business_name?.trim() || null,
           business_address: profile.business_address?.trim() || null,
           phone: profile.phone?.trim() || null,
+          upi_id: trimmedUpiId || null,
         })
         .eq("id", user.id);
 
@@ -130,12 +142,11 @@ export default function UserProfile() {
 
   const isDirty =
     initialProfile &&
-    (
-      profile.user_name?.trim() !== initialProfile.user_name ||
+    (profile.user_name?.trim() !== initialProfile.user_name ||
       profile.business_name?.trim() !== initialProfile.business_name ||
       profile.business_address?.trim() !== initialProfile.business_address ||
-      profile.phone?.trim() !== initialProfile.phone
-    );
+      profile.phone?.trim() !== initialProfile.phone ||
+      (profile.upi_id?.trim() || "") !== (initialProfile.upi_id || ""));
 
   if (loading) {
     return (
@@ -162,14 +173,15 @@ export default function UserProfile() {
           disabled
           className="bg-muted cursor-not-allowed"
         />
-        <p className="text-xs text-muted-foreground">
-          Email cannot be changed
-        </p>
+        <p className="text-xs text-muted-foreground">Email cannot be changed</p>
       </div>
 
       {/* Display Name */}
       <div className="space-y-2">
-        <Label htmlFor="user_name" className="text-[16px] flex items-center gap-2">
+        <Label
+          htmlFor="user_name"
+          className="text-[16px] flex items-center gap-2"
+        >
           <User className="w-4 h-4" />
           Display Name
         </Label>
@@ -186,7 +198,10 @@ export default function UserProfile() {
 
       {/* Business Name */}
       <div className="space-y-2">
-        <Label htmlFor="business_name" className="text-[16px] flex items-center gap-2">
+        <Label
+          htmlFor="business_name"
+          className="text-[16px] flex items-center gap-2"
+        >
           <Building2 className="w-4 h-4" />
           Business Name
           <span className="text-xs text-muted-foreground ml-auto">
@@ -208,7 +223,10 @@ export default function UserProfile() {
 
       {/* Business Address */}
       <div className="space-y-2">
-        <Label htmlFor="business_address" className="text-[16px] flex items-center gap-2">
+        <Label
+          htmlFor="business_address"
+          className="text-[16px] flex items-center gap-2"
+        >
           <MapPin className="w-4 h-4" />
           Business Address
           <span className="text-xs text-muted-foreground ml-auto">
@@ -243,11 +261,30 @@ export default function UserProfile() {
           id="phone"
           type="tel"
           value={profile.phone}
-          onChange={(e) =>
-            setProfile({ ...profile, phone: e.target.value })
-          }
+          onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
           placeholder="+1234567890"
         />
+      </div>
+
+      {/* UPI ID */}
+      <div className="space-y-2">
+        <Label htmlFor="upi_id" className="text-[16px] flex items-center gap-2">
+          <QrCode className="w-4 h-4" />
+          UPI ID (VPA)
+          <span className="text-xs text-muted-foreground ml-auto">
+            Optional
+          </span>
+        </Label>
+        <Input
+          id="upi_id"
+          value={profile.upi_id}
+          onChange={(e) => setProfile({ ...profile, upi_id: e.target.value })}
+          placeholder="yourname@okhdfcbank"
+        />
+        <p className="text-xs text-muted-foreground">
+          Lets customers pay a transaction's due amount by scanning a UPI QR
+          code — shown wherever you record a payment once this is set
+        </p>
       </div>
 
       {/* Save Button */}

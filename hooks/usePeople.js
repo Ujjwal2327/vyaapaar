@@ -46,6 +46,7 @@ const rowToContact = (row) => ({
   address: row.address ?? "",
   specialty: row.specialty ?? "",
   notes: row.notes ?? "",
+  upiId: row.upi_id ?? "",
   hasPhoto: row.has_photo ?? false,
 });
 
@@ -188,6 +189,7 @@ export const usePeople = () => {
       address: contact.address ?? "",
       specialty: contact.specialty ?? "",
       notes: contact.notes ?? "",
+      upi_id: contact.upiId?.trim() || "",
       photo,
       has_photo: !!photo,
     };
@@ -206,6 +208,7 @@ export const usePeople = () => {
       address: c.address ?? "",
       specialty: c.specialty ?? "",
       notes: c.notes ?? "",
+      upiId: c.upiId?.trim() || "",
       hasPhoto: !!photoCache.get(c.id),
     }));
 

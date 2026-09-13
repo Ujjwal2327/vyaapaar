@@ -497,6 +497,7 @@ export default function TransactionsPage() {
         }}
         transaction={selectedTx}
         onSave={handleAddPayment}
+        peopleData={peopleData}
       />
 
       <SettleTransactionsModal
@@ -513,6 +514,7 @@ export default function TransactionsPage() {
         transactions={primaryTxs}
         summary={summary}
         onNetSettle={handleNetSettle}
+        contact={contact}
       />
     </main>
   );

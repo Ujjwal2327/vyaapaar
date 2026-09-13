@@ -230,6 +230,7 @@ const textToPeople = (text, categoryId, existingPeopleData) => {
       specialty: existingPerson?.specialty || "",
       notes: existingPerson?.notes || "",
       photo: existingPerson?.photo || null,
+      upiId: existingPerson?.upiId || "",
     };
 
     people.push(person);
@@ -437,7 +438,7 @@ export const BulkEditPeopleModal = ({
             </p>
             <p className="text-xs text-primary font-semibold">
               ℹ️ Only name, phones, and address are editable here. Specialty,
-              notes, and photos are preserved automatically.
+              notes, photos, and UPI ID are preserved automatically.
             </p>
             <details className="mt-2">
               <summary className="cursor-pointer text-primary hover:underline">

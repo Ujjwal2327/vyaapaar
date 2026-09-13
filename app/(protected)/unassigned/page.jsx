@@ -459,6 +459,7 @@ export default function UnassignedPage() {
         }}
         transaction={selectedTx}
         onSave={handleAddPayment}
+        peopleData={peopleData}
       />
 
       {/* FIX #6: Pass only trulyUnassignedTxs to the settle modal so
