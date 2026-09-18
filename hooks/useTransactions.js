@@ -1,9 +1,13 @@
 "use client";
 
 /**
- * hooks/useTransactions.js  — offline-first version (v3)
+ * hooks/useTransactions.js  — offline-first version (v4)
  *
- * Bug fixes vs v2:
+ * v4 adds contacts.net_amount syncing: every mutator below that can
+ * change what a contact owes or is owed now keeps that contact's cached
+ * balance (used by the Contacts page's filter/sort) up to date — see the
+ * "net-amount helpers" section. v3 fixes preserved as-is:
+ *
  *  1. FIX #3: deleteTransaction now fetches partner transactions from the DB
  *     when they are not present in the local transactions array (cross-contact
  *     settlement partners). Previously, only partners visible in the current
@@ -17,6 +21,8 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { enqueue, OP_TYPES } from "@/lib/offlineQueue";
 import { computeStockDeltas, applyStockDeltas } from "@/lib/utils/stockUtils";
 import { PRICE_LIST_UPDATED_EVENT } from "@/hooks/usePriceList";
+import { computeContactNetAmount } from "@/lib/utils/contactNetAmount";
+import { patchContactNetAmountInCache } from "@/hooks/usePeople";
 
 export const NO_CONTACT = "none";
 
@@ -92,6 +98,131 @@ const patchInCache = (txId, patch, cacheContactId) => {
     );
     localStorage.setItem(key, JSON.stringify(next));
   } catch {}
+};
+
+// ─── net-amount helpers ─────────────────────────────────────────────────────
+//
+// contacts.net_amount is a CACHED rollup (see lib/utils/contactNetAmount.js
+// for the shared formula), not a second source of truth. Every mutator
+// below that changes what a contact owes or is owed keeps it in sync in
+// two layers:
+//
+//  1. `applyLocalNetAmount` / `nudgeLocalNetAmount` — an instant,
+//     local-only update to the peopleData cache. Works offline.
+//     `applyLocalNetAmount` recomputes from a FULL transaction list and is
+//     only correct when this hook instance actually has that contact's
+//     whole ledger loaded (i.e. we're on that contact's own page, or the
+//     Unassigned page for NO_CONTACT). `nudgeLocalNetAmount` is the
+//     fallback for when we only know ONE transaction's own contribution
+//     (assign/unassign, where the OTHER contact's transactions aren't
+//     loaded here) — it nudges whatever's already cached rather than
+//     pretending to recompute a ledger we don't have.
+//
+//  2. `recomputeContactNetAmounts` — the authoritative version: re-sums a
+//     contact's transactions straight from the DB and writes the result
+//     back, the same "fetch fresh, recompute, write back" shape
+//     applyStockAdjustments already uses below, and for the same reason —
+//     a single mutation here (delete with cross-contact settlement
+//     partners, assign/reassign, ...) can affect a contact this hook
+//     instance never loaded any transactions for. Runs whenever online;
+//     queues a CONTACT_RECOMPUTE_NET_AMOUNT op for later when it can't.
+//     This is what actually gets the final say — (1) above is purely a
+//     "don't make the Contacts list look stale for a few seconds" nicety.
+
+const applyLocalNetAmount = (targetContactId, txListForThatContact) => {
+  if (!targetContactId || targetContactId === NO_CONTACT) return;
+  const netAmount = computeContactNetAmount(
+    (txListForThatContact ?? []).filter((t) => t._role !== "linked"),
+  );
+  patchContactNetAmountInCache(targetContactId, netAmount);
+};
+
+const nudgeLocalNetAmount = (targetContactId, deltaAmount) => {
+  if (!targetContactId || targetContactId === NO_CONTACT || !deltaAmount)
+    return;
+  try {
+    const raw = localStorage.getItem("peopleData");
+    if (!raw) return;
+    const current = JSON.parse(raw).find((p) => p.id === targetContactId);
+    if (!current) return;
+    patchContactNetAmountInCache(
+      targetContactId,
+      (current.netAmount ?? 0) + deltaAmount,
+    );
+  } catch {
+    // best-effort cache, same as everywhere else in this app
+  }
+};
+
+/**
+ * Re-derives contacts.net_amount straight from this user's transactions
+ * table for each given contact id, and writes the result back. Exported
+ * so useSyncManager.js's offline-replay and conflict-resolution paths can
+ * call the exact same authoritative logic instead of a second, possibly
+ * drifting copy of it.
+ */
+export const recomputeContactNetAmounts = async (contactIds, userId) => {
+  const ids = [
+    ...new Set((contactIds ?? []).filter((id) => id && id !== NO_CONTACT)),
+  ];
+  if (ids.length === 0 || !userId) return;
+
+  if (!navigator.onLine) {
+    for (const id of ids) {
+      enqueue(
+        OP_TYPES.CONTACT_RECOMPUTE_NET_AMOUNT,
+        { contactId: id },
+        null,
+        userId,
+      );
+    }
+    return;
+  }
+
+  await Promise.all(
+    ids.map(async (id) => {
+      try {
+        const { data, error } = await supabase
+          .from("transactions")
+          .select("total_amount, paid_amount, type")
+          .eq("user_id", userId)
+          .eq("contact_id", id)
+          .neq("status", "deleted");
+        if (error) throw error;
+
+        const netAmount = computeContactNetAmount(
+          (data ?? []).map((r) => ({
+            totalAmount: r.total_amount,
+            paidAmount: r.paid_amount,
+            type: r.type,
+          })),
+        );
+
+        const { error: updateErr } = await supabase
+          .from("contacts")
+          .update({ net_amount: netAmount })
+          .eq("id", id)
+          .eq("user_id", userId);
+        if (updateErr) throw updateErr;
+
+        patchContactNetAmountInCache(id, netAmount);
+      } catch (err) {
+        console.warn(
+          "[useTransactions] net_amount recompute failed for contact",
+          id,
+          err?.message,
+        );
+        if (isNetworkError(err)) {
+          enqueue(
+            OP_TYPES.CONTACT_RECOMPUTE_NET_AMOUNT,
+            { contactId: id },
+            null,
+            userId,
+          );
+        }
+      }
+    }),
+  );
 };
 
 // ─── stock adjustment ──────────────────────────────────────────────────────
@@ -392,6 +523,14 @@ export const useTransactions = (contactId) => {
     // so this is just computeStockDeltas' create case (empty oldItems).
     await runStockAdjustment([], tx.itemsList, tx.type, tx.kind, user.id);
 
+    // Net-amount effect: this contact just gained exactly this
+    // transaction's own contribution. Local update first (instant,
+    // offline-safe, correct here since this hook's own `transactions`
+    // already has this contact's full ledger loaded), DB-truth
+    // recompute after.
+    applyLocalNetAmount(tx.contactId, [tx, ...transactions]);
+    await recomputeContactNetAmounts([tx.contactId], user.id);
+
     return tx;
   };
 
@@ -420,6 +559,12 @@ export const useTransactions = (contactId) => {
       saveToLocal(list);
       return list;
     });
+    applyLocalNetAmount(
+      merged.contactId,
+      transactions.map((t) =>
+        t.id === txId ? { ...merged, _role: t._role } : t,
+      ),
+    );
 
     if (!navigator.onLine) {
       enqueue(
@@ -438,6 +583,7 @@ export const useTransactions = (contactId) => {
         merged.kind,
         user.id,
       );
+      await recomputeContactNetAmounts([merged.contactId], user.id);
       return merged;
     }
 
@@ -477,6 +623,12 @@ export const useTransactions = (contactId) => {
         saveToLocal(list);
         return list;
       });
+      applyLocalNetAmount(
+        serverMerge.contactId,
+        transactions.map((t) =>
+          t.id === txId ? { ...serverMerge, _role: t._role } : t,
+        ),
+      );
 
       // Online success: reconcile against the server's own pre-edit copy
       // (existing), not the possibly-stale local one — same reason this
@@ -488,6 +640,7 @@ export const useTransactions = (contactId) => {
         serverMerge.kind,
         user.id,
       );
+      await recomputeContactNetAmounts([serverMerge.contactId], user.id);
 
       return serverMerge;
     } catch (err) {
@@ -505,6 +658,7 @@ export const useTransactions = (contactId) => {
           merged.kind,
           user.id,
         );
+        await recomputeContactNetAmounts([merged.contactId], user.id);
         return merged;
       }
       throw err;
@@ -732,6 +886,32 @@ export const useTransactions = (contactId) => {
       target.kind,
       user.id,
     );
+
+    // Net-amount effect: deleting reverses this transaction's own
+    // contribution to its contact, AND — because it also reverses this
+    // transaction's contribution to any partner it had been settled
+    // against (see buildUpdatedPartner above) — every one of those
+    // partners' contacts too, which is easily a DIFFERENT contact than
+    // the one whose page this delete happened from (see FIX #3 above).
+    // Local, instant recompute only covers the contact THIS hook has this
+    // transaction's whole ledger loaded for (`target.contactId`); every
+    // other affected contact only gets fixed by the DB-truth recompute
+    // below (or the next sync, if we're offline).
+    if (target.contactId) {
+      const localList = transactions.map((t) => {
+        if (t.id === txId) return { ...deletedTx, _role: t._role };
+        const patch = updatedLocalPartners.find((p) => p.id === t.id);
+        return patch ? { ...patch, _role: t._role } : t;
+      });
+      applyLocalNetAmount(target.contactId, localList);
+    }
+
+    const affectedContactIds = new Set();
+    if (target.contactId) affectedContactIds.add(target.contactId);
+    for (const p of allPartnerTxs) {
+      if (p.contactId) affectedContactIds.add(p.contactId);
+    }
+    await recomputeContactNetAmounts([...affectedContactIds], user.id);
   };
 
   // ── addPayment ────────────────────────────────────────────────────────────
@@ -763,11 +943,18 @@ export const useTransactions = (contactId) => {
       saveToLocal(list);
       return list;
     });
+    applyLocalNetAmount(
+      existing.contactId,
+      transactions.map((t) =>
+        t.id === txId ? { ...updatedTx, _role: t._role } : t,
+      ),
+    );
 
     const row = transactionToRow(updatedTx);
 
     if (!navigator.onLine) {
       enqueue(OP_TYPES.TX_UPSERT, { rows: [row] }, updatedTx, user.id);
+      await recomputeContactNetAmounts([existing.contactId], user.id);
       return updatedTx;
     }
 
@@ -779,10 +966,12 @@ export const useTransactions = (contactId) => {
     } catch (err) {
       if (isNetworkError(err)) {
         enqueue(OP_TYPES.TX_UPSERT, { rows: [row] }, updatedTx, user.id);
+        await recomputeContactNetAmounts([existing.contactId], user.id);
         return updatedTx;
       }
       throw err;
     }
+    await recomputeContactNetAmounts([existing.contactId], user.id);
     return updatedTx;
   };
 
@@ -981,6 +1170,11 @@ export const useTransactions = (contactId) => {
       return list;
     });
 
+    const localListForNetAmount = transactions.map((t) =>
+      updatedTxs[t.id] ? { ...updatedTxs[t.id], _role: t._role } : t,
+    );
+    applyLocalNetAmount(contactId, localListForNetAmount);
+
     if (!navigator.onLine) {
       if (rowsToWrite.length > 0) {
         enqueue(
@@ -990,6 +1184,7 @@ export const useTransactions = (contactId) => {
           user.id,
         );
       }
+      await recomputeContactNetAmounts([contactId], user.id);
       return { settlementGroupId, staleCount };
     }
 
@@ -1008,11 +1203,13 @@ export const useTransactions = (contactId) => {
           Object.values(updatedTxs),
           user.id,
         );
+        await recomputeContactNetAmounts([contactId], user.id);
         return { settlementGroupId, staleCount };
       }
       throw err;
     }
 
+    await recomputeContactNetAmounts([contactId], user.id);
     return { settlementGroupId, staleCount };
   };
 
@@ -1388,6 +1585,20 @@ export const useTransactions = (contactId) => {
       return list;
     });
 
+    const localListForNetAmount = (() => {
+      const existingIds = new Set(transactions.map((t) => t.id));
+      const list = transactions.map((t) =>
+        updatedTxs[t.id] ? { ...updatedTxs[t.id], _role: t._role } : t,
+      );
+      if (!existingIds.has(balancingTxId))
+        list.unshift({ ...finalBalancing, _role: "primary" });
+      for (const u of Object.values(updatedTxs)) {
+        if (!existingIds.has(u.id) && u.id !== balancingTxId) list.push(u);
+      }
+      return list;
+    })();
+    applyLocalNetAmount(contactId, localListForNetAmount);
+
     if (!navigator.onLine) {
       enqueue(
         OP_TYPES.TX_UPSERT,
@@ -1395,6 +1606,7 @@ export const useTransactions = (contactId) => {
         Object.values(updatedTxs),
         user.id,
       );
+      await recomputeContactNetAmounts([contactId], user.id);
       return { settlementGroupId, balancingTxId, staleCount: 0 };
     }
 
@@ -1411,11 +1623,13 @@ export const useTransactions = (contactId) => {
           Object.values(updatedTxs),
           user.id,
         );
+        await recomputeContactNetAmounts([contactId], user.id);
         return { settlementGroupId, balancingTxId, staleCount: 0 };
       }
       throw err;
     }
 
+    await recomputeContactNetAmounts([contactId], user.id);
     return { settlementGroupId, balancingTxId, staleCount: 0 };
   };
 
@@ -1430,6 +1644,7 @@ export const useTransactions = (contactId) => {
 
     const assignedAt = new Date().toISOString();
     const tx = transactions.find((t) => t.id === txId);
+    const previousContactId = tx?.contactId ?? null;
 
     setTransactions((prev) => {
       const list = prev.map((t) =>
@@ -1448,11 +1663,27 @@ export const useTransactions = (contactId) => {
       );
     }
 
+    // Net-amount effect: this transaction's own contribution moves from
+    // whichever contact it belonged to before (if any) onto the new one.
+    // Neither contact's full transaction list is necessarily loaded in
+    // this hook instance (this only ever runs from the Unassigned page),
+    // so this nudges whatever's already cached rather than recomputing
+    // from scratch — recomputeContactNetAmounts below is what actually
+    // gets the final, authoritative word.
+    const contribution = tx ? computeContactNetAmount([tx]) : 0;
+    if (previousContactId)
+      nudgeLocalNetAmount(previousContactId, -contribution);
+    nudgeLocalNetAmount(targetContactId, contribution);
+
     if (!navigator.onLine) {
       enqueue(
         OP_TYPES.TX_ASSIGN_CONTACT,
         { txId, contactId: targetContactId, allowReassign },
         null,
+        user.id,
+      );
+      await recomputeContactNetAmounts(
+        [previousContactId, targetContactId],
         user.id,
       );
       return;
@@ -1479,12 +1710,21 @@ export const useTransactions = (contactId) => {
         .eq("user_id", user.id);
 
       if (updateErr) throw updateErr;
+
+      await recomputeContactNetAmounts(
+        [previousContactId, targetContactId],
+        user.id,
+      );
     } catch (err) {
       if (isNetworkError(err)) {
         enqueue(
           OP_TYPES.TX_ASSIGN_CONTACT,
           { txId, contactId: targetContactId, allowReassign },
           null,
+          user.id,
+        );
+        await recomputeContactNetAmounts(
+          [previousContactId, targetContactId],
           user.id,
         );
         return;
@@ -1531,6 +1771,16 @@ export const useTransactions = (contactId) => {
     const assignedAt = new Date().toISOString();
     const assignedSet = new Set(assignableIds);
 
+    // Net-amount effect: every transaction being assigned here previously
+    // had NO contact (that's what makes it "assignable" in the first
+    // place), so only the target contact gains — a single combined nudge
+    // covers the whole batch.
+    const totalContribution = assignableIds.reduce((sum, id) => {
+      const t = transactions.find((tx) => tx.id === id);
+      return sum + (t ? computeContactNetAmount([t]) : 0);
+    }, 0);
+    nudgeLocalNetAmount(targetContactId, totalContribution);
+
     setTransactions((prev) => {
       const list = prev.filter((t) => !assignedSet.has(t.id));
       saveToLocal(list);
@@ -1555,6 +1805,7 @@ export const useTransactions = (contactId) => {
           user.id,
         );
       }
+      await recomputeContactNetAmounts([targetContactId], user.id);
       return { assignedCount: assignableIds.length, skippedCount };
     }
 
@@ -1575,11 +1826,13 @@ export const useTransactions = (contactId) => {
             user.id,
           );
         }
+        await recomputeContactNetAmounts([targetContactId], user.id);
         return { assignedCount: assignableIds.length, skippedCount };
       }
       throw err;
     }
 
+    await recomputeContactNetAmounts([targetContactId], user.id);
     return { assignedCount: assignableIds.length, skippedCount };
   };
 
@@ -1601,10 +1854,19 @@ export const useTransactions = (contactId) => {
     if (previousContactId) {
       removeFromCache(txId, previousContactId);
       if (tx) pushToContactCache({ ...tx, contactId: null }, NO_CONTACT);
+
+      // Net-amount effect: the OLD contact loses this transaction's
+      // contribution; there's no new contact to gain it (it's going back
+      // to the unassigned bucket, which isn't tracked).
+      const contribution = computeContactNetAmount([tx]);
+      nudgeLocalNetAmount(previousContactId, -contribution);
     }
 
     if (!navigator.onLine) {
       enqueue(OP_TYPES.TX_UNASSIGN_CONTACT, { txId }, null, user.id);
+      if (previousContactId) {
+        await recomputeContactNetAmounts([previousContactId], user.id);
+      }
       return;
     }
 
@@ -1615,9 +1877,15 @@ export const useTransactions = (contactId) => {
         .eq("id", txId)
         .eq("user_id", user.id);
       if (error) throw error;
+      if (previousContactId) {
+        await recomputeContactNetAmounts([previousContactId], user.id);
+      }
     } catch (err) {
       if (isNetworkError(err)) {
         enqueue(OP_TYPES.TX_UNASSIGN_CONTACT, { txId }, null, user.id);
+        if (previousContactId) {
+          await recomputeContactNetAmounts([previousContactId], user.id);
+        }
         return;
       }
       throw err;

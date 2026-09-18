@@ -65,7 +65,6 @@ export const PeopleContainer = () => {
     isHydrated,
     isDataLoading,
     categories,
-    saveCategories,
   } = usePeople();
 
   const [showAddModal, setShowAddModal] = useState(false);
@@ -79,6 +78,7 @@ export const PeopleContainer = () => {
   const [editingPerson, setEditingPerson] = useState(null);
   const [viewingPerson, setViewingPerson] = useState(null);
   const [sortType, setSortType] = useState("name-asc");
+  const [onlyWithBalance, setOnlyWithBalanceRaw] = useState(false);
   const [availableCategories, setAvailableCategories] = useState(
     categories || DEFAULT_CATEGORIES,
   );
@@ -97,17 +97,26 @@ export const PeopleContainer = () => {
     }
   }, [categories]);
 
-  // Load sortType from localStorage on mount
+  // Load sortType / balance-filter preference from localStorage on mount
   useEffect(() => {
     const savedSortType = localStorage.getItem("peopleSortType");
     if (savedSortType) {
       setSortType(savedSortType);
+    }
+    const savedOnlyWithBalance = localStorage.getItem("peopleOnlyWithBalance");
+    if (savedOnlyWithBalance === "true") {
+      setOnlyWithBalanceRaw(true);
     }
   }, []);
 
   const handleSortChange = (newSortType) => {
     setSortType(newSortType);
     localStorage.setItem("peopleSortType", newSortType);
+  };
+
+  const handleOnlyWithBalanceChange = (value) => {
+    setOnlyWithBalanceRaw(value);
+    localStorage.setItem("peopleOnlyWithBalance", String(value));
   };
 
   // Prevent hydration mismatch and show loading during DB fetch
@@ -368,45 +377,6 @@ export const PeopleContainer = () => {
     setShowDetailModal(true);
   };
 
-  const handleCategoriesUpdate = async (
-    newCategories,
-    fromCategoryId,
-    toCategoryId,
-  ) => {
-    const loadingToast = toast.loading("Updating categories...");
-
-    try {
-      if (fromCategoryId && toCategoryId) {
-        // Merge: remove the source category from the list before saving so the
-        // DB reflects the post-merge state.  The SettingsModal passes the
-        // full pre-merge list as newCategories so that it can do the contact
-        // migration here, but we must save the pruned version to the DB.
-        const prunedCategories = newCategories.filter(
-          (cat) => cat.id !== fromCategoryId,
-        );
-        setAvailableCategories(prunedCategories);
-        await saveCategories(prunedCategories);
-
-        // Migrate contacts from the removed category to the target category
-        const updatedPeople = peopleData.map((person) =>
-          person.category === fromCategoryId
-            ? { ...person, category: toCategoryId }
-            : person,
-        );
-        await savePeopleData(updatedPeople);
-      } else {
-        // Non-merge update (rename, add, delete)
-        setAvailableCategories(newCategories);
-        await saveCategories(newCategories);
-      }
-
-      toast.success("Categories updated successfully", { id: loadingToast });
-    } catch (error) {
-      console.error("Failed to update categories:", error);
-      toast.error(getErrorMessage(error), { id: loadingToast });
-    }
-  };
-
   const handleBulkEdit = () => {
     setShowBulkModal(true);
   };
@@ -450,7 +420,14 @@ export const PeopleContainer = () => {
     const matchesCategory =
       !categoryFilter || person.category === categoryFilter;
 
-    return matchesSearch && matchesCategory;
+    // Cached on the contact row (contacts.net_amount — see
+    // hooks/usePeople.js / hooks/useTransactions.js) rather than summed
+    // here, same epsilon TransactionSummary/NetSettleModal already use so
+    // floating-point residue never counts as "has a balance".
+    const matchesBalance =
+      !onlyWithBalance || Math.abs(person.netAmount ?? 0) > 0.01;
+
+    return matchesSearch && matchesCategory && matchesBalance;
   });
 
   const sortedData = [...filteredData].sort((a, b) => {
@@ -461,6 +438,14 @@ export const PeopleContainer = () => {
         return b.name.localeCompare(a.name);
       case "category":
         return a.category.localeCompare(b.category);
+      case "net-desc":
+        return (b.netAmount ?? 0) - (a.netAmount ?? 0);
+      case "net-asc":
+        return (a.netAmount ?? 0) - (b.netAmount ?? 0);
+      case "created-desc":
+        return new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0);
+      case "created-asc":
+        return new Date(a.createdAt ?? 0) - new Date(b.createdAt ?? 0);
       default:
         return 0;
     }
@@ -487,10 +472,11 @@ export const PeopleContainer = () => {
         onFindDuplicates={handleFindDuplicates}
         sortType={sortType}
         onSortChange={handleSortChange}
+        onlyWithBalance={onlyWithBalance}
+        setOnlyWithBalance={handleOnlyWithBalanceChange}
         totalCount={peopleData.length}
         filteredCount={sortedData.length}
         peopleData={peopleData}
-        onCategoriesUpdate={handleCategoriesUpdate}
         availableCategories={availableCategories}
         categoriesWithContacts={categoriesWithContacts}
       />

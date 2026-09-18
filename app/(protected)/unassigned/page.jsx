@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, Plus, ArrowLeftRight, UserPlus, Zap } from "lucide-react";
 import Logo from "@/components/Logo";
 import Navigation from "@/components/Navigation";
-import SettingsModal from "@/components/SettingsModal";
+import SettingsButton from "@/components/SettingsButton";
 import Loader from "@/components/Loader";
 import { toast } from "sonner";
 
@@ -332,7 +332,7 @@ export default function UnassignedPage() {
               <Navigation />
             </div>
             <div className="flex items-center gap-2">
-              <SettingsModal />
+              <SettingsButton />
             </div>
           </div>
 

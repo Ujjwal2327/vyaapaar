@@ -1,14 +1,24 @@
 "use client";
 
 /**
- * hooks/usePeople.js  — offline-first version (v2)
+ * hooks/usePeople.js  — offline-first version (v3)
  *
- * Fix vs v1:
- *  FIX #4: The FK-guard rollback used `peopleData` captured by the closure at
- *  call time. If another save completed between the optimistic write and the
- *  async DB check, the rollback restored a stale snapshot. Fixed by keeping a
- *  ref (`peopleDataRef`) that always points to the latest state value, so the
- *  rollback always restores whatever is current at the moment it fires.
+ * v3 adds contacts.net_amount: a cached receivable-minus-payable figure
+ * per contact (used by the Contacts page's balance filter/sort — see
+ * components/people/PeopleContainer.jsx), plus createdAt so contacts can
+ * be sorted oldest/newest. Neither is edited from here — they're kept in
+ * sync by hooks/useTransactions.js (recomputeContactNetAmounts) and
+ * hooks/useSyncManager.js whenever a contact's transactions change; this
+ * file just needs to read them off the row and — critically — never
+ * silently drop them on an ordinary contact edit (rename, phone change,
+ * etc). See contactToRow and savePeopleData's stateContacts mapping below.
+ *
+ * v2 fix carried over: the FK-guard rollback used `peopleData` captured
+ * by the closure at call time. If another save completed between the
+ * optimistic write and the async DB check, the rollback restored a stale
+ * snapshot. Fixed by keeping a ref (`peopleDataRef`) that always points
+ * to the latest state value, so the rollback always restores whatever is
+ * current at the moment it fires.
  */
 
 import { useState, useEffect, useRef } from "react";
@@ -23,6 +33,40 @@ const DEFAULT_CATEGORIES = [
   { id: "helper", label: "Helper", isDefault: true },
   { id: "other", label: "Other", isDefault: true },
 ];
+
+// Fired whenever something OUTSIDE this hook's own savePeopleData patches
+// the peopleData localStorage cache directly — currently just the
+// net_amount updates in hooks/useTransactions.js and
+// hooks/useSyncManager.js, which run from whichever contact's
+// transactions page (or sync cycle) is active, not from a
+// usePeople()-holding component. Same same-tab-event +
+// cross-tab-storage-event pattern hooks/usePriceList.js already uses for
+// its own cross-instance sync.
+export const PEOPLE_DATA_UPDATED_EVENT = "peopleDataChanged";
+
+/**
+ * Patches just one contact's cached net_amount in the peopleData
+ * localStorage cache (leaving every other field, and every other
+ * contact, untouched), and notifies any mounted usePeople() instances to
+ * pick it up. Exported so hooks/useTransactions.js and
+ * hooks/useSyncManager.js — neither of which otherwise touches contact
+ * data — can keep this one cached figure current without reaching into
+ * usePeople's own internals.
+ */
+export const patchContactNetAmountInCache = (contactId, netAmount) => {
+  try {
+    const raw = localStorage.getItem("peopleData");
+    if (!raw) return;
+    const list = JSON.parse(raw);
+    const next = list.map((p) =>
+      p.id === contactId ? { ...p, netAmount } : p,
+    );
+    localStorage.setItem("peopleData", JSON.stringify(next));
+    window.dispatchEvent(new Event(PEOPLE_DATA_UPDATED_EVENT));
+  } catch {
+    // best-effort cache, same as everywhere else in this app
+  }
+};
 
 const isNetworkError = (err) => {
   if (!err) return false;
@@ -48,6 +92,8 @@ const rowToContact = (row) => ({
   notes: row.notes ?? "",
   upiId: row.upi_id ?? "",
   hasPhoto: row.has_photo ?? false,
+  netAmount: row.net_amount ?? 0,
+  createdAt: row.created_at ?? null,
 });
 
 // ─── hook ─────────────────────────────────────────────────────────────────────
@@ -72,6 +118,33 @@ export const usePeople = () => {
   useEffect(() => {
     peopleDataRef.current = peopleData;
   }, [peopleData]);
+
+  // Cross-instance sync: pick up peopleData writes made by code that
+  // isn't this hook's own savePeopleData — currently just the net_amount
+  // patches from hooks/useTransactions.js and hooks/useSyncManager.js.
+  // The custom event covers same-tab writes (the native "storage" event
+  // never fires in the tab that made the change); the "storage" listener
+  // covers other tabs/devices sharing this browser profile.
+  useEffect(() => {
+    const refreshFromLocalCache = () => {
+      try {
+        const raw = localStorage.getItem("peopleData");
+        if (raw) setPeopleData(JSON.parse(raw));
+      } catch {}
+    };
+    const handleStorage = (e) => {
+      if (e.key === "peopleData") refreshFromLocalCache();
+    };
+    window.addEventListener(PEOPLE_DATA_UPDATED_EVENT, refreshFromLocalCache);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener(
+        PEOPLE_DATA_UPDATED_EVENT,
+        refreshFromLocalCache,
+      );
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, []);
 
   // ── localStorage helpers ─────────────────────────────────────────────────
   const loadFromLocal = () => {
@@ -192,6 +265,15 @@ export const usePeople = () => {
       upi_id: contact.upiId?.trim() || "",
       photo,
       has_photo: !!photo,
+      // Never DERIVED here — this only ever carries forward whatever
+      // net_amount the in-memory contact object already has (itself
+      // sourced from the DB via rowToContact, or defaulted to 0 for a
+      // brand-new contact). An ordinary rename/phone-change save must
+      // never reset a contact's cached balance to 0 just because the
+      // edit flow that built this object doesn't know or care about
+      // balances — see savePeopleData's stateContacts mapping below for
+      // the other half of that guarantee.
+      net_amount: contact.netAmount ?? 0,
     };
   };
 
@@ -210,6 +292,8 @@ export const usePeople = () => {
       notes: c.notes ?? "",
       upiId: c.upiId?.trim() || "",
       hasPhoto: !!photoCache.get(c.id),
+      netAmount: c.netAmount ?? 0,
+      createdAt: c.createdAt ?? null,
     }));
 
     // 2. Compute diff against current state

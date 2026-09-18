@@ -1,4 +1,13 @@
-import { Edit2, Trash2, Phone, MapPin, Briefcase, Receipt } from "lucide-react";
+import {
+  Edit2,
+  Trash2,
+  Phone,
+  MapPin,
+  Briefcase,
+  Receipt,
+  TrendingUp,
+  TrendingDown,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -23,6 +32,16 @@ const CATEGORY_LABELS = {
   supplier: "Supplier",
   other: "Other",
 };
+
+// Same en-IN currency convention as TransactionCard.jsx / TransactionSummary.jsx —
+// the sign is carried by icon + colour here, not by the string, so this always
+// formats a magnitude.
+const fmtNet = (n) =>
+  new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(Math.abs(n ?? 0));
 
 export const PersonCard = ({
   person,
@@ -63,6 +82,17 @@ export const PersonCard = ({
   const primaryPhone = phones.find((p) => p && p.trim()) || null;
 
   const hasPhoto = person.hasPhoto;
+
+  // Cached receivable-minus-payable figure, kept in sync by
+  // hooks/useTransactions.js (see recomputeContactNetAmounts /
+  // lib/utils/contactNetAmount.js) every time this contact's
+  // transactions change. Positive = this contact owes the business
+  // (receivable); negative = the business owes them (payable) — same
+  // colour/icon language TransactionSummary.jsx already uses for the
+  // same concept.
+  const netAmount = person.netAmount ?? 0;
+  const isReceivable = netAmount > 0.01;
+  const isPayable = netAmount < -0.01;
 
   return (
     <div
@@ -117,14 +147,29 @@ export const PersonCard = ({
             </div>
 
             <div className="flex items-center gap-1 shrink-0">
-              {/* Transactions button — always visible */}
+              {/* Net balance — always visible, replaces the old plain
+                  "view transactions" icon button. Tapping it still opens
+                  the transactions page; the amount itself is the
+                  affordance now, coloured/iconed the same way
+                  TransactionSummary.jsx marks receivable vs payable. */}
               <Link
                 href={`/contacts/${person.id}/transactions`}
                 onClick={(e) => e.stopPropagation()}
+                title="View transactions"
+                className={`flex items-center gap-1 px-2 py-1 rounded-md text-xl font-bold tabular-nums transition-colors hover:bg-muted ${
+                  isReceivable
+                    ? "text-green-600 dark:text-green-400"
+                    : isPayable
+                      ? "text-red-600 dark:text-red-400"
+                      : "text-muted-foreground"
+                }`}
               >
-                <Button variant="ghost" size="icon" title="View transactions">
-                  <Receipt className="w-4 h-4" />
-                </Button>
+                {isReceivable ? (
+                  <TrendingUp className="w-3.5 h-3.5 shrink-0" />
+                ) : (
+                  isPayable && <TrendingDown className="w-3.5 h-3.5 shrink-0" />
+                )}
+                {fmtNet(netAmount)}
               </Link>
 
               {editMode && (

@@ -24,7 +24,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import Logo from "@/components/Logo";
 import Navigation from "@/components/Navigation";
-import SettingsModal from "@/components/SettingsModal";
+import SettingsButton from "@/components/SettingsButton";
 import Loader from "@/components/Loader";
 import { toast } from "sonner";
 
@@ -354,7 +354,7 @@ export default function TransactionsPage() {
               <Navigation />
             </div>
             <div className="flex items-center gap-2">
-              <SettingsModal />
+              <SettingsButton />
             </div>
           </div>
 

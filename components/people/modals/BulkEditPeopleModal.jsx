@@ -231,6 +231,13 @@ const textToPeople = (text, categoryId, existingPeopleData) => {
       notes: existingPerson?.notes || "",
       photo: existingPerson?.photo || null,
       upiId: existingPerson?.upiId || "",
+      // Also preserve the cached balance/creation-date fields this bulk
+      // text format has no concept of — see hooks/usePeople.js's
+      // contactToRow for why letting these default away on an ordinary
+      // bulk edit would be wrong (it would reset a contact's balance to 0
+      // even though nothing about their transactions changed).
+      netAmount: existingPerson?.netAmount ?? 0,
+      createdAt: existingPerson?.createdAt ?? null,
     };
 
     people.push(person);

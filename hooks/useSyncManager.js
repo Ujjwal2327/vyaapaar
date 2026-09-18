@@ -1,9 +1,19 @@
 "use client";
 
 /**
- * hooks/useSyncManager.js  (v3)
+ * hooks/useSyncManager.js  (v4)
  *
- * Fixes vs v2:
+ * v4: contacts.net_amount now gets reconciled wherever this file writes
+ * or refreshes transaction data outside of hooks/useTransactions.js's own
+ * mutators — see the CONTACT_RECOMPUTE_NET_AMOUNT case in replayOp (the
+ * queued marker hooks/useTransactions.js leaves behind when it can't
+ * reach the DB), the TX_UPSERT case in replayOpForced ("keep mine" on a
+ * conflict), the "transaction" case in replayOpMerged ("keep both"), and
+ * the TX_UPSERT / CONTACTS_UPSERT cases in refreshLocalCache ("keep
+ * server" — which can otherwise leave a locally-nudged net_amount wrong
+ * after the local edit it was based on gets discarded).
+ *
+ * v3 fixes preserved as-is:
  *  1. runSync now only dequeues ops that SUCCEEDED. Failed ops remain in the
  *     queue so they are retried on the next online event (was: always dequeued
  *     everything in finally, losing data on DB errors).
@@ -30,6 +40,8 @@ import {
   pendingCount as getPendingCount,
   OP_TYPES,
 } from "@/lib/offlineQueue";
+import { recomputeContactNetAmounts } from "@/hooks/useTransactions";
+import { patchContactNetAmountInCache } from "@/hooks/usePeople";
 
 // ─── context ──────────────────────────────────────────────────────────────────
 
@@ -74,6 +86,12 @@ const mergePriceLists = (local, remote) => {
  * fieldChoices: { fieldName: "local" | "remote" } — per-field winner chosen in modal.
  * If fieldChoices is null, defaults to: keep remote for scalar fields,
  * union arrays (phones), concatenate notes.
+ *
+ * net_amount / createdAt are deliberately NOT in `fields` below — they're
+ * not user-edited data to pick a side on, they just ride along from the
+ * `{ ...remote }` base untouched, since `remote` (the DB row) already
+ * carries whatever net_amount the server last computed — see
+ * recomputeContactNetAmounts, which is the actual source of truth for it.
  */
 const mergeContacts = (local, remote, fieldChoices = null) => {
   const fields = [
@@ -218,7 +236,8 @@ export const useSyncManager = () => {
     // collapseQueue merges many ops into fewer; we map each collapsed op back
     // to the original op ids it represents. For contact upserts/deletes the
     // collapsed op has a synthesised id — we map all originals of that type.
-    // For TX ops they pass through 1-to-1 with their original id.
+    // For TX ops (and CONTACT_RECOMPUTE_NET_AMOUNT) they pass through 1-to-1
+    // with their original id.
     const succeededOriginalIds = new Set();
 
     // Build a reverse map: collapsed op id → original op ids it represents.
@@ -260,7 +279,8 @@ export const useSyncManager = () => {
               );
               break;
             default:
-              // TX ops pass through 1-to-1; the collapsed op's id IS the original id.
+              // TX ops and CONTACT_RECOMPUTE_NET_AMOUNT pass through 1-to-1;
+              // the collapsed op's id IS the original id.
               succeededOriginalIds.add(op.id);
           }
         } catch (err) {
@@ -591,6 +611,18 @@ async function replayOp(op, user, conflictsOut) {
       break;
     }
 
+    case OP_TYPES.CONTACT_RECOMPUTE_NET_AMOUNT: {
+      // Left behind by hooks/useTransactions.js whenever a mutation that
+      // changes a contact's balance happened while offline — re-derive
+      // net_amount straight from the DB now that we can reach it. Runs
+      // AFTER whichever TX_* op(s) actually changed this contact's
+      // transactions, since collapseQueue preserves original enqueue
+      // order for both (see its file header) and they're always enqueued
+      // in that order in the first place.
+      await recomputeContactNetAmounts([op.payload.contactId], user.id);
+      break;
+    }
+
     default:
       console.warn("[SyncManager] Unknown op type:", op.type);
   }
@@ -618,6 +650,14 @@ async function replayOpForced(op, user) {
       await supabase
         .from("transactions")
         .upsert(op.payload.rows, { onConflict: "id" });
+      // "Keep mine" just force-wrote this transaction's numbers straight
+      // to the DB, bypassing hooks/useTransactions.js entirely — so its
+      // contact's net_amount needs the same authoritative recompute those
+      // mutators would normally have triggered themselves.
+      await recomputeContactNetAmounts(
+        op.payload.rows.map((r) => r.contact_id),
+        user.id,
+      );
       break;
     default:
       await replayOp(op, user, []);
@@ -655,6 +695,8 @@ async function replayOpMerged(conflict, user, fieldChoices) {
                 specialty: merged.specialty ?? "",
                 notes: merged.notes ?? "",
                 hasPhoto: merged.has_photo ?? false,
+                netAmount: merged.net_amount ?? 0,
+                createdAt: merged.created_at ?? null,
               }
             : c,
         );
@@ -671,6 +713,9 @@ async function replayOpMerged(conflict, user, fieldChoices) {
       // Update localStorage tx cache — we don't know which contactId cache to
       // update here, so we refresh all tx caches that contain this id
       refreshTxInAllCaches(merged);
+      // "Keep both" just wrote a merged version of this transaction's
+      // numbers — same reasoning as replayOpForced's TX_UPSERT case above.
+      await recomputeContactNetAmounts([merged.contact_id], user.id);
       break;
     }
 
@@ -714,6 +759,12 @@ async function refreshLocalCache(op, user) {
             specialty: fresh.specialty ?? "",
             notes: fresh.notes ?? "",
             hasPhoto: fresh.has_photo ?? false,
+            // "Keep server" discards whatever local edit prompted this
+            // conflict — including any local net_amount nudge based on
+            // it — so pull the server's own figure through too rather
+            // than leaving the locally-nudged one stranded and wrong.
+            netAmount: fresh.net_amount ?? 0,
+            createdAt: fresh.created_at ?? null,
           };
         });
         localStorage.setItem("peopleData", JSON.stringify(updated));
@@ -731,6 +782,23 @@ async function refreshLocalCache(op, user) {
       for (const row of data ?? []) {
         const tx = dbRowToTx(row);
         refreshTxInAllCaches(row, tx.contactId);
+      }
+
+      // "Keep server" discarded a local transaction edit — pull the
+      // server's own net_amount for every affected contact straight
+      // through too, rather than leaving behind whatever this device's
+      // now-discarded local edit had nudged the cache to.
+      const contactIds = [
+        ...new Set((data ?? []).map((r) => r.contact_id).filter(Boolean)),
+      ];
+      if (contactIds.length > 0) {
+        const { data: contactRows } = await supabase
+          .from("contacts")
+          .select("id, net_amount")
+          .in("id", contactIds);
+        for (const c of contactRows ?? []) {
+          patchContactNetAmountInCache(c.id, c.net_amount ?? 0);
+        }
       }
       break;
     }
