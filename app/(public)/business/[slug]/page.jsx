@@ -2,6 +2,36 @@
 /* eslint-disable react/no-unescaped-entities */
 "use client";
 
+/**
+ * app/(public)/business/[slug]/page.jsx  (v2 — replaces the old [name] route)
+ *
+ * v2: this used to be app/(public)/business/[name]/page.jsx, keyed directly
+ * on business_name, and it fetched the business's row and its FULL
+ * price_lists.data straight from the browser. That meant every visitor's
+ * network tab (not just the UI) could see cost price, bulk price, and
+ * stock levels — this page only ever rendered retailSell/sellUnit, but the
+ * whole blob still went over the wire.
+ *
+ * Now:
+ *  - The route key is a stable `public_slug` (falls back to an exact
+ *    business_name match too, so links shared before this change keep
+ *    working) instead of the business name, so renaming a business no
+ *    longer breaks a link someone already has.
+ *  - The one Supabase call is `get_public_business_catalog`, a
+ *    SECURITY DEFINER function — `users` and `price_lists` are no longer
+ *    selectable directly by anon at all, and the function itself only
+ *    ever returns name + retail price + unit for each item, and only for
+ *    accounts with catalog_public = true.
+ *  - catalog_public is the new Settings → Share your business toggle;
+ *    turning it off makes this function return null for that account's
+ *    slug, same as a slug that was never registered — the "not found"
+ *    state below covers both on purpose, so a stranger can't tell "doesn't
+ *    exist" apart from "exists but was unpublished."
+ *
+ * See docs/migrations/2026-09-22-public-catalog-lockdown.sql for the
+ * database side of this — that file, plus this one, are the whole change.
+ */
+
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -60,7 +90,7 @@ const collectAllPaths = (obj, parentPath = "") => {
 
 export default function PublicBusinessPage() {
   const params = useParams();
-  const businessName = decodeURIComponent(params?.name || "");
+  const slugParam = decodeURIComponent(params?.slug || "");
 
   const [loading, setLoading] = useState(true);
   const [businessData, setBusinessData] = useState(null);
@@ -72,13 +102,13 @@ export default function PublicBusinessPage() {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [expandedCategories, setExpandedCategories] = useState({});
 
-  // ── Marketplace cart — new. Everything above this line is unchanged. ──
+  // ── Marketplace cart — unaffected by this page's data-fetching rework. ──
   const { addItem, setItemQty, getQty } = useCart();
   const [showCart, setShowCart] = useState(false);
 
   useEffect(() => {
     loadBusinessData();
-  }, [businessName]);
+  }, [slugParam]);
 
   // Debounce: only update debouncedSearchTerm 200ms after typing stops
   useEffect(() => {
@@ -91,30 +121,41 @@ export default function PublicBusinessPage() {
   const loadBusinessData = async () => {
     setLoading(true);
     try {
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("id, business_name, business_address, phone, email")
-        .eq("business_name", businessName)
-        .single();
+      const attempt = () =>
+        supabase.rpc("get_public_business_catalog", { p_slug: slugParam });
 
-      if (userError) throw userError;
+      let { data, error } = await attempt();
 
-      if (!userData) {
+      // A freshly opened tab's very first request can occasionally come
+      // back empty for reasons that have nothing to do with whether the
+      // catalog is actually published — one quiet retry after a short
+      // pause catches that, instead of showing "not found" for something
+      // that resolves fine a beat later and making the person hit refresh
+      // themselves to get the same effect.
+      if (error || !data) {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        ({ data, error } = await attempt());
+      }
+
+      if (error) throw error;
+
+      if (!data) {
         setBusinessData(null);
         setLoading(false);
         return;
       }
 
-      const { data: priceListData, error: priceError } = await supabase
-        .from("price_lists")
-        .select("data")
-        .eq("user_id", userData.id)
-        .single();
-
-      if (priceError && priceError.code !== "PGRST116") throw priceError;
-
-      setBusinessData(userData);
-      const sortedData = sortData(priceListData?.data || {}, "alphabetical");
+      // Kept snake_case here (rather than the function's own camelCase
+      // return shape) purely so every reference below — businessData.*,
+      // vendorMeta — stays identical to the pre-rework version of this file.
+      setBusinessData({
+        id: data.id,
+        business_name: data.businessName,
+        business_address: data.businessAddress,
+        phone: data.phone,
+        email: data.email,
+      });
+      const sortedData = sortData(data.catalog || {}, "alphabetical");
       setPriceData(sortedData);
     } catch (error) {
       console.error("Error loading business data:", error);
@@ -156,7 +197,7 @@ export default function PublicBusinessPage() {
     }
   }, [filteredData]); // filteredData already depends on debouncedSearchTerm
 
-  // ── Marketplace cart — new. vendorMeta is the shape useCart() expects.
+  // ── Marketplace cart — vendorMeta is the shape useCart() expects.
   // handleSetQty (absolute) drives the inline stepper on every catalog
   // row; handleAddFromCalculator (additive) is only reachable through the
   // Material Calculator's own explicit action — see hooks/useCart.js for
@@ -196,7 +237,8 @@ export default function PublicBusinessPage() {
           <Store className="w-16 h-16 mx-auto text-muted-foreground" />
           <h1 className="text-2xl font-bold">Business Not Found</h1>
           <p className="text-muted-foreground">
-            The business "{businessName}" does not exist or is not available.
+            This catalog isn't available. The link may be out of date, or
+            the owner may not be sharing it right now.
           </p>
         </div>
       </div>

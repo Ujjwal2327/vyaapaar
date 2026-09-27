@@ -1,19 +1,28 @@
 "use client";
 
 /**
- * app/(public)/marketplace/page.jsx
+ * app/(public)/marketplace/page.jsx  (v2)
+ *
+ * v2: loadVendors used to run two direct client-side queries — `users`
+ * filtered by marketplace_opt_in, then `price_lists` for every one of
+ * those user_ids — which shipped each opted-in vendor's FULL catalog
+ * (cost, bulk price, stock) to every visitor's browser at once, same leak
+ * as the single-business page just multiplied across every vendor. That's
+ * now one call to `get_marketplace_vendors`, a SECURITY DEFINER function
+ * that only returns name + retail price + unit per item, and only for
+ * vendors that are both marketplace_opt_in AND catalog_public. See
+ * docs/migrations/2026-09-22-public-catalog-lockdown.sql.
  *
  * Directory of every business that has opted in to marketplace listing,
  * plus a search box that looks across ALL of their catalogs at once —
- * unlike /business/[name], which only ever searches one shop.
+ * unlike /business/[slug], which only ever searches one shop.
  *
  * No login required, same as the existing single-business public page.
- * A vendor only shows up here if users.marketplace_opt_in = true, so
- * nobody's shop is pulled into a public directory they didn't ask to join
- * just because they once shared their /business/[name] link with a
- * customer. See docs/marketplace-schema.sql for the one-column migration
- * this page depends on, and UserProfile.jsx is the natural place to add
- * the toggle that flips it on.
+ * A vendor only shows up here if users.marketplace_opt_in = true AND
+ * users.catalog_public = true, so nobody's shop is pulled into a public
+ * directory they didn't ask to join, and unpublishing a shop removes it
+ * from here immediately without touching their marketplace_opt_in
+ * preference (turning catalog_public back on brings the listing back too).
  */
 
 import { useEffect, useState, useMemo } from "react";
@@ -63,38 +72,29 @@ export default function MarketplacePage() {
   const loadVendors = async () => {
     setLoading(true);
     try {
-      const { data: users, error: usersError } = await supabase
-        .from("users")
-        .select("id, business_name, business_address, phone, email")
-        .eq("marketplace_opt_in", true)
-        .not("business_name", "is", null);
+      const attempt = () => supabase.rpc("get_marketplace_vendors");
 
-      if (usersError) throw usersError;
+      let { data, error } = await attempt();
 
-      if (!users || users.length === 0) {
-        setVendors([]);
-        return;
+      // Same reasoning as the single-business page: a freshly loaded tab's
+      // very first request can occasionally hit a timing blip. A genuinely
+      // empty vendor list still comes back as [] (truthy, not retried) —
+      // this only catches a real error or an actual null/undefined result.
+      if (error || !data) {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        ({ data, error } = await attempt());
       }
 
-      const ids = users.map((u) => u.id);
-      const { data: priceLists, error: priceError } = await supabase
-        .from("price_lists")
-        .select("user_id, data")
-        .in("user_id", ids);
-
-      if (priceError) throw priceError;
-
-      const priceByUser = Object.fromEntries(
-        (priceLists ?? []).map((p) => [p.user_id, p.data ?? {}]),
-      );
+      if (error) throw error;
 
       setVendors(
-        users.map((u) => ({
-          id: u.id,
-          businessName: u.business_name,
-          businessAddress: u.business_address,
-          phone: u.phone,
-          priceData: priceByUser[u.id] ?? {},
+        (data ?? []).map((v) => ({
+          id: v.id,
+          businessName: v.business_name,
+          businessAddress: v.business_address,
+          phone: v.phone,
+          publicSlug: v.public_slug,
+          priceData: v.catalog ?? {},
         })),
       );
     } catch (error) {
@@ -117,6 +117,7 @@ export default function MarketplacePage() {
               businessName: v.businessName,
               businessAddress: v.businessAddress,
               businessPhone: v.phone,
+              publicSlug: v.publicSlug,
               priceData: v.priceData,
             })),
             debouncedSearchTerm,
@@ -212,7 +213,7 @@ export default function MarketplacePage() {
                       <div className="min-w-0">
                         <p className="font-semibold">{result.name}</p>
                         <Link
-                          href={`/business/${encodeURIComponent(result.vendor.businessName)}`}
+                          href={`/business/${result.vendor.publicSlug}`}
                           className="text-sm text-muted-foreground relative pl-4 block hover:text-primary transition-colors"
                         >
                           <Store className="w-3 h-3 absolute left-0 top-0.5" />
@@ -271,7 +272,7 @@ export default function MarketplacePage() {
               return (
                 <Link
                   key={v.id}
-                  href={`/business/${encodeURIComponent(v.businessName)}`}
+                  href={`/business/${v.publicSlug}`}
                   className="bg-card rounded-xl border p-4 hover:shadow-md hover:border-primary/30 transition-all"
                 >
                   <div className="flex items-start gap-3">
