@@ -65,6 +65,12 @@ import {
   CartTriggerButton,
 } from "@/components/marketplace/CartDrawer";
 
+// Tab title / meta description when the catalog isn't available. layout.jsx
+// can't know that (it only sees the slug), so the effect below applies these.
+const NOT_FOUND_TITLE = "Business Not Found";
+const NOT_FOUND_DESC =
+  "This catalog isn't available. The link may be out of date, or the owner may not be sharing it right now.";
+
 // Helper function to create Google Maps link
 const getGoogleMapsLink = (address) => {
   if (!address || !address.trim()) return null;
@@ -117,6 +123,22 @@ export default function PublicBusinessPage() {
     }, 200);
     return () => clearTimeout(timer);
   }, [searchTerm]);
+
+  // Link-preview crawlers don't run JS, so they only see the slug-based tags
+  // from layout.jsx. Once loading finishes with no business, correct the tab
+  // title and meta tags for anyone actually viewing the page.
+  useEffect(() => {
+    if (loading || businessData) return;
+    document.title = `${NOT_FOUND_TITLE} | Vyaapaar`;
+    document
+      .querySelectorAll(
+        'meta[name="description"], meta[property="og:description"], meta[name="twitter:description"]',
+      )
+      .forEach((el) => el.setAttribute("content", NOT_FOUND_DESC));
+    document
+      .querySelectorAll('meta[property="og:title"], meta[name="twitter:title"]')
+      .forEach((el) => el.setAttribute("content", NOT_FOUND_TITLE));
+  }, [loading, businessData]);
 
   const loadBusinessData = async () => {
     setLoading(true);
@@ -235,11 +257,8 @@ export default function PublicBusinessPage() {
       <div className="min-h-screen flex items-center justify-center p-6">
         <div className="text-center space-y-4">
           <Store className="w-16 h-16 mx-auto text-muted-foreground" />
-          <h1 className="text-2xl font-bold">Business Not Found</h1>
-          <p className="text-muted-foreground">
-            This catalog isn't available. The link may be out of date, or
-            the owner may not be sharing it right now.
-          </p>
+          <h1 className="text-2xl font-bold">{NOT_FOUND_TITLE}</h1>
+          <p className="text-muted-foreground">{NOT_FOUND_DESC}</p>
         </div>
       </div>
     );
