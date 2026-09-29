@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useState, useRef, useMemo, memo } from "react";
 import { isPivotable, buildPivotData } from "@/lib/utils/pivotTableUtils";
 import { PivotTable } from "./PivotTable";
+import { toLegacyDotPath } from "@/lib/utils/catalogPath";
 
 // Per-category "table vs list" and "which axis is which" choices, keyed
 // by category path — same "plain object in localStorage, keyed by path"
@@ -35,6 +36,16 @@ const writePathMap = (storageKey, map) => {
   } catch {
     // best-effort, same as everywhere else in this app
   }
+};
+
+// Choices saved before catalog paths were escaped (lib/utils/catalogPath.js)
+// are keyed by the plain "."-joined path. That is the very same string for
+// any category without a "." in its name; for one WITH a dot ('1.5"'),
+// fall back to the old key so the remembered table/list choice is not
+// silently dropped. New choices are always written under the current key.
+const readPathPref = (storageKey, path) => {
+  const map = readPathMap(storageKey);
+  return map[path] ?? map[toLegacyDotPath(path)];
 };
 
 const CategoryItemImpl = ({
@@ -67,10 +78,10 @@ const CategoryItemImpl = ({
   const pivotable = useMemo(() => isPivotable(node), [node]);
 
   const [viewMode, setViewMode] = useState(
-    () => readPathMap(VIEW_MODE_STORAGE_KEY)[path] ?? "list",
+    () => readPathPref(VIEW_MODE_STORAGE_KEY, path) ?? "list",
   );
   const [transposed, setTransposed] = useState(
-    () => readPathMap(TRANSPOSED_STORAGE_KEY)[path] ?? false,
+    () => readPathPref(TRANSPOSED_STORAGE_KEY, path) ?? false,
   );
 
   const pivotData = useMemo(

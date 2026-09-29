@@ -16,6 +16,7 @@ import {
   editCategory,
   getItemAtPath,
 } from "@/lib/utils/priceListUtils";
+import { parentPathOf, lastSegmentOf } from "@/lib/utils/catalogPath";
 import {
   exportToText,
   importFromText,
@@ -191,11 +192,12 @@ export const PriceListContainer = () => {
   );
 
   const handleEditItem = useCallback((path, itemData) => {
-    const pathSegments = path.split(".");
-    const itemName = pathSegments[pathSegments.length - 1];
+    // Not split(".") / lastIndexOf("."): an item called "Appolo Sdr 13.5"
+    // has a dot of its own, and slicing at it edits the wrong node.
+    const itemName = lastSegmentOf(path);
 
     setEditingItem({
-      path: path.substring(0, path.lastIndexOf(".")),
+      path: parentPathOf(path),
       data: {
         ...itemData,
         name: itemName,

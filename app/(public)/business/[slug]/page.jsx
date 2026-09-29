@@ -56,6 +56,7 @@ import {
   filterData,
   buildSearchIndex,
 } from "@/lib/utils/priceListUtils";
+import { appendPath } from "@/lib/utils/catalogPath";
 import { toast } from "sonner";
 import { useCart } from "@/hooks/useCart";
 import { MaterialCalculator } from "@/components/marketplace/MaterialCalculator";
@@ -83,7 +84,7 @@ const collectAllPaths = (obj, parentPath = "") => {
   const paths = {};
   Object.entries(obj).forEach(([key, value]) => {
     if (key.startsWith("__")) return;
-    const currentPath = parentPath ? `${parentPath}.${key}` : key;
+    const currentPath = appendPath(parentPath, key);
     if (value.type === "category") {
       paths[currentPath] = true;
       if (value.children) {
@@ -109,12 +110,19 @@ export default function PublicBusinessPage() {
   const [expandedCategories, setExpandedCategories] = useState({});
 
   // ── Marketplace cart — unaffected by this page's data-fetching rework. ──
-  const { addItem, setItemQty, getQty } = useCart();
+  const { addItem, setItemQty, getQty, reconcileVendorCart } = useCart();
   const [showCart, setShowCart] = useState(false);
 
   useEffect(() => {
     loadBusinessData();
   }, [slugParam]);
+
+  // A cart saved before this page and the marketplace shared one key format
+  // can hold keys that only this catalog can decode — see
+  // lib/utils/cartKeys.js. Runs once the catalog has loaded.
+  useEffect(() => {
+    if (businessData?.id) reconcileVendorCart(businessData.id, priceData);
+  }, [businessData, priceData, reconcileVendorCart]);
 
   // Debounce: only update debouncedSearchTerm 200ms after typing stops
   useEffect(() => {
@@ -420,9 +428,7 @@ const CatalogContent = ({
     const entries = Object.entries(items);
     return entries.map(([key, value], index) => {
       if (key.startsWith("__")) return null;
-      const currentPath = currentParentPath
-        ? `${currentParentPath}.${key}`
-        : key;
+      const currentPath = appendPath(currentParentPath, key);
       const isExpanded = expandedCategories[currentPath];
 
       if (value.type === "category") {
@@ -459,9 +465,11 @@ const CatalogContent = ({
           value.retailSell !== undefined ? value.retailSell : value.sell || 0;
         const sellUnit = value.sellUnit || "piece";
 
-        // currentPath (dot-separated) already uniquely identifies this item
-        // within the vendor's tree, so it doubles as the cart line's key —
-        // same idea as the private catalog's `path` prop.
+        // currentPath (built with appendPath — lib/utils/catalogPath.js)
+        // uniquely identifies this item within the vendor's tree, so it doubles
+        // as the cart line's key. The marketplace search builds its keys with
+        // the same joinPath, so an item is one cart line no matter which page
+        // it was added from.
         const cartItemKey = currentPath;
         const itemForCart = {
           key: cartItemKey,

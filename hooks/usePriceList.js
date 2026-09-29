@@ -16,6 +16,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { sortData, buildSearchIndex } from "@/lib/utils/priceListUtils";
+import { appendPath } from "@/lib/utils/catalogPath";
 import { enqueue, OP_TYPES } from "@/lib/offlineQueue";
 
 // Fired whenever something outside this hook's own savePriceData writes new
@@ -270,7 +271,7 @@ export const usePriceList = () => {
     const collect = (obj, parent = "") => {
       Object.entries(obj).forEach(([key, value]) => {
         if (key.startsWith("__")) return;
-        const p = parent ? `${parent}.${key}` : key;
+        const p = appendPath(parent, key);
         if (value.type === "category") {
           allPaths[p] = true;
           if (value.children) collect(value.children, p);

@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { CategoryItem } from "./CategoryItem";
 import { PriceItem } from "./PriceItem";
+import { appendPath } from "@/lib/utils/catalogPath";
 
 const PriceListContentImpl = ({
   data,
@@ -21,9 +22,7 @@ const PriceListContentImpl = ({
 }) => {
   const renderItems = (items, currentParentPath, currentLevel) => {
     return Object.entries(items).map(([key, value], index) => {
-      const currentPath = currentParentPath
-        ? `${currentParentPath}.${key}`
-        : key;
+      const currentPath = appendPath(currentParentPath, key);
       const isExpanded = expandedCategories[currentPath];
 
       if (value.type === "category") {

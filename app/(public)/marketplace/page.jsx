@@ -58,11 +58,18 @@ export default function MarketplacePage() {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [showCart, setShowCart] = useState(false);
 
-  const { addItem, setItemQty, getQty, cart } = useCart();
+  const { addItem, setItemQty, getQty, cart, reconcileVendorCart } = useCart();
 
   useEffect(() => {
     loadVendors();
   }, []);
+
+  // A cart saved before the business page and this page shared one key
+  // format can hold keys that only a vendor's catalog can decode — see
+  // lib/utils/cartKeys.js. Runs once the vendors (and their catalogs) load.
+  useEffect(() => {
+    vendors.forEach((v) => reconcileVendorCart(v.id, v.priceData));
+  }, [vendors, reconcileVendorCart]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearchTerm(searchTerm), 250);

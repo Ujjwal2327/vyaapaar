@@ -21,14 +21,27 @@
  *   },
  *   ...
  * }
+ *
+ * `key` is the item's catalog path in the one format both public pages use
+ * (lib/utils/catalogPath.js): the business page passes its own render path,
+ * the marketplace search passes flattenPriceTree's key, and they are the same
+ * string. Carts saved before that was true — business-page keys joined with
+ * "." and marketplace keys joined with " › " — are upgraded by
+ * lib/utils/cartKeys.js every time the cart is read, and reconcileVendorCart
+ * below finishes the job for names the old "." join made ambiguous.
  */
 
 import { useState, useEffect, useCallback } from "react";
+import {
+  normalizeCart,
+  buildLegacyCartKeyMap,
+  remapCartLineKeys,
+} from "@/lib/utils/cartKeys";
 
 const CART_KEY = "marketplaceCart";
 const CART_EVENT = "marketplaceCartChanged";
 
-const readCart = () => {
+const readRawCart = () => {
   try {
     const raw = localStorage.getItem(CART_KEY);
     return raw ? JSON.parse(raw) : {};
@@ -36,6 +49,11 @@ const readCart = () => {
     return {};
   }
 };
+
+// Every read goes through normalizeCart, so a cart saved under either of the
+// older key formats is upgraded the moment anything looks at it — including
+// one written by another tab that is still running the old code.
+const readCart = () => normalizeCart(readRawCart()).cart;
 
 const writeCart = (cart) => {
   try {
@@ -53,7 +71,11 @@ export const useCart = () => {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    setCart(readCart());
+    // Persist the upgrade once, so storage itself moves to the shared key
+    // format instead of being re-translated on every read from now on.
+    const { cart: upgraded, changed } = normalizeCart(readRawCart());
+    if (changed) writeCart(upgraded);
+    setCart(upgraded);
     setHydrated(true);
     const handler = () => setCart(readCart());
     window.addEventListener(CART_EVENT, handler);
@@ -164,6 +186,27 @@ export const useCart = () => {
     writeCart(next);
   }, []);
 
+  // Finishes upgrading one vendor's saved lines once that vendor's catalog is
+  // in hand. normalizeCart (above) already covers marketplace-style keys and
+  // business-page keys for names without a ".", but an old business-page key
+  // like 'Pipe.CPVC.1".Appolo Sdr 13.5' cannot be decoded on its own — only the
+  // catalog says whether that dot is a separator or part of a name. Both
+  // public pages call this as soon as their catalog has loaded.
+  const reconcileVendorCart = useCallback((businessId, catalogTree) => {
+    const next = readCart();
+    const vendorCart = next[businessId];
+    if (!vendorCart?.items?.length) return;
+
+    const legacyKeys = buildLegacyCartKeyMap(catalogTree);
+    if (legacyKeys.size === 0) return;
+
+    const { items, changed } = remapCartLineKeys(vendorCart.items, legacyKeys);
+    if (!changed) return;
+
+    next[businessId] = { ...vendorCart, items };
+    writeCart(next);
+  }, []);
+
   // Live lookup for "is this item already in the cart, and how much" — so
   // a catalog row can show its own quantity without the customer having to
   // open the cart to check. Reads straight off the current `cart` state
@@ -190,6 +233,7 @@ export const useCart = () => {
     addItem,
     setItemQty,
     clearVendorCart,
+    reconcileVendorCart,
     getQty,
   };
 };
