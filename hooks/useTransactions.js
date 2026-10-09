@@ -20,6 +20,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { enqueue, OP_TYPES } from "@/lib/offlineQueue";
 import { computeStockDeltas, applyStockDeltas } from "@/lib/utils/stockUtils";
+import { stampSaleLines } from "@/lib/utils/costSnapshot";
 import { PRICE_LIST_UPDATED_EVENT } from "@/hooks/usePriceList";
 import { computeContactNetAmount } from "@/lib/utils/contactNetAmount";
 import { patchContactNetAmountInCache } from "@/hooks/usePeople";
@@ -49,6 +50,21 @@ const deriveStatus = (paidAmount, totalAmount) => {
   if (paidAmount > totalAmount) return "overpaid";
   if (paidAmount >= totalAmount) return "complete";
   return "pending";
+};
+
+// The price list as this device last cached it (the same localStorage copy
+// usePriceList and the stock adjustment below work from) — what a sale
+// line's cost snapshot is read from at save time. Reading the cache rather
+// than fetching keeps saving a sale as quick, and as offline-proof, as it
+// already was. A missing or unreadable cache just means no cost gets
+// recorded, and the profit report treats that line as an estimate.
+const readCatalogTree = () => {
+  try {
+    const raw = localStorage.getItem("priceListData");
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
 };
 
 const isNetworkError = (err) => {
@@ -477,6 +493,14 @@ export const useTransactions = (contactId) => {
 
     const tx = {
       ...newTx,
+      // A sale records what each item cost as of now, so later changes to a
+      // cost price don't rewrite this sale's profit (lib/utils/costSnapshot.js).
+      itemsList: stampSaleLines({
+        type: newTx.type,
+        kind: newTx.kind,
+        lines: newTx.itemsList,
+        catalogTree: readCatalogTree(),
+      }),
       id: crypto.randomUUID(),
       contactId:
         newTx.contactId !== undefined
@@ -535,11 +559,27 @@ export const useTransactions = (contactId) => {
   };
 
   // ── updateTransaction ─────────────────────────────────────────────────────
-  const updateTransaction = async (txId, updates) => {
+  const updateTransaction = async (txId, requestedUpdates) => {
     if (!user) throw new Error("NOT_AUTHENTICATED");
 
     const localTx = transactions.find((t) => t.id === txId);
     if (!localTx) throw new Error("Transaction not found");
+
+    // Items already on a sale keep the cost they were recorded with; items
+    // added in this edit get the cost as of now (lib/utils/costSnapshot.js).
+    // Both merges below pick this up through `updates`.
+    const updates = requestedUpdates?.itemsList
+      ? {
+          ...requestedUpdates,
+          itemsList: stampSaleLines({
+            type: localTx.type,
+            kind: localTx.kind,
+            lines: requestedUpdates.itemsList,
+            previousLines: localTx.itemsList,
+            catalogTree: readCatalogTree(),
+          }),
+        }
+      : requestedUpdates;
 
     const merged = {
       ...localTx,

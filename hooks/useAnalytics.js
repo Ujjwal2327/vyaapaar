@@ -25,6 +25,7 @@ import {
   computeReceivablePayableTrend,
   computeCurrentSummary,
 } from "@/lib/utils/analyticsUtils";
+import { hasAnyRecordedCost } from "@/lib/utils/costSnapshot";
 
 const GRANULARITY_KEY = "analyticsGranularity";
 
@@ -97,10 +98,13 @@ export const useAnalytics = () => {
     [transactions],
   );
 
+  // A cost price on a catalog item, or one recorded on a past sale (which
+  // survives the item being deleted or its cost cleared since).
   const hasAnyCostData = useMemo(
     () =>
-      Array.from(catalogIndex.values()).some((item) => (item.cost ?? 0) > 0),
-    [catalogIndex],
+      Array.from(catalogIndex.values()).some((item) => (item.cost ?? 0) > 0) ||
+      hasAnyRecordedCost(transactions),
+    [catalogIndex, transactions],
   );
 
   return {

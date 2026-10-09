@@ -12,6 +12,11 @@
  * green, purchases/payables in red (see TransactionCard.jsx,
  * TransactionSummary.jsx) — rather than inventing a separate chart-only
  * color language.
+ *
+ * `surface` is the one entry that isn't a series colour: it's the card the
+ * charts sit on (--card in app/globals.css). Markers use it for the ring that
+ * keeps them legible where they sit on a line, and hollow markers use it as
+ * their fill.
  */
 
 import { useMemo } from "react";
@@ -28,6 +33,7 @@ const PALETTE = {
     net: "#4f46e5",
     margin: "#2563eb",
     bar: "#4f46e5",
+    surface: "#ffffff",
   },
   dark: {
     grid: "#374151",
@@ -39,6 +45,7 @@ const PALETTE = {
     net: "#818cf8",
     margin: "#60a5fa",
     bar: "#818cf8",
+    surface: "#171717", // oklch(0.205 0 0), the dark --card
   },
 };
 
