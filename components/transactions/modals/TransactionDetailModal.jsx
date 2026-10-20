@@ -45,6 +45,7 @@ import {
   FileDown,
   Share2,
   Loader2,
+  MessageCircle,
 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -1738,6 +1739,7 @@ export const TransactionDetailModal = ({
   onAssignContact,
   onUnassignContact,
   onNavigateToTransaction,
+  onSendReceipt,
   peopleData = [],
 }) => {
   const { priceData, sellPriceMode } = usePriceList();
@@ -2458,6 +2460,24 @@ export const TransactionDetailModal = ({
                               {p.note ? ` · ${p.note}` : ""}
                             </p>
                           )}
+                          {/* Receipts are for money a customer paid us — not
+                              for payments we made to a supplier. */}
+                          {!isSettlementType &&
+                            onSendReceipt &&
+                            tx.type === "out" &&
+                            tx._role !== "linked" &&
+                            amountVal > 0 && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 -ml-2 mt-1 gap-1.5 text-sm text-green-700 dark:text-green-400"
+                                onClick={() => onSendReceipt(tx, p)}
+                              >
+                                <MessageCircle className="w-3.5 h-3.5" />
+                                Send receipt
+                              </Button>
+                            )}
                           {isSettlementType && p.partnerIds?.length > 0 && (
                             <div className="mt-1.5 space-y-1 overflow-hidden">
                               {p.partnerIds.map((pid) => {

@@ -10,6 +10,7 @@ import {
   UserSearch,
   Scale,
   MoreHorizontal,
+  BellRing,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,6 +45,8 @@ export const PeopleHeader = ({
   onExportPDF,
   onImportVCF,
   onFindDuplicates,
+  onOpenReminders,
+  remindersOffline,
   sortType,
   onSortChange,
   totalCount,
@@ -143,6 +146,19 @@ export const PeopleHeader = ({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
+              <DropdownMenuItem
+                onClick={onOpenReminders}
+                disabled={remindersOffline}
+              >
+                <BellRing className="w-4 h-4 mr-2" />
+                Payment reminders
+                {remindersOffline && (
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    Needs internet
+                  </span>
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onClick={onExportPDF}>
                 <Download className="w-4 h-4 mr-2" />
                 Export PDF

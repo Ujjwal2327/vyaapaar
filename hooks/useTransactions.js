@@ -1606,9 +1606,16 @@ export const useTransactions = (contactId) => {
     if (!updatedTxs[balancingTxId])
       updatedTxs[balancingTxId] = balancingTxLocal;
 
-    const allRows = Object.values(updatedTxs).map((t) =>
-      t.id === balancingTxId ? balancingRow : transactionToRow(t),
-    );
+    // BUG FIX: this used to write `balancingRow` (the balancing transaction as
+    // it was BEFORE settlement: status "pending", paid 0) for the balancing
+    // transaction, while every other participant was written with its
+    // post-settlement state. Local state (below) held the settled version, so
+    // the UI looked right — but the database kept the balancing transaction
+    // pending, the sales it was settled against came back "complete", and the
+    // net_amount recompute that runs right after read that leftover pending
+    // payable as the negative of what had just been settled. Every participant,
+    // balancing transaction included, is written in its settled form.
+    const allRows = Object.values(updatedTxs).map(transactionToRow);
     const finalBalancing = updatedTxs[balancingTxId] ?? balancingTxLocal;
 
     setTransactions((prev) => {

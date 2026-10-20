@@ -11,6 +11,9 @@ import { TransactionDetailModal } from "@/components/transactions/modals/Transac
 import { AddPaymentModal } from "@/components/transactions/modals/AddPaymentModal";
 import { SettleTransactionsModal } from "@/components/transactions/modals/SettleTransactionsModal";
 import { NetSettleModal } from "@/components/transactions/modals/NetSettleModal";
+import { ReminderDialog } from "@/components/reminders/ReminderDialog";
+import { SendReceiptDialog } from "@/components/reminders/SendReceiptDialog";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -20,6 +23,7 @@ import {
   MapPin,
   ArrowLeftRight,
   Zap,
+  MessageCircle,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import Logo from "@/components/Logo";
@@ -93,6 +97,7 @@ export default function TransactionsPage() {
   const router = useRouter();
   const contactId = params.contactId;
 
+  const { isOnline } = useOnlineStatus();
   const { peopleData, isHydrated, isDataLoading } = usePeople();
   const {
     transactions,
@@ -112,6 +117,9 @@ export default function TransactionsPage() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showSettleModal, setShowSettleModal] = useState(false);
   const [showNetSettleModal, setShowNetSettleModal] = useState(false);
+  const [showReminderModal, setShowReminderModal] = useState(false);
+  // { transaction, entry } — the payment a receipt is being sent for
+  const [receiptTarget, setReceiptTarget] = useState(null);
   const [selectedTxId, setSelectedTxId] = useState(null);
 
   const selectedTx = useMemo(
@@ -288,8 +296,24 @@ export default function TransactionsPage() {
     isPaymentInFlight.current = true;
     const loadingToast = toast.loading("Recording payment...");
     try {
-      await addPayment(selectedTx.id, payment);
-      toast.success("Payment recorded", { id: loadingToast });
+      const updated = await addPayment(selectedTx.id, payment);
+      const entry =
+        updated?.paidAmountHistory?.[updated.paidAmountHistory.length - 1];
+      toast.success("Payment recorded", {
+        id: loadingToast,
+        // The customer has just paid — the natural moment to send a receipt.
+        // Only for money received from a customer, not for supplier payments.
+        ...(updated?.type === "out" && entry
+          ? {
+              duration: 12000,
+              action: {
+                label: "Send receipt",
+                onClick: () =>
+                  setReceiptTarget({ transaction: updated, entry }),
+              },
+            }
+          : {}),
+      });
       setShowPaymentModal(false);
     } catch (e) {
       toast.error(getErrorMessage(e), { id: loadingToast });
@@ -342,6 +366,9 @@ export default function TransactionsPage() {
   const hasAnyActive = pendingTxs.length > 0 || overpaidTxs.length > 0;
   const canNetSettle =
     !canAutoSettle && hasAnyActive && Math.abs(netBalance) > 0.01;
+  // Only someone who owes you money can be reminded. The dialog re-reads the
+  // exact amount from the server; this just decides whether to offer it.
+  const canRemind = netBalance > 0.01;
 
   return (
     <main className="min-h-screen">
@@ -435,6 +462,23 @@ export default function TransactionsPage() {
                 <span className="hidden sm:inline">Net Settle</span>
               </Button>
             )}
+            {canRemind && (
+              <Button
+                onClick={() => setShowReminderModal(true)}
+                size="sm"
+                variant="outline"
+                disabled={!isOnline}
+                className="shrink-0 gap-1 text-green-700 border-green-300 hover:bg-green-50 dark:text-green-400 dark:border-green-700 dark:hover:bg-green-950/30"
+                title={
+                  isOnline
+                    ? "Send a WhatsApp payment reminder"
+                    : "Reminders need an internet connection"
+                }
+              >
+                <MessageCircle className="w-4 h-4" />
+                <span className="hidden sm:inline">Remind</span>
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -484,6 +528,9 @@ export default function TransactionsPage() {
         onUpdate={handleUpdateTransaction}
         onDelete={handleDeleteTransaction}
         onAddPayment={() => setShowPaymentModal(true)}
+        onSendReceipt={(tx, entry) =>
+          setReceiptTarget({ transaction: tx, entry })
+        }
         peopleData={peopleData}
       />
 
@@ -514,6 +561,22 @@ export default function TransactionsPage() {
         transactions={primaryTxs}
         summary={summary}
         onNetSettle={handleNetSettle}
+        contact={contact}
+      />
+
+      <ReminderDialog
+        open={showReminderModal}
+        onOpenChange={setShowReminderModal}
+        contact={contact}
+      />
+
+      <SendReceiptDialog
+        open={!!receiptTarget}
+        onOpenChange={(v) => {
+          if (!v) setReceiptTarget(null);
+        }}
+        transaction={receiptTarget?.transaction ?? null}
+        entry={receiptTarget?.entry ?? null}
         contact={contact}
       />
     </main>

@@ -12,6 +12,8 @@ import { BulkEditPeopleModal } from "./modals/BulkEditPeopleModal";
 import { ExportPDFModal } from "./modals/ExportPDFModal";
 import { ImportVCFModal } from "./modals/ImportVCFModal";
 import { FindDuplicatesModal } from "./modals/FindDuplicatesModal";
+import { RemindAllModal } from "@/components/reminders/RemindAllModal";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { toast } from "sonner";
 import Loader from "../Loader";
 import { areContactsIdentical } from "@/lib/utils/duplicateContactUtils";
@@ -74,6 +76,8 @@ export const PeopleContainer = () => {
   const [showExportPDFModal, setShowExportPDFModal] = useState(false);
   const [showImportVCFModal, setShowImportVCFModal] = useState(false);
   const [showFindDuplicatesModal, setShowFindDuplicatesModal] = useState(false);
+  const [showRemindersModal, setShowRemindersModal] = useState(false);
+  const { isOnline } = useOnlineStatus();
 
   const [editingPerson, setEditingPerson] = useState(null);
   const [viewingPerson, setViewingPerson] = useState(null);
@@ -470,6 +474,8 @@ export const PeopleContainer = () => {
         onExportPDF={handleExportPDF}
         onImportVCF={handleImportVCF}
         onFindDuplicates={handleFindDuplicates}
+        onOpenReminders={() => setShowRemindersModal(true)}
+        remindersOffline={!isOnline}
         sortType={sortType}
         onSortChange={handleSortChange}
         onlyWithBalance={onlyWithBalance}
@@ -539,6 +545,12 @@ export const PeopleContainer = () => {
         onOpenChange={setShowFindDuplicatesModal}
         peopleData={peopleData}
         onMerge={handleFindDuplicatesMerge}
+      />
+
+      <RemindAllModal
+        open={showRemindersModal}
+        onOpenChange={setShowRemindersModal}
+        peopleData={peopleData}
       />
     </>
   );
