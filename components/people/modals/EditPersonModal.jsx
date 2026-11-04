@@ -1,3 +1,7 @@
+// v2 (GST review): clearer hint under the GSTIN field (leave it empty for a
+// customer without GST registration). v2.1: a contact's GSTIN can't equal the
+// shop's own GSTIN (new `ownGstin` prop, passed by PeopleContainer).
+
 import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Dialog,
@@ -16,7 +20,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Plus, X, Upload, User, Star, AlertCircle, QrCode } from "lucide-react";
+import {
+  Plus,
+  X,
+  Upload,
+  User,
+  Star,
+  AlertCircle,
+  QrCode,
+  Receipt,
+} from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toTitleCase } from "@/lib/utils/dataTransform";
 import { sortCategories } from "@/lib/utils/categoryUtils";
@@ -30,6 +43,11 @@ import {
 } from "@/lib/utils/imageCompression";
 import { photoCache } from "@/lib/utils/photoCache";
 import { isValidUpiId } from "@/lib/utils/upi";
+import {
+  contactGstinProblem,
+  gstinProblem,
+  normalizeGstin,
+} from "@/lib/utils/gstUtils";
 
 // Phone validation with real-time cleaning
 const cleanAndValidatePhone = (phone) => {
@@ -68,6 +86,8 @@ export const EditPersonModal = ({
   editingPerson,
   onSave,
   availableCategories,
+  gstEnabled = false,
+  ownGstin = "", // the shop's own GSTIN: a contact can't have the same one
 }) => {
   // Memoize sorted categories to prevent infinite loop
   const CATEGORIES = useMemo(() => {
@@ -83,6 +103,10 @@ export const EditPersonModal = ({
   const [photoPreview, setPhotoPreview] = useState("");
   const [phoneErrors, setPhoneErrors] = useState([]);
   const [upiIdError, setUpiIdError] = useState(null);
+  const [gstinFormatError, setGstinError] = useState(null);
+  // format/checksum problem, or the same GSTIN as the shop's own
+  const gstinError =
+    gstinFormatError || contactGstinProblem(formData?.gstin, ownGstin);
   const [isCompressing, setIsCompressing] = useState(false);
   const [photoChanged, setPhotoChanged] = useState(false);
 
@@ -109,6 +133,7 @@ export const EditPersonModal = ({
         photo: cachedPhoto || "",
         notes: editingPerson.notes || "",
         upiId: editingPerson.upiId || "",
+        gstin: editingPerson.gstin || "",
       };
       setFormData(currentFormData);
       setInitialFormData(currentFormData);
@@ -119,6 +144,7 @@ export const EditPersonModal = ({
         new Array(phones.length > 0 ? phones.length : 1).fill(null),
       );
       setUpiIdError(null);
+      setGstinError(null);
       setIsCompressing(false);
       setPhotoChanged(false);
     } else if (!editingPerson && formData !== null) {
@@ -127,6 +153,7 @@ export const EditPersonModal = ({
       setPhotoPreview("");
       setPhoneErrors([]);
       setUpiIdError(null);
+      setGstinError(null);
       setIsCompressing(false);
       setPhotoChanged(false);
     }
@@ -179,6 +206,12 @@ export const EditPersonModal = ({
         ? "Should look like name@bank, e.g. supplier@okhdfcbank"
         : null,
     );
+  };
+
+  const handleGstinChange = (value) => {
+    const g = normalizeGstin(value).slice(0, 15);
+    setFormData({ ...formData, gstin: g });
+    setGstinError(gstinProblem(g));
   };
 
   const addPhoneField = () => {
@@ -284,6 +317,7 @@ export const EditPersonModal = ({
       specialty: formData.specialty.trim(),
       notes: formData.notes.trim(),
       upiId: formData.upiId?.trim() || "",
+      gstin: normalizeGstin(formData.gstin),
       phones: cleanedAndDedupedPhones,
     };
 
@@ -322,6 +356,8 @@ export const EditPersonModal = ({
     // Check for UPI ID format error
     if (upiIdError) return false;
 
+    if (gstinError) return false;
+
     // Check if anything changed
     const hasChanges =
       formData.name !== initialFormData.name ||
@@ -332,7 +368,8 @@ export const EditPersonModal = ({
       formData.specialty !== initialFormData.specialty ||
       photoChanged ||
       formData.notes !== initialFormData.notes ||
-      (formData.upiId || "") !== (initialFormData.upiId || "");
+      (formData.upiId || "") !== (initialFormData.upiId || "") ||
+      normalizeGstin(formData.gstin) !== normalizeGstin(initialFormData.gstin);
 
     return hasChanges;
   })();
@@ -594,6 +631,41 @@ export const EditPersonModal = ({
               </p>
             )}
           </div>
+
+          {/* GSTIN — optional, only offered while GST billing is on (or when
+              this contact already has one). Remembered so the bill form can
+              pre-fill it instead of asking again. */}
+          {(gstEnabled || formData.gstin) && (
+            <div className="space-y-2">
+              <Label htmlFor="gstin" className="flex items-center gap-2">
+                <Receipt className="w-4 h-4" />
+                GSTIN
+                <span className="text-xs text-muted-foreground ml-auto">
+                  Optional
+                </span>
+              </Label>
+              <Input
+                id="gstin"
+                value={formData.gstin}
+                onChange={(e) => handleGstinChange(e.target.value)}
+                placeholder="15-character GSTIN"
+                className={`font-mono uppercase ${gstinError ? "border-destructive" : ""}`}
+                maxLength={15}
+                autoCapitalize="characters"
+              />
+              {gstinError ? (
+                <div className="flex items-start gap-1 text-xs text-destructive">
+                  <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
+                  <span>{gstinError}</span>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Only if they are GST-registered — it is pre-filled on GST
+                  invoices to them. Leave empty otherwise.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Notes */}
           <div className="space-y-2">

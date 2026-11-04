@@ -1,3 +1,6 @@
+// v2 (GST review): the HSN / GST-rate fields use ItemTaxInputs variant="form"
+// (full-size labelled fields) so they match the rest of this dialog.
+
 import { useState, useEffect } from "react";
 import {
   Dialog,
@@ -19,6 +22,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Boxes } from "lucide-react";
 import { DEFAULT_ACTIVE_UNITS, UNIT_CATEGORIES } from "@/lib/units-config";
+import { ItemTaxInputs } from "@/components/gst/GstFields";
+import { hsnProblem } from "@/lib/utils/gstUtils";
 
 // Helper function to create the nested structure of active units
 const getNestedActiveUnits = (activeUnits) => {
@@ -39,7 +44,13 @@ const getNestedActiveUnits = (activeUnits) => {
   return nestedUnits;
 };
 
-export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
+export const AddItemModal = ({
+  open,
+  onOpenChange,
+  type,
+  onAdd,
+  gstEnabled = false,
+}) => {
   const [activeUnits, setActiveUnits] = useState(DEFAULT_ACTIVE_UNITS);
   // Store the nested units structure for rendering the select fields
   const [nestedActiveUnits, setNestedActiveUnits] = useState({});
@@ -55,6 +66,8 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
     trackStock: false,
     stockQty: "",
     lowStockThreshold: "",
+    hsn: "",
+    gstRate: "",
   });
 
   // Store the discount percentage (retailSell - bulkSell) / retailSell * 100
@@ -99,6 +112,8 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
         trackStock: false,
         stockQty: "",
         lowStockThreshold: "",
+        hsn: "",
+        gstRate: "",
       });
       setBulkDiscountPercent(0);
     }
@@ -187,6 +202,8 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
       trackStock: false,
       stockQty: "",
       lowStockThreshold: "",
+      hsn: "",
+      gstRate: "",
     });
     setBulkDiscountPercent(0);
   };
@@ -198,6 +215,9 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
 
     // For items, retail sell price is required
     if (type === "item" && !formData.retailSell) return false;
+
+    // HSN is optional here, but a half-typed one would be rejected later
+    if (type === "item" && gstEnabled && hsnProblem(formData.hsn)) return false;
 
     // All mandatory fields are filled
     return true;
@@ -347,6 +367,26 @@ export const AddItemModal = ({ open, onOpenChange, type, onAdd }) => {
                   <UnitSelectContent />
                 </Select>
               </div>
+
+              {/* HSN + GST rate — only while GST billing is on in Settings.
+                  Optional here; the bill form asks for them once if missing. */}
+              {gstEnabled && (
+                <div className="space-y-2">
+                  <Label>GST details</Label>
+                  <ItemTaxInputs
+                    variant="form"
+                    hsn={formData.hsn}
+                    gstRate={formData.gstRate}
+                    onHsn={(v) => setFormData({ ...formData, hsn: v })}
+                    onRate={(v) => setFormData({ ...formData, gstRate: v })}
+                  />
+                  {hsnProblem(formData.hsn) && (
+                    <p className="text-xs text-destructive">
+                      {hsnProblem(formData.hsn)}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Stock Tracking - opt-in, off by default */}
               <div className="space-y-3 rounded-lg border p-3">

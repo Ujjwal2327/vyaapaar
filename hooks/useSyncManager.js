@@ -3,6 +3,12 @@
 /**
  * hooks/useSyncManager.js  (v4)
  *
+ * GST review fixes (v4.1): contacts keep gstin / upi_id through conflict
+ * merges and cache refreshes; a bill inserted by this sync run is no longer
+ * flagged as conflicting with its own queued edit; "keep server"/"keep both"
+ * on a transaction write a correctly shaped cache row; a merged GST invoice
+ * keeps `gst` and a total that matches its items.
+ *
  * v4: contacts.net_amount now gets reconciled wherever this file writes
  * or refreshes transaction data outside of hooks/useTransactions.js's own
  * mutators — see the CONTACT_RECOMPUTE_NET_AMOUNT case in replayOp (the
@@ -101,6 +107,8 @@ const mergeContacts = (local, remote, fieldChoices = null) => {
     "address",
     "specialty",
     "notes",
+    "gstin",
+    "upi_id",
   ];
   const merged = { ...remote };
 
@@ -164,10 +172,16 @@ const mergeTransactions = (local, remote) => {
   history.sort((a, b) => new Date(a.date) - new Date(b.date));
 
   const paid = history.reduce((s, e) => s + (e.amount ?? 0), 0);
-  const total = Math.max(
-    parseFloat(local.total_amount ?? 0),
-    parseFloat(remote.total_amount ?? 0),
-  );
+  // A GST invoice's total must match the items it is made of — take both from
+  // the same side instead of the larger of the two totals.
+  const itemsFromRemote = !!remote.items_list?.length;
+  const total =
+    remote.gst || local.gst
+      ? parseFloat((itemsFromRemote ? remote : local).total_amount ?? 0)
+      : Math.max(
+          parseFloat(local.total_amount ?? 0),
+          parseFloat(remote.total_amount ?? 0),
+        );
 
   let status = "pending";
   if (total <= 0) status = "pending";
@@ -184,6 +198,7 @@ const mergeTransactions = (local, remote) => {
     items_list: remote.items_list?.length
       ? remote.items_list
       : (local.items_list ?? []),
+    gst: remote.gst ?? local.gst ?? null,
   };
 };
 
@@ -257,9 +272,12 @@ export const useSyncManager = () => {
       .map((o) => o.id);
 
     try {
+      // Bills inserted by THIS run — their updated_at is "now", so a queued
+      // edit/payment for the same bill must not be flagged as a conflict.
+      const ctx = { insertedTxIds: new Set() };
       for (const op of collapsed) {
         try {
-          await replayOp(op, user, newConflicts);
+          await replayOp(op, user, newConflicts, ctx);
           // Mark originals that this collapsed op represents as succeeded.
           switch (op.type) {
             case OP_TYPES.CONTACTS_UPSERT:
@@ -368,7 +386,12 @@ export const useSyncManager = () => {
 
 // ─── operation replayers ──────────────────────────────────────────────────────
 
-async function replayOp(op, user, conflictsOut) {
+async function replayOp(
+  op,
+  user,
+  conflictsOut,
+  ctx = { insertedTxIds: new Set() },
+) {
   switch (op.type) {
     case OP_TYPES.PRICE_LIST_SAVE: {
       const { data: row } = await supabase
@@ -491,12 +514,22 @@ async function replayOp(op, user, conflictsOut) {
         );
       }
 
-      // Safe to delete: remove soft-deleted transactions first (FK cleanup).
+      // Safe to delete: clear out this contact's soft-deleted transactions
+      // first (FK cleanup). A cancelled GST invoice keeps its number for
+      // good (the series must stay gapless), so it is detached from the
+      // contact instead of deleted — the buyer's details live on the invoice.
+      await supabase
+        .from("transactions")
+        .update({ contact_id: null })
+        .in("contact_id", ids)
+        .eq("status", "deleted")
+        .not("invoice_no", "is", null);
       await supabase
         .from("transactions")
         .delete()
         .in("contact_id", ids)
-        .eq("status", "deleted");
+        .eq("status", "deleted")
+        .is("invoice_no", null);
 
       const { error } = await supabase
         .from("contacts")
@@ -523,6 +556,7 @@ async function replayOp(op, user, conflictsOut) {
         .from("transactions")
         .insert([op.payload.row]);
       if (error && error.code !== "23505") throw error;
+      ctx.insertedTxIds.add(op.payload.row.id);
       break;
     }
 
@@ -535,8 +569,10 @@ async function replayOp(op, user, conflictsOut) {
         .select("id, updated_at")
         .in("id", ids);
 
-      const conflictRows = (dbRows ?? []).filter((db) =>
-        isConflict(db.updated_at, op.queuedAt),
+      const conflictRows = (dbRows ?? []).filter(
+        (db) =>
+          !ctx.insertedTxIds.has(db.id) &&
+          isConflict(db.updated_at, op.queuedAt),
       );
 
       if (conflictRows.length > 0) {
@@ -608,6 +644,21 @@ async function replayOp(op, user, conflictsOut) {
         .eq("id", txId)
         .eq("user_id", user.id);
       if (error) throw error;
+      break;
+    }
+
+    case OP_TYPES.TX_ASSIGN_INVOICE_NO: {
+      // A GST bill saved offline: the TX_INSERT that precedes this op in the
+      // queue has just created the row, so the database can number it now.
+      // The function is idempotent (a bill that already has a number just
+      // gets it back) and runs in a single transaction, so a failure here
+      // leaves no gap — the op simply stays queued and is retried.
+      const { error } = await supabase.rpc("assign_invoice_number", {
+        p_tx_id: op.payload.txId,
+      });
+      if (error) throw error;
+      // Mounted transaction pages re-read from the server to show the number.
+      window.dispatchEvent(new Event("txRefreshNeeded"));
       break;
     }
 
@@ -694,6 +745,8 @@ async function replayOpMerged(conflict, user, fieldChoices) {
                 address: merged.address ?? "",
                 specialty: merged.specialty ?? "",
                 notes: merged.notes ?? "",
+                upiId: merged.upi_id ?? "",
+                gstin: merged.gstin ?? "",
                 hasPhoto: merged.has_photo ?? false,
                 netAmount: merged.net_amount ?? 0,
                 createdAt: merged.created_at ?? null,
@@ -758,6 +811,8 @@ async function refreshLocalCache(op, user) {
             address: fresh.address ?? "",
             specialty: fresh.specialty ?? "",
             notes: fresh.notes ?? "",
+            upiId: fresh.upi_id ?? "",
+            gstin: fresh.gstin ?? "",
             hasPhoto: fresh.has_photo ?? false,
             // "Keep server" discards whatever local edit prompted this
             // conflict — including any local net_amount nudge based on
@@ -859,6 +914,10 @@ const dbRowToTx = (row) => ({
   status: row.status ?? "pending",
   createdAt: row.created_at,
   updatedAt: row.updated_at,
+  gst: row.gst ?? null,
+  invoiceNo: row.invoice_no ?? null,
+  invoiceSeq: row.invoice_seq ?? null,
+  invoiceFy: row.invoice_fy ?? null,
   _role: "primary",
 });
 
@@ -894,12 +953,7 @@ const refreshTxInAllCaches = (row, preferredKey) => {
         const list = JSON.parse(localStorage.getItem(key) ?? "[]");
         if (!list.some((t) => t.id === txId)) continue;
         const updated = list.map((t) =>
-          t.id === txId
-            ? {
-                ...(typeof row.status !== "undefined" ? row : dbRowToTx(row)),
-                _role: t._role,
-              }
-            : t,
+          t.id === txId ? { ...dbRowToTx(row), _role: t._role } : t,
         );
         localStorage.setItem(key, JSON.stringify(updated));
       } catch {}

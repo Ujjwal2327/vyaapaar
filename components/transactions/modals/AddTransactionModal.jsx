@@ -1,6 +1,9 @@
 /* eslint-disable react/no-unescaped-entities */
 "use client";
 
+// v2 (GST review): "Remember HSN & rate" uses the shared RememberTaxCheckbox
+// (shadcn Checkbox) instead of a raw <input type="checkbox">.
+
 import { useState, useCallback, useRef, useMemo, useEffect, memo } from "react";
 import {
   Dialog,
@@ -37,8 +40,26 @@ import {
   Link2,
   User,
 } from "lucide-react";
+import { toast } from "sonner";
 import { usePriceList } from "@/hooks/usePriceList";
-import { useBusinessProfile } from "@/hooks/useBusinessProfile";
+import { useGst } from "@/hooks/useGst";
+import {
+  GstBillPanel,
+  GstBreakup,
+  ItemTaxInputs,
+  RateSelect,
+  RememberTaxCheckbox,
+} from "@/components/gst/GstFields";
+import {
+  buildGstSnapshot,
+  computeGst,
+  highestRate,
+  hsnProblem,
+  parseRate,
+  resolveBillGst,
+  validateGstLines,
+  withItemTaxInfo,
+} from "@/lib/utils/gstUtils";
 import { StockBadge } from "@/components/price-list/StockBadge";
 import { UpiPayCard } from "@/components/transactions/UpiPayCard";
 import { getOversellProjection } from "@/lib/utils/stockUtils";
@@ -332,6 +353,8 @@ const flattenPriceItems = (data, path = []) => {
         costUnit: value.costUnit ?? value.sellUnit ?? "piece",
         stockQty: value.stockQty,
         lowStockThreshold: value.lowStockThreshold,
+        hsn: value.hsn,
+        gstRate: value.gstRate,
       });
     } else if (value?.type === "category" && value.children) {
       out.push(...flattenPriceItems(value.children, [...path, key]));
@@ -683,6 +706,9 @@ const PriceItemSearch = ({
   sellPriceMode,
   allPriceItems,
   itemsList,
+  gstOn = false,
+  requireHsn = false,
+  onRememberTax,
 }) => {
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
@@ -690,6 +716,9 @@ const PriceItemSearch = ({
   const [pendingQty, setPendingQty] = useState("1");
   const [pendingPrice, setPendingPrice] = useState("");
   const [pendingUnit, setPendingUnit] = useState("");
+  const [pendingHsn, setPendingHsn] = useState("");
+  const [pendingRate, setPendingRate] = useState("");
+  const [rememberTax, setRememberTax] = useState(true);
   const inputRef = useRef(null);
   const qtyRef = useRef(null);
 
@@ -713,6 +742,11 @@ const PriceItemSearch = ({
     setPendingQty("1");
     setPendingPrice(String(item[priceKey] ?? 0));
     setPendingUnit(item[unitKey] ?? "");
+    // HSN / rate already on the catalog item are used as-is; otherwise they're
+    // asked for right here, once, and (optionally) saved back to the item.
+    setPendingHsn(item.hsn ?? "");
+    setPendingRate(item.gstRate !== undefined ? String(item.gstRate) : "");
+    setRememberTax(true);
     setQuery("");
     setFocused(false);
     setTimeout(() => qtyRef.current?.select(), 60);
@@ -744,16 +778,33 @@ const PriceItemSearch = ({
       )
     : null;
 
+  // What's wrong with the GST side of this line, if anything (blocks adding).
+  const pendingTaxProblem = gstOn
+    ? parseRate(pendingRate) === null
+      ? "Choose a GST rate for this item"
+      : hsnProblem(pendingHsn, { required: requireHsn })
+    : null;
+  const catalogLacksTax =
+    !!pending && (!pending.hsn || pending.gstRate === undefined);
+
   const confirmAdd = () => {
     if (!pending) return;
     const qty = parseFloat(pendingQty);
     if (!qty || qty <= 0) return;
+    if (pendingTaxProblem) return;
     onSelect({
       name: pending.fullPath,
       quantity: String(qty),
       price: pendingPrice,
       unit: pendingUnit,
+      ...(gstOn ? { hsn: pendingHsn, gstRate: pendingRate } : {}),
     });
+    if (gstOn && catalogLacksTax && rememberTax) {
+      onRememberTax?.(pending.fullPath, {
+        hsn: pendingHsn,
+        gstRate: pendingRate,
+      });
+    }
     setPending(null);
     setPendingQty("1");
     setTimeout(() => inputRef.current?.focus(), 60);
@@ -907,6 +958,27 @@ const PriceItemSearch = ({
               </>
             )}
           </div>
+          {gstOn && (
+            <div className="space-y-1.5">
+              <div className="flex items-end gap-2 flex-wrap">
+                <ItemTaxInputs
+                  hsn={pendingHsn}
+                  gstRate={pendingRate}
+                  onHsn={setPendingHsn}
+                  onRate={setPendingRate}
+                />
+              </div>
+              {pendingTaxProblem && (
+                <p className="text-sm text-destructive">{pendingTaxProblem}</p>
+              )}
+              {catalogLacksTax && (
+                <RememberTaxCheckbox
+                  checked={rememberTax}
+                  onChange={setRememberTax}
+                />
+              )}
+            </div>
+          )}
           {isDuplicate && (
             <div className="flex items-center gap-1.5 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-2 text-sm text-amber-700 dark:text-amber-400">
               <AlertTriangle className="w-4 h-4 shrink-0" />
@@ -936,7 +1008,7 @@ const PriceItemSearch = ({
             <button
               type="button"
               onClick={confirmAdd}
-              disabled={!(parseFloat(pendingQty) > 0)}
+              disabled={!(parseFloat(pendingQty) > 0) || !!pendingTaxProblem}
               className="flex-1 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-40 flex items-center justify-center gap-1"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -960,6 +1032,7 @@ const CollapsibleCartItem = ({
   allPriceItems,
   itemsList,
   type,
+  gstOn = false,
 }) => {
   const qty = parseFloat(item.quantity) || 0;
   const price = parseFloat(item.price) || 0;
@@ -1004,6 +1077,19 @@ const CollapsibleCartItem = ({
               {item.unit ? ` ${item.unit}` : ""} × {fmt(price)}
             </span>
             <StockBadge item={catalogItem} />
+            {gstOn && (
+              <span
+                className={`text-[0.7em] px-1.5 py-0.5 rounded-full font-medium shrink-0 whitespace-nowrap ${
+                  parseRate(item.gstRate) === null
+                    ? "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300"
+                    : "bg-muted text-muted-foreground"
+                }`}
+              >
+                {parseRate(item.gstRate) === null
+                  ? "GST rate needed"
+                  : `GST ${parseRate(item.gstRate)}%${item.hsn ? ` · HSN ${item.hsn}` : ""}`}
+              </span>
+            )}
           </div>
         </div>
         <div className="shrink-0 text-right pt-0.5">
@@ -1082,6 +1168,14 @@ const CollapsibleCartItem = ({
             className={`${inputCls} w-20`}
           />
         </div>
+        {gstOn && (
+          <ItemTaxInputs
+            hsn={item.hsn}
+            gstRate={item.gstRate}
+            onHsn={(v) => onUpdate(index, "hsn", v)}
+            onRate={(v) => onUpdate(index, "gstRate", v)}
+          />
+        )}
         {qty > 0 && price > 0 && (
           <>
             <span className="text-sm text-muted-foreground mt-4">=</span>
@@ -1124,6 +1218,9 @@ const ItemsTabPanel = ({
   type,
   sellPriceMode,
   allPriceItems,
+  gstOn = false,
+  requireHsn = false,
+  onRememberTax,
 }) => {
   const [activeTab, setActiveTab] = useState("add");
   const [expandedIndex, setExpandedIndex] = useState(null);
@@ -1132,16 +1229,34 @@ const ItemsTabPanel = ({
   const namedCount = itemsList.filter((it) => it.name?.trim()).length;
 
   const handleAddBlank = () => {
-    setBlankPending({ name: "", qty: "1", price: "", unit: "" });
+    setBlankPending({
+      name: "",
+      qty: "1",
+      price: "",
+      unit: "",
+      hsn: "",
+      gstRate: "",
+    });
     setTimeout(() => blankNameRef.current?.focus(), 60);
   };
+  // A blank (free-text) item has no catalog entry to remember its tax info
+  // in, so it's asked for on the line itself.
+  const blankTaxProblem =
+    gstOn && blankPending
+      ? parseRate(blankPending.gstRate) === null
+        ? "Choose a GST rate for this item"
+        : hsnProblem(blankPending.hsn, { required: requireHsn })
+      : null;
   const confirmBlank = () => {
-    if (!blankPending) return;
+    if (!blankPending || blankTaxProblem) return;
     addItemFromSearch({
       name: blankPending.name,
       quantity: blankPending.qty,
       price: blankPending.price,
       unit: blankPending.unit,
+      ...(gstOn
+        ? { hsn: blankPending.hsn, gstRate: blankPending.gstRate }
+        : {}),
     });
     setBlankPending(null);
   };
@@ -1178,6 +1293,9 @@ const ItemsTabPanel = ({
             sellPriceMode={sellPriceMode}
             allPriceItems={allPriceItems}
             itemsList={itemsList}
+            gstOn={gstOn}
+            requireHsn={requireHsn}
+            onRememberTax={onRememberTax}
           />
           {blankPending && (
             <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
@@ -1242,6 +1360,16 @@ const ItemsTabPanel = ({
                     className={`${inputCls} w-20`}
                   />
                 </div>
+                {gstOn && (
+                  <ItemTaxInputs
+                    hsn={blankPending.hsn}
+                    gstRate={blankPending.gstRate}
+                    onHsn={(v) => setBlankPending((p) => ({ ...p, hsn: v }))}
+                    onRate={(v) =>
+                      setBlankPending((p) => ({ ...p, gstRate: v }))
+                    }
+                  />
+                )}
                 {blankQty > 0 && blankPrice > 0 && (
                   <>
                     <span className="text-sm text-muted-foreground mt-4">
@@ -1253,6 +1381,9 @@ const ItemsTabPanel = ({
                   </>
                 )}
               </div>
+              {blankTaxProblem && (
+                <p className="text-sm text-destructive">{blankTaxProblem}</p>
+              )}
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -1264,7 +1395,8 @@ const ItemsTabPanel = ({
                 <button
                   type="button"
                   onClick={confirmBlank}
-                  className="flex-1 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-1"
+                  disabled={!!blankTaxProblem}
+                  className="flex-1 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-1 disabled:opacity-40"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Add to cart
@@ -1317,6 +1449,7 @@ const ItemsTabPanel = ({
                     allPriceItems={allPriceItems}
                     itemsList={itemsList}
                     type={type}
+                    gstOn={gstOn}
                   />
                 ))}
               </div>
@@ -1348,6 +1481,9 @@ const blankState = () => ({
   financialTotal: "",
   linkedContactIds: [],
   selectedContactId: null,
+  gstOff: false, // GST is on by default for new sales while Settings → GST is on
+  gstPos: null, // null = automatic place of supply
+  gstBuyerGstin: null, // null = use the contact's saved GSTIN
 });
 
 // ─── main modal ───────────────────────────────────────────────────────────────
@@ -1358,9 +1494,11 @@ export const AddTransactionModal = ({
   onAdd,
   peopleData = [],
   currentContactId,
+  onSaveContactGstin,
 }) => {
-  const { priceData, sellPriceMode } = usePriceList();
-  const { profile: businessProfile } = useBusinessProfile();
+  const { priceData, sellPriceMode, savePriceData } = usePriceList();
+  const gstCfg = useGst();
+  const businessProfile = gstCfg.business;
   // On the contact page, contact is always provided and contactId is its id.
   // On the Unassigned page, no `contact` prop is passed — fall back to a
   // fixed key so drafts still save/restore (rather than silently disabling
@@ -1384,6 +1522,27 @@ export const AddTransactionModal = ({
   const [linkedContactIds, setLinkedContactIds] = useState([]);
   const [selectedContactId, setSelectedContactId] = useState(null);
 
+  // GST draft. `gstOff` (not "on") so that a bill is a GST bill by default
+  // whenever the Settings switch is on, and the user only acts to turn it off.
+  const [gstOff, setGstOff] = useState(false);
+  const [gstMode, setGstModeRaw] = useState("exclusive");
+  const [gstPos, setGstPos] = useState(null);
+  const [gstBuyerGstin, setGstBuyerGstin] = useState(null);
+
+  // Remember whether you usually enter prices with or without GST.
+  useEffect(() => {
+    try {
+      const m = localStorage.getItem("gstPriceMode");
+      if (m === "inclusive" || m === "exclusive") setGstModeRaw(m);
+    } catch {}
+  }, []);
+  const setGstMode = (m) => {
+    setGstModeRaw(m);
+    try {
+      localStorage.setItem("gstPriceMode", m);
+    } catch {}
+  };
+
   useEffect(() => {
     if (!open || !contactId) return;
     const draft = loadDraft(contactId);
@@ -1405,6 +1564,10 @@ export const AddTransactionModal = ({
     financialTotal,
     linkedContactIds,
     selectedContactId,
+    gstOff,
+    gstMode,
+    gstPos,
+    gstBuyerGstin,
   };
 
   const allPriceItems = useMemo(
@@ -1420,26 +1583,6 @@ export const AddTransactionModal = ({
   const stepName = steps[step];
   const isLastStep = step === steps.length - 1;
 
-  const itemsTotal = itemsList.reduce(
-    (s, it) => s + (parseFloat(it.price) || 0) * (parseFloat(it.quantity) || 0),
-    0,
-  );
-  const extrasTotal = additionalAmounts.reduce(
-    (s, ex) => s + (parseFloat(ex.amount) || 0),
-    0,
-  );
-  const totalAmount =
-    kind === "item"
-      ? itemsTotal + extrasTotal
-      : parseFloat(financialTotal) || 0;
-  const paidNow = parseFloat(initialPayment.amount) || 0;
-  const isOverpaid = paidNow > totalAmount && totalAmount > 0;
-  const remaining = totalAmount - paidNow;
-  const overpaidMsg =
-    type === "out"
-      ? `Customer is paying ${fmt(paidNow - totalAmount)} extra — they'll have a credit with us`
-      : `We're paying ${fmt(paidNow - totalAmount)} extra — supplier will owe us change`;
-
   // Whoever this transaction is with — the fixed `contact` prop on the
   // per-contact page, or whichever contact was picked via
   // PrimaryContactPicker on the Unassigned page. Used to resolve a
@@ -1451,6 +1594,81 @@ export const AddTransactionModal = ({
     (selectedContactId
       ? (peopleData.find((p) => p.id === selectedContactId) ?? null)
       : null);
+
+  // ── GST ────────────────────────────────────────────────────────────────
+  // Only item-kind SALES can be GST invoices. With the Settings switch off,
+  // gstEligible is false and none of the GST UI or maths below ever runs.
+  const gstEligible = gstCfg.enabled && kind === "item" && type === "out";
+  const gstOn = gstEligible && !gstOff;
+  const resolvedGst = useMemo(
+    () =>
+      resolveBillGst({
+        draft: { buyerGstin: gstBuyerGstin, pos: gstPos },
+        sellerGstin: gstCfg.gstin,
+        contactGstin: payeeContact?.gstin,
+      }),
+    [gstBuyerGstin, gstPos, gstCfg.gstin, payeeContact?.gstin],
+  );
+  const gstCalc = useMemo(
+    () =>
+      gstOn
+        ? computeGst({
+            items: itemsList,
+            extras: additionalAmounts,
+            mode: gstMode,
+            intra: resolvedGst.intra,
+          })
+        : null,
+    [gstOn, itemsList, additionalAmounts, gstMode, resolvedGst.intra],
+  );
+  // HSN is mandatory on invoices to GST-registered buyers (B2B).
+  const gstLineProblems = useMemo(
+    () =>
+      gstOn
+        ? validateGstLines(itemsList, { requireHsn: resolvedGst.buyerValid })
+        : [],
+    [gstOn, itemsList, resolvedGst.buyerValid],
+  );
+  const handleGstChange = (patch) => {
+    if ("on" in patch) setGstOff(!patch.on);
+    if ("mode" in patch) setGstMode(patch.mode);
+    if ("pos" in patch) setGstPos(patch.pos);
+    if ("buyerGstin" in patch) setGstBuyerGstin(patch.buyerGstin);
+  };
+  const rememberItemTax = useCallback(
+    (path, info) => {
+      const next = withItemTaxInfo(priceData, path, info);
+      if (next === priceData) return;
+      savePriceData(next)
+        .then(() => toast.success("HSN & rate saved to the catalog"))
+        .catch(() => toast.error("Couldn't save HSN & rate to the catalog"));
+    },
+    [priceData, savePriceData],
+  );
+
+  const itemsTotal = itemsList.reduce(
+    (s, it) => s + (parseFloat(it.price) || 0) * (parseFloat(it.quantity) || 0),
+    0,
+  );
+  const extrasTotal = additionalAmounts.reduce(
+    (s, ex) => s + (parseFloat(ex.amount) || 0),
+    0,
+  );
+  // On a GST bill the total is the invoice total: tax included, rounded to
+  // the nearest rupee (the round-off is shown on the invoice).
+  const totalAmount =
+    kind === "item"
+      ? gstCalc
+        ? gstCalc.grandTotal
+        : itemsTotal + extrasTotal
+      : parseFloat(financialTotal) || 0;
+  const paidNow = parseFloat(initialPayment.amount) || 0;
+  const isOverpaid = paidNow > totalAmount && totalAmount > 0;
+  const remaining = totalAmount - paidNow;
+  const overpaidMsg =
+    type === "out"
+      ? `Customer is paying ${fmt(paidNow - totalAmount)} extra — they'll have a credit with us`
+      : `We're paying ${fmt(paidNow - totalAmount)} extra — supplier will owe us change`;
 
   const applyState = (s) => {
     setStep(s.step ?? 0);
@@ -1465,6 +1683,12 @@ export const AddTransactionModal = ({
     setFinancialTotal(s.financialTotal ?? "");
     setLinkedContactIds(s.linkedContactIds ?? []);
     setSelectedContactId(s.selectedContactId ?? null);
+    setGstOff(s.gstOff ?? false);
+    setGstPos(s.gstPos ?? null);
+    setGstBuyerGstin(s.gstBuyerGstin ?? null);
+    // price mode: restore a draft's choice, but a blank form keeps your habit
+    if (s.gstMode === "inclusive" || s.gstMode === "exclusive")
+      setGstModeRaw(s.gstMode);
   };
   const reset = () => applyState(blankState());
 
@@ -1501,13 +1725,49 @@ export const AddTransactionModal = ({
             },
           ]
         : [];
+    // GST bills carry HSN/rate per line and a rate on every extra charge, plus
+    // the snapshot (price mode, place of supply, seller + buyer) the invoice
+    // and GSTR-1 are built from. Plain bills are stored exactly as before.
+    const extraRate = highestRate(itemsList);
+    const billLines =
+      kind === "item"
+        ? itemsList
+            .filter((it) => it.name.trim())
+            .map(({ hsn, gstRate, ...line }) =>
+              gstOn
+                ? {
+                    ...line,
+                    hsn: String(hsn ?? "").replace(/\D/g, ""),
+                    gstRate: parseRate(gstRate),
+                  }
+                : line,
+            )
+        : [];
+    const billExtras =
+      kind === "item"
+        ? additionalAmounts
+            .filter((ex) => ex.name.trim())
+            .map(({ gstRate, ...ex }) =>
+              gstOn ? { ...ex, gstRate: parseRate(gstRate) ?? extraRate } : ex,
+            )
+        : [];
+    const gstSnapshot = gstOn
+      ? buildGstSnapshot({
+          business: businessProfile,
+          buyerName: payeeContact?.name,
+          buyerAddress: payeeContact?.address,
+          buyerGstin: resolvedGst.buyerGstin,
+          placeOfSupply: resolvedGst.pos,
+          mode: gstMode,
+        })
+      : null;
+
     await onAdd({
       kind,
       type,
-      itemsList:
-        kind === "item" ? itemsList.filter((it) => it.name.trim()) : [],
-      additionalAmounts:
-        kind === "item" ? additionalAmounts.filter((ex) => ex.name.trim()) : [],
+      itemsList: billLines,
+      additionalAmounts: billExtras,
+      ...(gstSnapshot ? { gst: gstSnapshot } : {}),
       totalAmount,
       paidAmount: paidNow,
       paidAmountHistory: history,
@@ -1529,6 +1789,17 @@ export const AddTransactionModal = ({
             ? "complete"
             : "pending",
     });
+    // Asked once: a buyer GSTIN typed on the bill is saved to the contact so
+    // the next bill pre-fills it.
+    if (
+      gstSnapshot &&
+      resolvedGst.buyerValid &&
+      payeeContact &&
+      payeeContact.gstin !== resolvedGst.buyerGstin &&
+      !payeeContact.gstin
+    ) {
+      onSaveContactGstin?.(payeeContact.id, resolvedGst.buyerGstin);
+    }
     if (contactId) clearDraft(contactId);
     reset();
   };
@@ -1546,8 +1817,18 @@ export const AddTransactionModal = ({
   };
 
   const canProceed = () => {
-    if (stepName === "Type") return kind !== null && type !== null;
-    if (stepName === "Items") return itemsList.some((it) => it.name.trim());
+    if (stepName === "Type") {
+      if (kind === null || type === null) return false;
+      // A GST bill needs the shop's own GSTIN, a valid buyer GSTIN (if one is
+      // typed) and a place of supply.
+      if (gstOn)
+        return !!gstCfg.gstin && !resolvedGst.buyerProblem && !!resolvedGst.pos;
+      return true;
+    }
+    if (stepName === "Items")
+      return (
+        itemsList.some((it) => it.name.trim()) && gstLineProblems.length === 0
+      );
     if (stepName === "Details") return parseFloat(financialTotal) > 0;
     if ((stepName === "Extras" || stepName === "Payment") && kind === "item")
       return totalAmount > 0;
@@ -1575,6 +1856,10 @@ export const AddTransactionModal = ({
         quantity: String(item.quantity ?? "1"),
         price: String(item.price),
         unit: item.unit || "",
+        // HSN / GST rate travel with the line (only sent on a GST bill)
+        ...(item.gstRate !== undefined
+          ? { hsn: item.hsn ?? "", gstRate: item.gstRate }
+          : {}),
       },
     ]);
   }, []);
@@ -1793,6 +2078,24 @@ export const AddTransactionModal = ({
                         currentContactId={currentContactId ?? contact?.id}
                       />
                     )}
+
+                    {/* GST — only for item sales, and only while Settings →
+                        GST billing is on. On by default; switch it off for a
+                        plain bill. */}
+                    {gstEligible && (
+                      <GstBillPanel
+                        gst={gstCfg}
+                        draft={{
+                          on: !gstOff,
+                          mode: gstMode,
+                          pos: gstPos,
+                          buyerGstin: gstBuyerGstin,
+                        }}
+                        resolved={resolvedGst}
+                        onChange={handleGstChange}
+                        contactGstin={payeeContact?.gstin || ""}
+                      />
+                    )}
                   </div>
                 )}
 
@@ -1808,8 +2111,25 @@ export const AddTransactionModal = ({
                     type={type}
                     sellPriceMode={sellPriceMode}
                     allPriceItems={allPriceItems}
+                    gstOn={gstOn}
+                    requireHsn={resolvedGst.buyerValid}
+                    onRememberTax={rememberItemTax}
                   />
                 )}
+                {stepName === "Items" &&
+                  gstOn &&
+                  gstLineProblems.length > 0 &&
+                  itemsList.some((it) => it.name.trim()) && (
+                    <div className="rounded-lg border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30 px-3 py-2.5 text-sm text-red-700 dark:text-red-400 space-y-0.5">
+                      <p className="font-medium">Fix before continuing:</p>
+                      {gstLineProblems.slice(0, 4).map((p, i) => (
+                        <p key={i}>• {p}</p>
+                      ))}
+                      {gstLineProblems.length > 4 && (
+                        <p>…and {gstLineProblems.length - 4} more</p>
+                      )}
+                    </div>
+                  )}
 
                 {/* EXTRAS */}
                 {stepName === "Extras" && (
@@ -1900,11 +2220,37 @@ export const AddTransactionModal = ({
                                 />
                               </div>
                             </div>
+                            {gstOn && (
+                              <div className="flex items-center gap-2">
+                                <Label className="text-sm text-muted-foreground">
+                                  GST rate
+                                </Label>
+                                <RateSelect
+                                  value={ex.gstRate}
+                                  onChange={(v) => updateExtra(i, "gstRate", v)}
+                                  autoLabel={`Same as items (${highestRate(itemsList)}%)`}
+                                  className="flex-1"
+                                />
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
                     )}
-                    <div className="pt-2 border-t space-y-1.5 text-sm">
+                    {gstOn && gstCalc && (
+                      <div className="pt-2 border-t space-y-2">
+                        <GstBreakup calc={gstCalc} />
+                        {totalAmount === 0 && (
+                          <p className="text-sm text-amber-600 dark:text-amber-400">
+                            Total is ₹0 — set a price on at least one item to
+                            continue.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    <div
+                      className={`pt-2 border-t space-y-1.5 text-sm ${gstOn ? "hidden" : ""}`}
+                    >
                       <div className="flex justify-between text-muted-foreground">
                         <span>Items</span>
                         <span>{fmt(itemsTotal)}</span>
@@ -2298,6 +2644,29 @@ export const AddTransactionModal = ({
                               </span>
                             ))}
                           </div>
+                        </div>
+                      )}
+
+                      {gstOn && gstCalc && (
+                        <div className="space-y-2">
+                          <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm space-y-0.5">
+                            <p className="font-medium">GST tax invoice</p>
+                            <p className="text-muted-foreground">
+                              Buyer: {payeeContact?.name || "Walk-in"}
+                              {resolvedGst.buyerGstin
+                                ? ` · ${resolvedGst.buyerGstin}`
+                                : " · unregistered"}
+                            </p>
+                            <p className="text-muted-foreground">
+                              Prices{" "}
+                              {gstMode === "inclusive" ? "include" : "exclude"}{" "}
+                              GST · {resolvedGst.intra ? "CGST + SGST" : "IGST"}
+                            </p>
+                            <p className="text-muted-foreground">
+                              Invoice number is assigned automatically on save.
+                            </p>
+                          </div>
+                          <GstBreakup calc={gstCalc} />
                         </div>
                       )}
 

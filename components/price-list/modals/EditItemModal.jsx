@@ -1,3 +1,6 @@
+// v2 (GST review): the HSN / GST-rate fields use ItemTaxInputs variant="form"
+// (full-size labelled fields) so they match the rest of this dialog.
+
 import { useState, useEffect } from "react";
 import {
   Dialog,
@@ -19,6 +22,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Boxes } from "lucide-react";
 import { DEFAULT_ACTIVE_UNITS, UNIT_CATEGORIES } from "@/lib/units-config";
+import { ItemTaxInputs } from "@/components/gst/GstFields";
+import { hsnProblem } from "@/lib/utils/gstUtils";
 
 // Helper function to create the nested structure of active units
 const getNestedActiveUnits = (activeUnits) => {
@@ -39,7 +44,13 @@ const getNestedActiveUnits = (activeUnits) => {
   return nestedUnits;
 };
 
-export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
+export const EditItemModal = ({
+  open,
+  onOpenChange,
+  editingItem,
+  onSave,
+  gstEnabled = false,
+}) => {
   const [activeUnits, setActiveUnits] = useState(DEFAULT_ACTIVE_UNITS);
   const [nestedActiveUnits, setNestedActiveUnits] = useState({});
   // Initialize state as null/empty default for safe conditional rendering
@@ -86,6 +97,9 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
           typeof itemData.lowStockThreshold === "number"
             ? itemData.lowStockThreshold
             : 5,
+        // Carried even while GST is off, so saving the form never wipes them.
+        hsn: itemData.hsn ?? "",
+        gstRate: typeof itemData.gstRate === "number" ? itemData.gstRate : "",
       };
 
       setFormData(currentFormData);
@@ -199,6 +213,8 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
     // Retail sell price is required
     if (!formData.retailSell) return false;
 
+    if (gstEnabled && hsnProblem(formData.hsn)) return false;
+
     // Check if any changes were made
     const hasChanges =
       formData.name !== initialFormData.name ||
@@ -211,6 +227,9 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
       formData.sellUnit !== initialFormData.sellUnit ||
       formData.costUnit !== initialFormData.costUnit ||
       (formData.notes || "") !== (initialFormData.notes || "") ||
+      String(formData.hsn ?? "") !== String(initialFormData.hsn ?? "") ||
+      String(formData.gstRate ?? "") !==
+        String(initialFormData.gstRate ?? "") ||
       formData.trackStock !== initialFormData.trackStock ||
       (formData.trackStock &&
         parseFloat(formData.stockQty || 0) !==
@@ -348,6 +367,25 @@ export const EditItemModal = ({ open, onOpenChange, editingItem, onSave }) => {
               <UnitSelectContent />
             </Select>
           </div>
+
+          {/* HSN + GST rate — only while GST billing is on in Settings */}
+          {gstEnabled && (
+            <div className="space-y-2">
+              <Label>GST details</Label>
+              <ItemTaxInputs
+                variant="form"
+                hsn={formData.hsn}
+                gstRate={formData.gstRate}
+                onHsn={(v) => setFormData({ ...formData, hsn: v })}
+                onRate={(v) => setFormData({ ...formData, gstRate: v })}
+              />
+              {hsnProblem(formData.hsn) && (
+                <p className="text-xs text-destructive">
+                  {hsnProblem(formData.hsn)}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Stock Tracking - opt-in, off by default */}
           <div className="space-y-3 rounded-lg border p-3">

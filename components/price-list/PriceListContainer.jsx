@@ -23,6 +23,8 @@ import {
   toTitleCase,
 } from "@/lib/utils/dataTransform";
 import { preserveStockFields } from "@/lib/utils/stockUtils";
+import { preserveGstFields } from "@/lib/utils/gstUtils";
+import { useGst } from "@/hooks/useGst";
 import { toast } from "sonner";
 import { EditCategoryModal } from "./modals/EditCategoryModal";
 import { CategoryDetailModal } from "./modals/CategoryDetailModal";
@@ -82,6 +84,8 @@ export const PriceListContainer = () => {
     isHydrated,
     isDataLoading,
   } = usePriceList();
+
+  const { enabled: gstEnabled } = useGst();
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -331,7 +335,11 @@ export const PriceListContainer = () => {
         // Bulk edit's plain-text format doesn't represent stock tracking at
         // all, so without this every item it touches would silently come
         // back untracked — see preserveStockFields in lib/utils/stockUtils.js.
-        const preservedData = preserveStockFields(newData, priceData);
+        // Same story for HSN / GST rate — the text format has no column for them.
+        const preservedData = preserveGstFields(
+          preserveStockFields(newData, priceData),
+          priceData,
+        );
         await savePriceData(preservedData);
         toast.success("Data imported successfully", { id: loadingToast });
         setShowBulkModal(false);
@@ -404,6 +412,7 @@ export const PriceListContainer = () => {
         onOpenChange={setShowAddModal}
         type={modalType}
         onAdd={handleAdd}
+        gstEnabled={gstEnabled}
       />
 
       <EditItemModal
@@ -411,6 +420,7 @@ export const PriceListContainer = () => {
         onOpenChange={setShowEditModal}
         editingItem={editingItem}
         onSave={handleEdit}
+        gstEnabled={gstEnabled}
       />
 
       <BulkEditModal

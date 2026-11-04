@@ -1,3 +1,6 @@
+// v2 (GST review): the guide text now also says GSTIN is preserved (the code
+// already carried it over). No logic change.
+
 import { useState, useRef, useEffect } from "react";
 import {
   Dialog,
@@ -231,6 +234,7 @@ const textToPeople = (text, categoryId, existingPeopleData) => {
       notes: existingPerson?.notes || "",
       photo: existingPerson?.photo || null,
       upiId: existingPerson?.upiId || "",
+      gstin: existingPerson?.gstin || "",
       // Also preserve the cached balance/creation-date fields this bulk
       // text format has no concept of — see hooks/usePeople.js's
       // contactToRow for why letting these default away on an ordinary
@@ -445,7 +449,7 @@ export const BulkEditPeopleModal = ({
             </p>
             <p className="text-xs text-primary font-semibold">
               ℹ️ Only name, phones, and address are editable here. Specialty,
-              notes, photos, and UPI ID are preserved automatically.
+              notes, photos, UPI ID, and GSTIN are preserved automatically.
             </p>
             <details className="mt-2">
               <summary className="cursor-pointer text-primary hover:underline">

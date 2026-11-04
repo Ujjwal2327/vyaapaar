@@ -1,6 +1,8 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
+// v2 (GST review): the contact search box also matches a GSTIN.
+
 import { useState, useEffect, useMemo } from "react";
 import { usePeople } from "@/hooks/usePeople";
 import { PeopleHeader } from "./PeopleHeader";
@@ -18,6 +20,7 @@ import { toast } from "sonner";
 import Loader from "../Loader";
 import { areContactsIdentical } from "@/lib/utils/duplicateContactUtils";
 import { photoCache } from "@/lib/utils/photoCache";
+import { useGst } from "@/hooks/useGst";
 
 const DEFAULT_CATEGORIES = [
   { id: "customer", label: "Customer", isDefault: true },
@@ -78,6 +81,7 @@ export const PeopleContainer = () => {
   const [showFindDuplicatesModal, setShowFindDuplicatesModal] = useState(false);
   const [showRemindersModal, setShowRemindersModal] = useState(false);
   const { isOnline } = useOnlineStatus();
+  const { enabled: gstEnabled, gstin: ownGstin } = useGst();
 
   const [editingPerson, setEditingPerson] = useState(null);
   const [viewingPerson, setViewingPerson] = useState(null);
@@ -419,7 +423,8 @@ export const PeopleContainer = () => {
           p?.toLowerCase().includes(searchTerm.toLowerCase()),
         )) ||
       person.specialty?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      person.address?.toLowerCase().includes(searchTerm.toLowerCase());
+      person.address?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      person.gstin?.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesCategory =
       !categoryFilter || person.category === categoryFilter;
@@ -501,6 +506,8 @@ export const PeopleContainer = () => {
         onOpenChange={setShowAddModal}
         onAdd={handleAdd}
         availableCategories={availableCategories}
+        gstEnabled={gstEnabled}
+        ownGstin={ownGstin}
       />
 
       <EditPersonModal
@@ -509,6 +516,8 @@ export const PeopleContainer = () => {
         editingPerson={editingPerson}
         onSave={handleEdit}
         availableCategories={availableCategories}
+        gstEnabled={gstEnabled}
+        ownGstin={ownGstin}
       />
 
       <PersonDetailModal

@@ -1,5 +1,8 @@
 "use client";
 
+// v2 (GST review): also loads additional_amounts, so the sales chart can show a
+// GST bill's value without the tax (see bucketSalesAndPurchases).
+
 /**
  * hooks/useAllTransactions.js
  *
@@ -47,6 +50,12 @@ const rowToTransaction = (row) => ({
   paidAmountHistory: row.paid_amount_history ?? [],
   status: row.status ?? "pending",
   createdAt: row.created_at,
+  // Only used to (a) know a GST bill exists, so the GSTR-1 export can
+  // appear, and (b) count revenue net of GST in the reports.
+  gst: row.gst ?? null,
+  // Needed to work out a GST bill's tax-free sales value (extra charges and
+  // discounts are part of what the tax is charged on).
+  additionalAmounts: row.additional_amounts ?? [],
 });
 
 const fetchAllRows = async (userId) => {
@@ -57,7 +66,7 @@ const fetchAllRows = async (userId) => {
     const { data, error } = await supabase
       .from("transactions")
       .select(
-        "id, contact_id, type, kind, items_list, total_amount, paid_amount, paid_amount_history, status, created_at",
+        "id, contact_id, type, kind, items_list, total_amount, paid_amount, paid_amount_history, status, created_at, gst, additional_amounts",
       )
       .eq("user_id", userId)
       .neq("status", "deleted")

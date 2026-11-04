@@ -1,5 +1,11 @@
 "use client";
 
+// v2 (GST review): "Remember HSN & rate" uses the shared RememberTaxCheckbox
+// (shadcn Checkbox); an already-issued invoice shows a "don't alter" warning
+// while editing; GST-detail changes (buyer GSTIN, place of supply, price
+// mode) now appear in the "Unsaved changes" box; a line's HSN / GST-rate
+// changes show on the line and are undone by its reset button.
+
 import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react";
 import {
   Dialog,
@@ -46,10 +52,29 @@ import {
   Share2,
   Loader2,
   MessageCircle,
+  Receipt,
 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { usePriceList } from "@/hooks/usePriceList";
+import {
+  GstBillPanel,
+  GstBreakup,
+  ItemTaxInputs,
+  RememberTaxCheckbox,
+} from "@/components/gst/GstFields";
+import {
+  computeGstForTx,
+  gstinState,
+  hsnProblem,
+  isIntraState,
+  isValidGstin,
+  parseRate,
+  resolveBillGst,
+  stateLabel,
+  validateGstLines,
+  withItemTaxInfo,
+} from "@/lib/utils/gstUtils";
 import { useBusinessProfile } from "@/hooks/useBusinessProfile";
 import { StockBadge } from "@/components/price-list/StockBadge";
 import {
@@ -273,6 +298,8 @@ const flattenPrice = (data, path = []) => {
         costUnit: v.costUnit ?? v.sellUnit ?? "piece",
         stockQty: v.stockQty,
         lowStockThreshold: v.lowStockThreshold,
+        hsn: v.hsn,
+        gstRate: v.gstRate,
       });
     } else if (v?.type === "category" && v.children) {
       out.push(...flattenPrice(v.children, [...path, k]));
@@ -312,12 +339,37 @@ const diffItems = (before, after) => {
       );
     if ((b.unit || "") !== (a.unit || ""))
       parts.push(`unit "${b.unit || "—"}" → "${a.unit || "—"}"`);
+    if ((b.hsn || "") !== (a.hsn || ""))
+      parts.push(`HSN ${b.hsn || "—"} → ${a.hsn || "—"}`);
+    if (String(b.gstRate ?? "") !== String(a.gstRate ?? ""))
+      parts.push(`GST ${b.gstRate ?? "—"}% → ${a.gstRate ?? "—"}%`);
     if (parts.length)
       lines.push({
         type: "changed",
         text: `Changed ${name.split(" › ").pop()}: ${parts.join(", ")}`,
       });
   }
+  return lines;
+};
+// What changed in the GST details of a bill (edit mode) — one history line each.
+const diffGst = (before, after) => {
+  const lines = [];
+  if (!before || !after) return lines;
+  if ((before.buyer?.gstin || "") !== (after.buyer?.gstin || ""))
+    lines.push({
+      type: "changed",
+      text: `Buyer GSTIN: ${before.buyer?.gstin || "—"} → ${after.buyer?.gstin || "—"}`,
+    });
+  if (before.placeOfSupply !== after.placeOfSupply)
+    lines.push({
+      type: "changed",
+      text: `Place of supply: ${stateLabel(before.placeOfSupply) || "—"} → ${stateLabel(after.placeOfSupply) || "—"}`,
+    });
+  if (before.mode !== after.mode)
+    lines.push({
+      type: "changed",
+      text: `Prices ${before.mode === "inclusive" ? "included" : "excluded"} GST → ${after.mode === "inclusive" ? "include" : "exclude"} GST`,
+    });
   return lines;
 };
 const diffFinancial = (before, after) => {
@@ -363,11 +415,25 @@ const getLineChangeInfo = (item, originalItemsList) => {
   const oldUnit = original.unit || "";
   const newUnit = item.unit || "";
 
+  // HSN / GST rate only exist on GST bills (both sides are empty otherwise).
+  const oldHsn = original.hsn || "";
+  const newHsn = item.hsn || "";
+  const oldRate = String(original.gstRate ?? "");
+  const newRate = String(item.gstRate ?? "");
+
   const qtyChanged = oldQty !== newQty;
   const priceChanged = oldPrice !== newPrice;
   const unitChanged = oldUnit !== newUnit;
+  const hsnChanged = oldHsn !== newHsn;
+  const rateChanged = oldRate !== newRate;
 
-  if (!qtyChanged && !priceChanged && !unitChanged) {
+  if (
+    !qtyChanged &&
+    !priceChanged &&
+    !unitChanged &&
+    !hsnChanged &&
+    !rateChanged
+  ) {
     return { status: "unchanged" };
   }
 
@@ -383,6 +449,12 @@ const getLineChangeInfo = (item, originalItemsList) => {
     unitChanged,
     oldUnit,
     newUnit,
+    hsnChanged,
+    oldHsn,
+    newHsn,
+    rateChanged,
+    oldRate,
+    newRate,
   };
 };
 
@@ -427,6 +499,16 @@ const ChangeBadges = ({ changeInfo }) => {
           Unit: {changeInfo.oldUnit || "—"} → {changeInfo.newUnit || "—"}
         </span>
       )}
+      {changeInfo.rateChanged && (
+        <span className={pillCls}>
+          GST: {changeInfo.oldRate || "—"}% → {changeInfo.newRate || "—"}%
+        </span>
+      )}
+      {changeInfo.hsnChanged && (
+        <span className={pillCls}>
+          HSN: {changeInfo.oldHsn || "—"} → {changeInfo.newHsn || "—"}
+        </span>
+      )}
     </>
   );
 };
@@ -443,10 +525,16 @@ const CatalogSearch = ({
   sellPriceMode,
   allPriceItems,
   itemsList,
+  gstOn = false,
+  requireHsn = false,
+  onRememberTax,
 }) => {
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
   const [pending, setPending] = useState(null);
+  const [pendingHsn, setPendingHsn] = useState("");
+  const [pendingRate, setPendingRate] = useState("");
+  const [rememberTax, setRememberTax] = useState(true);
   const [pendingQty, setPendingQty] = useState("1");
   const [pendingPrice, setPendingPrice] = useState("");
   const [pendingUnit, setPendingUnit] = useState("");
@@ -471,6 +559,9 @@ const CatalogSearch = ({
     setPendingQty("1");
     setPendingPrice(String(item[pk] ?? 0));
     setPendingUnit(item[uk] ?? "");
+    setPendingHsn(item.hsn ?? "");
+    setPendingRate(item.gstRate !== undefined ? String(item.gstRate) : "");
+    setRememberTax(true);
     setQuery("");
     setFocused(false);
     setTimeout(() => qtyRef.current?.select(), 60);
@@ -502,16 +593,33 @@ const CatalogSearch = ({
       )
     : null;
 
+  // GST line problems block adding (a GST bill's every line needs a rate).
+  const pendingTaxProblem = gstOn
+    ? parseRate(pendingRate) === null
+      ? "Choose a GST rate for this item"
+      : hsnProblem(pendingHsn, { required: requireHsn })
+    : null;
+  const catalogLacksTax =
+    !!pending && (!pending.hsn || pending.gstRate === undefined);
+
   const confirmAdd = () => {
     if (!pending) return;
     const qty = parseFloat(pendingQty);
     if (!qty || qty <= 0) return;
+    if (pendingTaxProblem) return;
     onSelect({
       name: pending.fullPath,
       quantity: String(qty),
       price: pendingPrice,
       unit: pendingUnit,
+      ...(gstOn ? { hsn: pendingHsn, gstRate: pendingRate } : {}),
     });
+    if (gstOn && catalogLacksTax && rememberTax) {
+      onRememberTax?.(pending.fullPath, {
+        hsn: pendingHsn,
+        gstRate: pendingRate,
+      });
+    }
     setPending(null);
     setTimeout(() => ref.current?.focus(), 60);
   };
@@ -666,6 +774,27 @@ const CatalogSearch = ({
               </>
             )}
           </div>
+          {gstOn && (
+            <div className="space-y-1.5">
+              <div className="flex items-end gap-2 flex-wrap">
+                <ItemTaxInputs
+                  hsn={pendingHsn}
+                  gstRate={pendingRate}
+                  onHsn={setPendingHsn}
+                  onRate={setPendingRate}
+                />
+              </div>
+              {pendingTaxProblem && (
+                <p className="text-sm text-destructive">{pendingTaxProblem}</p>
+              )}
+              {catalogLacksTax && (
+                <RememberTaxCheckbox
+                  checked={rememberTax}
+                  onChange={setRememberTax}
+                />
+              )}
+            </div>
+          )}
           {isDuplicate && (
             <div className="flex items-center gap-1.5 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-2 text-sm text-amber-700 dark:text-amber-400">
               <AlertTriangle className="w-4 h-4 shrink-0" />
@@ -695,7 +824,7 @@ const CatalogSearch = ({
             <button
               type="button"
               onClick={confirmAdd}
-              disabled={!(parseFloat(pendingQty) > 0)}
+              disabled={!(parseFloat(pendingQty) > 0) || !!pendingTaxProblem}
               className="flex-1 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-40 flex items-center justify-center gap-1"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -722,6 +851,11 @@ const ItemsEditTabPanel = ({
   liveTotal,
   liveRemaining,
   saveBlockedZeroTotal,
+  gstOn = false,
+  requireHsn = false,
+  onRememberTax,
+  gstCalc = null,
+  gstProblems = [],
 }) => {
   const [activeTab, setActiveTab] = useState("cart");
   const [expandedIndex, setExpandedIndex] = useState(null);
@@ -743,17 +877,34 @@ const ItemsEditTabPanel = ({
   );
 
   const handleAddBlank = () => {
-    setBlankPending({ name: "", qty: "1", price: "", unit: "" });
+    setBlankPending({
+      name: "",
+      qty: "1",
+      price: "",
+      unit: "",
+      hsn: "",
+      gstRate: "",
+    });
     setTimeout(() => blankNameRef.current?.focus(), 60);
   };
 
+  // A free-text item has no catalog entry to remember its tax info in.
+  const blankTaxProblem =
+    gstOn && blankPending
+      ? parseRate(blankPending.gstRate) === null
+        ? "Choose a GST rate for this item"
+        : hsnProblem(blankPending.hsn, { required: requireHsn })
+      : null;
   const confirmBlank = () => {
-    if (!blankPending) return;
+    if (!blankPending || blankTaxProblem) return;
     addFromCatalog({
       name: blankPending.name,
       quantity: blankPending.qty,
       price: blankPending.price,
       unit: blankPending.unit,
+      ...(gstOn
+        ? { hsn: blankPending.hsn, gstRate: blankPending.gstRate }
+        : {}),
     });
     setBlankPending(null);
   };
@@ -796,6 +947,9 @@ const ItemsEditTabPanel = ({
             sellPriceMode={sellPriceMode}
             allPriceItems={allPriceItems}
             itemsList={itemsList}
+            gstOn={gstOn}
+            requireHsn={requireHsn}
+            onRememberTax={onRememberTax}
           />
 
           {blankPending && (
@@ -861,6 +1015,16 @@ const ItemsEditTabPanel = ({
                     className={`${inputCls} w-20`}
                   />
                 </div>
+                {gstOn && (
+                  <ItemTaxInputs
+                    hsn={blankPending.hsn}
+                    gstRate={blankPending.gstRate}
+                    onHsn={(v) => setBlankPending((p) => ({ ...p, hsn: v }))}
+                    onRate={(v) =>
+                      setBlankPending((p) => ({ ...p, gstRate: v }))
+                    }
+                  />
+                )}
                 {blankQty > 0 && blankPrice > 0 && (
                   <>
                     <span className="text-sm text-muted-foreground mt-4">
@@ -882,10 +1046,11 @@ const ItemsEditTabPanel = ({
                 </button>
                 <button
                   type="button"
+                  disabled={!!blankTaxProblem}
                   onClick={() => {
                     confirmBlank();
                   }}
-                  className="flex-1 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-1"
+                  className="flex-1 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-1 disabled:opacity-40"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Add to cart
@@ -939,10 +1104,24 @@ const ItemsEditTabPanel = ({
                   allPriceItems={allPriceItems}
                   deltaByPath={deltaByPath}
                   originalItemsList={originalItemsList}
+                  gstOn={gstOn}
                 />
               ))
             )}
           </div>
+
+          {gstCalc && <GstBreakup calc={gstCalc} />}
+          {gstOn && gstProblems.length > 0 && (
+            <div className="rounded-lg border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30 px-3 py-2.5 text-sm text-red-700 dark:text-red-400 space-y-0.5">
+              <p className="font-medium">Fix before saving:</p>
+              {gstProblems.slice(0, 4).map((p, i) => (
+                <p key={i}>• {p}</p>
+              ))}
+              {gstProblems.length > 4 && (
+                <p>…and {gstProblems.length - 4} more</p>
+              )}
+            </div>
+          )}
 
           <div className="rounded-lg border bg-muted/40 p-3 space-y-1.5 text-sm">
             <div className="flex justify-between font-semibold">
@@ -1000,6 +1179,7 @@ const CollapsibleCartItemDetail = ({
   allPriceItems,
   deltaByPath,
   originalItemsList,
+  gstOn = false,
 }) => {
   const qty = parseFloat(item.quantity) || 0;
   const price = parseFloat(item.price) || 0;
@@ -1046,6 +1226,19 @@ const CollapsibleCartItemDetail = ({
             </span>
             <StockBadge item={catalogItem} />
             <ChangeBadges changeInfo={changeInfo} />
+            {gstOn && (
+              <span
+                className={`text-[0.7em] px-1.5 py-0.5 rounded-full font-medium shrink-0 whitespace-nowrap ${
+                  parseRate(item.gstRate) === null
+                    ? "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300"
+                    : "bg-muted text-muted-foreground"
+                }`}
+              >
+                {parseRate(item.gstRate) === null
+                  ? "GST rate needed"
+                  : `GST ${parseRate(item.gstRate)}%${item.hsn ? ` · HSN ${item.hsn}` : ""}`}
+              </span>
+            )}
           </div>
         </div>
         <div className="shrink-0 text-right pt-0.5">
@@ -1107,6 +1300,10 @@ const CollapsibleCartItemDetail = ({
               onUpdate(index, "quantity", String(changeInfo.original.quantity));
               onUpdate(index, "price", String(changeInfo.original.price));
               onUpdate(index, "unit", changeInfo.original.unit || "");
+              if (gstOn) {
+                onUpdate(index, "hsn", changeInfo.original.hsn ?? "");
+                onUpdate(index, "gstRate", changeInfo.original.gstRate ?? "");
+              }
             }}
             title="Reset this line back to how it was before editing"
             aria-label="Reset line to original values"
@@ -1140,6 +1337,14 @@ const CollapsibleCartItemDetail = ({
             className={`${inputCls} w-20`}
           />
         </div>
+        {gstOn && (
+          <ItemTaxInputs
+            hsn={item.hsn}
+            gstRate={item.gstRate}
+            onHsn={(v) => onUpdate(index, "hsn", v)}
+            onRate={(v) => onUpdate(index, "gstRate", v)}
+          />
+        )}
         {qty > 0 && price > 0 && (
           <>
             <span className="text-sm text-muted-foreground mt-4">=</span>
@@ -1169,7 +1374,7 @@ const CollapsibleCartItemDetail = ({
 };
 
 // ─── ItemViewRow ──────────────────────────────────────────────────────────────
-const ItemViewRow = ({ item, index, isLast, allPriceItems }) => {
+const ItemViewRow = ({ item, index, isLast, allPriceItems, isGst = false }) => {
   const qty = parseFloat(item.quantity) || 0,
     price = parseFloat(item.price) || 0;
   const total = qty * price;
@@ -1196,6 +1401,12 @@ const ItemViewRow = ({ item, index, isLast, allPriceItems }) => {
             {item.unit ? ` ${item.unit}` : ""} × {fmtC(price)}
           </span>
           <StockBadge item={catalogItem} />
+          {isGst && parseRate(item.gstRate) !== null && (
+            <span className="text-[0.7em] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium shrink-0 whitespace-nowrap">
+              GST {parseRate(item.gstRate)}%
+              {item.hsn ? ` · HSN ${item.hsn}` : ""}
+            </span>
+          )}
         </div>
       </div>
       <div className="shrink-0 text-right pt-0.5">
@@ -1742,7 +1953,7 @@ export const TransactionDetailModal = ({
   onSendReceipt,
   peopleData = [],
 }) => {
-  const { priceData, sellPriceMode } = usePriceList();
+  const { priceData, sellPriceMode, savePriceData } = usePriceList();
   const { profile: businessProfile, refresh: refreshBusinessProfile } =
     useBusinessProfile();
 
@@ -1775,9 +1986,47 @@ export const TransactionDetailModal = ({
 
   const allPriceItems = useMemo(() => flattenPrice(priceData), [priceData]);
 
+  // A GST bill's tax is always recomputed from its lines + GST inputs, so the
+  // total, the breakup and what gets saved can't drift apart while editing.
+  const gstCalcLive = useMemo(
+    () =>
+      editedTx?.gst && editedTx.kind === "item"
+        ? computeGstForTx(editedTx)
+        : null,
+    [editedTx],
+  );
+
+  const handleGstEdit = useCallback((patch) => {
+    setEditedTx((prev) => {
+      if (!prev?.gst) return prev;
+      const g = { ...prev.gst, buyer: { ...(prev.gst.buyer ?? {}) } };
+      if ("mode" in patch) g.mode = patch.mode;
+      if ("pos" in patch) g.placeOfSupply = patch.pos;
+      if ("buyerGstin" in patch) {
+        g.buyer.gstin = patch.buyerGstin;
+        // A valid buyer GSTIN settles the place of supply (still changeable).
+        if (isValidGstin(patch.buyerGstin))
+          g.placeOfSupply = gstinState(patch.buyerGstin);
+      }
+      return { ...prev, gst: g };
+    });
+  }, []);
+
+  const rememberItemTax = useCallback(
+    (path, info) => {
+      const next = withItemTaxInfo(priceData, path, info);
+      if (next === priceData) return;
+      savePriceData(next)
+        .then(() => toast.success("HSN & rate saved to the catalog"))
+        .catch(() => toast.error("Couldn't save HSN & rate to the catalog"));
+    },
+    [priceData, savePriceData],
+  );
+
   const liveTotal = useMemo(() => {
     if (!editedTx) return 0;
     if (editedTx.kind !== "item") return parseFloat(editedTx.totalAmount) || 0;
+    if (gstCalcLive) return gstCalcLive.grandTotal;
     const items = (editedTx.itemsList ?? []).reduce(
       (s, it) =>
         s + (parseFloat(it.price) || 0) * (parseFloat(it.quantity) || 0),
@@ -1788,7 +2037,7 @@ export const TransactionDetailModal = ({
       0,
     );
     return items + extras;
-  }, [editedTx]);
+  }, [editedTx, gstCalcLive]);
 
   const liveRemaining = useMemo(
     () => liveTotal - (editedTx?.paidAmount ?? 0),
@@ -1827,6 +2076,10 @@ export const TransactionDetailModal = ({
           quantity: String(item.quantity ?? "1"),
           price: String(item.price),
           unit: item.unit || "",
+          // HSN / GST rate travel with the line (only sent on a GST bill)
+          ...(item.gstRate !== undefined
+            ? { hsn: item.hsn ?? "", gstRate: item.gstRate }
+            : {}),
         },
       ],
     }));
@@ -1859,12 +2112,40 @@ export const TransactionDetailModal = ({
   const saveBlockedZeroTotal =
     editMode && editedTotal === 0 && (editedTx?.paidAmount ?? 0) > 0;
 
+  // ── GST ────────────────────────────────────────────────────────────────
+  // Whether a bill is a GST invoice is a property of the bill, not of the
+  // Settings switch: turning GST off later never turns an issued invoice
+  // back into a plain bill (its number and tax are part of the record).
+  const isGst = !!tx.gst && isItem;
+  const editResolved = resolveBillGst({
+    draft: {
+      buyerGstin: editedTx.gst?.buyer?.gstin ?? "",
+      pos: editedTx.gst?.placeOfSupply ?? null,
+    },
+    sellerGstin: editedTx.gst?.seller?.gstin,
+  });
+  const gstEditProblems =
+    editMode && isGst
+      ? [
+          ...(editResolved.buyerProblem ? [editResolved.buyerProblem] : []),
+          ...(!editResolved.pos ? ["Choose a place of supply"] : []),
+          ...validateGstLines(editedTx.itemsList, {
+            requireHsn: editResolved.buyerValid,
+          }),
+        ]
+      : [];
+  const gstSaveBlocked = gstEditProblems.length > 0;
+  const invoicePending = isGst && !tx.invoiceNo;
+
   const handleSave = async () => {
-    if (saveBlockedZeroTotal) return;
+    if (saveBlockedZeroTotal || gstSaveBlocked) return;
     let updates;
     if (isItem) {
       const newTotal = liveTotal;
-      const changes = diffItems(tx.itemsList, editedTx.itemsList);
+      const changes = [
+        ...diffItems(tx.itemsList, editedTx.itemsList),
+        ...(isGst ? diffGst(tx.gst, editedTx.gst) : []),
+      ];
       const noteChanged = tx.note !== editedTx.note;
       const hasChange = changes.length > 0 || noteChanged;
       const newHistory = hasChange
@@ -1890,6 +2171,7 @@ export const TransactionDetailModal = ({
         note: editedTx.note,
         itemListHistory: newHistory,
         linkedContactIds: editedTx.linkedContactIds ?? [],
+        ...(isGst ? { gst: editedTx.gst } : {}),
       };
     } else {
       const newTotal = parseFloat(editedTx.totalAmount) || 0;
@@ -1937,10 +2219,17 @@ export const TransactionDetailModal = ({
       toast.success("Invoice downloaded", { id: loadingToast });
     } catch (err) {
       console.error("Failed to generate invoice PDF:", err);
-      toast.error("Couldn't generate the invoice PDF", {
-        id: loadingToast,
-        description: "Please try again.",
-      });
+      if (err?.message === "INVOICE_NUMBER_PENDING") {
+        toast.info("Invoice number not issued yet", {
+          id: loadingToast,
+          description: "It's assigned as soon as this bill has synced.",
+        });
+      } else {
+        toast.error("Couldn't generate the invoice PDF", {
+          id: loadingToast,
+          description: "Please try again.",
+        });
+      }
     } finally {
       setIsGeneratingInvoice(false);
     }
@@ -1969,10 +2258,17 @@ export const TransactionDetailModal = ({
       }
     } catch (err) {
       console.error("Failed to share invoice PDF:", err);
-      toast.error("Couldn't prepare the invoice PDF", {
-        id: loadingToast,
-        description: "Please try again.",
-      });
+      if (err?.message === "INVOICE_NUMBER_PENDING") {
+        toast.info("Invoice number not issued yet", {
+          id: loadingToast,
+          description: "It's assigned as soon as this bill has synced.",
+        });
+      } else {
+        toast.error("Couldn't prepare the invoice PDF", {
+          id: loadingToast,
+          description: "Please try again.",
+        });
+      }
     } finally {
       setIsGeneratingInvoice(false);
     }
@@ -2057,7 +2353,56 @@ export const TransactionDetailModal = ({
                     was part of have been reversed on the linked transactions.
                     This record is kept for audit purposes only.
                   </p>
+                  {isGst && tx.invoiceNo && (
+                    <p className="mt-1">
+                      Invoice <strong>{tx.invoiceNo}</strong> is cancelled. Its
+                      number stays reserved so the series has no gaps, and
+                      GSTR-1 reports it as cancelled.
+                    </p>
+                  )}
                 </div>
+              </div>
+            )}
+
+            {/* GST invoice summary */}
+            {isGst && !editMode && (
+              <div className="rounded-lg border bg-muted/30 p-3 space-y-1 text-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-medium flex items-center gap-1.5">
+                    <Receipt className="w-4 h-4 text-primary" />
+                    GST tax invoice
+                  </p>
+                  {tx.invoiceNo ? (
+                    <span className="font-mono font-semibold break-all text-right">
+                      {tx.invoiceNo}
+                    </span>
+                  ) : (
+                    <span className="text-amber-700 dark:text-amber-400 font-medium">
+                      Number pending
+                    </span>
+                  )}
+                </div>
+                {invoicePending && !isDeleted && (
+                  <p className="text-muted-foreground">
+                    The invoice number is issued by the server so the series
+                    never has gaps — it appears as soon as this bill has synced.
+                    The PDF unlocks then.
+                  </p>
+                )}
+                <p className="text-muted-foreground">
+                  Buyer:{" "}
+                  {tx.gst.buyer?.name ||
+                    assignedContact?.name ||
+                    "Walk-in customer"}
+                  {tx.gst.buyer?.gstin
+                    ? ` · ${tx.gst.buyer.gstin}`
+                    : " · unregistered"}
+                </p>
+                <p className="text-muted-foreground">
+                  Place of supply: {stateLabel(tx.gst.placeOfSupply) || "—"} ·{" "}
+                  {isIntraState(tx.gst) ? "CGST + SGST" : "IGST"} · prices{" "}
+                  {tx.gst.mode === "inclusive" ? "include" : "exclude"} GST
+                </p>
               </div>
             )}
 
@@ -2071,7 +2416,7 @@ export const TransactionDetailModal = ({
                   size="sm"
                   className="flex-1 gap-1.5"
                   onClick={handleDownloadInvoice}
-                  disabled={isGeneratingInvoice}
+                  disabled={isGeneratingInvoice || invoicePending}
                 >
                   {isGeneratingInvoice ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -2086,7 +2431,7 @@ export const TransactionDetailModal = ({
                   size="sm"
                   className="flex-1 gap-1.5"
                   onClick={handleShareInvoice}
-                  disabled={isGeneratingInvoice}
+                  disabled={isGeneratingInvoice || invoicePending}
                 >
                   <Share2 className="w-4 h-4" />
                   Share invoice
@@ -2110,6 +2455,7 @@ export const TransactionDetailModal = ({
                           index={i}
                           isLast={i === (tx.itemsList ?? []).length - 1}
                           allPriceItems={allPriceItems}
+                          isGst={isGst}
                         />
                       ))}
                       {tx.additionalAmounts
@@ -2145,6 +2491,9 @@ export const TransactionDetailModal = ({
                         </span>
                       </div>
                     )}
+                    {isGst && (
+                      <GstBreakup calc={computeGstForTx(tx)} className="mt-2" />
+                    )}
                   </>
                 )}
                 {editMode && (
@@ -2161,8 +2510,47 @@ export const TransactionDetailModal = ({
                     liveTotal={liveTotal}
                     liveRemaining={liveRemaining}
                     saveBlockedZeroTotal={saveBlockedZeroTotal}
+                    gstOn={isGst}
+                    requireHsn={editResolved.buyerValid}
+                    onRememberTax={rememberItemTax}
+                    gstCalc={gstCalcLive}
+                    gstProblems={gstEditProblems}
                   />
                 )}
+              </div>
+            )}
+
+            {/* GST details — editable while the bill is being edited. An issued
+                invoice can't be switched back to a plain bill, so no on/off. */}
+            {isGst && editMode && (
+              <GstBillPanel
+                gst={{ gstin: editedTx.gst?.seller?.gstin }}
+                draft={{
+                  on: true,
+                  mode: editedTx.gst?.mode ?? "exclusive",
+                  pos: editedTx.gst?.placeOfSupply ?? null,
+                  buyerGstin: editedTx.gst?.buyer?.gstin ?? "",
+                }}
+                resolved={editResolved}
+                onChange={handleGstEdit}
+                canSwitch={false}
+                hideSellerPrompt
+              />
+            )}
+
+            {/* An issued invoice has been handed to the buyer — changing it
+                afterwards needs a credit/debit note, which this app can't
+                create yet, so say so before the user edits. */}
+            {isGst && editMode && tx.invoiceNo && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2.5 text-sm text-amber-700 dark:text-amber-400">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>
+                  Invoice <strong>{tx.invoiceNo}</strong> has already been
+                  issued. Once an invoice has been given to the buyer it
+                  shouldn't be altered — raise a credit or debit note instead
+                  (this app doesn't create those yet). Edit here only to fix a
+                  mistake before sharing.
+                </span>
               </div>
             )}
 
@@ -2543,6 +2931,7 @@ export const TransactionDetailModal = ({
                 const pendingChanges = isItem
                   ? [
                       ...diffItems(tx.itemsList, editedTx.itemsList),
+                      ...(isGst ? diffGst(tx.gst, editedTx.gst) : []),
                       ...(tx.note !== editedTx.note
                         ? [
                             {
@@ -2655,7 +3044,7 @@ export const TransactionDetailModal = ({
                 size="sm"
                 className="flex-1 gap-1.5"
                 onClick={handleSave}
-                disabled={saveBlockedZeroTotal}
+                disabled={saveBlockedZeroTotal || gstSaveBlocked}
               >
                 <Check className="w-4 h-4" />
                 Save changes

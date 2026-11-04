@@ -13,6 +13,7 @@ import { User, Share2 } from "lucide-react";
 import UserProfile from "@/components/UserProfile";
 import ShareBusinessLink from "@/components/ShareBusinessLink";
 import { SettingsSectionCard } from "@/components/settings/SettingsUI";
+import { GstSection } from "@/components/settings/sections/GstSection";
 
 export const ProfileSection = () => {
   return (
@@ -24,6 +25,8 @@ export const ProfileSection = () => {
       >
         <UserProfile />
       </SettingsSectionCard>
+
+      <GstSection />
 
       <SettingsSectionCard
         icon={Share2}

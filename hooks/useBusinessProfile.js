@@ -31,7 +31,43 @@ const rowToProfile = (row, fallbackEmail) => ({
   phone: row?.phone || "",
   email: row?.email || fallbackEmail || "",
   upiId: row?.upi_id || "",
+  gstEnabled: row?.gst_enabled === true,
+  gstin: row?.gstin || "",
 });
+
+const PROFILE_COLUMNS =
+  "business_name, business_address, phone, email, upi_id, gst_enabled, gstin";
+
+// Same-tab broadcast (the native "storage" event never fires in the tab that
+// made the change) so every mounted useBusinessProfile() instance — e.g. the
+// Settings toggle and a transaction modal — sees a change straight away.
+export const BUSINESS_PROFILE_UPDATED_EVENT = "businessProfileChanged";
+
+/** Merge a change into the cached profile and tell mounted hooks about it. */
+export const patchBusinessProfileCache = (patch) => {
+  try {
+    const raw = localStorage.getItem(LOCAL_KEY);
+    const next = { ...(raw ? JSON.parse(raw) : {}), ...patch };
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(next));
+    window.dispatchEvent(new Event(BUSINESS_PROFILE_UPDATED_EVENT));
+  } catch {
+    // best-effort cache, same as everywhere else in this app
+  }
+};
+
+// Several components on one page can each mount this hook (the contacts page
+// alone mounts a few reminder/transaction dialogs); share one in-flight read
+// per user instead of every instance hitting the table.
+const inflight = new Map();
+const fetchProfileRow = (userId) => {
+  if (!inflight.has(userId)) {
+    const request = Promise.resolve(
+      supabase.from("users").select(PROFILE_COLUMNS).eq("id", userId).single(),
+    ).finally(() => inflight.delete(userId));
+    inflight.set(userId, request);
+  }
+  return inflight.get(userId);
+};
 
 export const useBusinessProfile = () => {
   const { user } = useAuth();
@@ -76,11 +112,7 @@ export const useBusinessProfile = () => {
 
     (async () => {
       try {
-        const { data, error } = await supabase
-          .from("users")
-          .select("business_name, business_address, phone, email, upi_id")
-          .eq("id", user.id)
-          .single();
+        const { data, error } = await fetchProfileRow(user.id);
         if (error) throw error;
         const next = rowToProfile(data, user.email);
         setProfile(next);
@@ -96,6 +128,25 @@ export const useBusinessProfile = () => {
     })();
   }, [user]);
 
+  // Pick up changes made elsewhere (Settings flipping the GST toggle, a bill
+  // saving the shop's GSTIN) without waiting for a remount.
+  useEffect(() => {
+    const reread = () => {
+      try {
+        const raw = localStorage.getItem(LOCAL_KEY);
+        if (raw) setProfile(JSON.parse(raw));
+      } catch {
+        // ignore malformed cache
+      }
+    };
+    window.addEventListener(BUSINESS_PROFILE_UPDATED_EVENT, reread);
+    window.addEventListener("storage", reread);
+    return () => {
+      window.removeEventListener(BUSINESS_PROFILE_UPDATED_EVENT, reread);
+      window.removeEventListener("storage", reread);
+    };
+  }, []);
+
   // On-demand refresh — called right before generating a PDF so the
   // invoice reflects the latest saved profile even if this component
   // mounted before a Settings > User Profile edit landed. Swallows its own
@@ -107,7 +158,7 @@ export const useBusinessProfile = () => {
     try {
       const { data, error } = await supabase
         .from("users")
-        .select("business_name, business_address, phone, email, upi_id")
+        .select(PROFILE_COLUMNS)
         .eq("id", user.id)
         .single();
       if (error) throw error;

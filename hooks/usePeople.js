@@ -91,6 +91,7 @@ const rowToContact = (row) => ({
   specialty: row.specialty ?? "",
   notes: row.notes ?? "",
   upiId: row.upi_id ?? "",
+  gstin: row.gstin ?? "",
   hasPhoto: row.has_photo ?? false,
   netAmount: row.net_amount ?? 0,
   createdAt: row.created_at ?? null,
@@ -263,6 +264,7 @@ export const usePeople = () => {
       specialty: contact.specialty ?? "",
       notes: contact.notes ?? "",
       upi_id: contact.upiId?.trim() || "",
+      gstin: (contact.gstin ?? "").replace(/\s+/g, "").toUpperCase(),
       photo,
       has_photo: !!photo,
       // Never DERIVED here — this only ever carries forward whatever
@@ -291,6 +293,7 @@ export const usePeople = () => {
       specialty: c.specialty ?? "",
       notes: c.notes ?? "",
       upiId: c.upiId?.trim() || "",
+      gstin: (c.gstin ?? "").replace(/\s+/g, "").toUpperCase(),
       hasPhoto: !!photoCache.get(c.id),
       netAmount: c.netAmount ?? 0,
       createdAt: c.createdAt ?? null,
@@ -359,12 +362,24 @@ export const usePeople = () => {
           throw new Error(`CONTACT_HAS_TRANSACTIONS:${blockedNames}`);
         }
 
-        // Remove soft-deleted transactions first (FK cleanup)
+        // Remove soft-deleted transactions first (FK cleanup) — except
+        // cancelled GST invoices: a numbered invoice is never deleted (the
+        // series must stay gapless), so it's detached from the contact
+        // instead. The buyer's name/GSTIN are stored on the invoice itself.
+        const { error: txDetachErr } = await supabase
+          .from("transactions")
+          .update({ contact_id: null })
+          .in("contact_id", toDelete)
+          .eq("status", "deleted")
+          .not("invoice_no", "is", null);
+        if (txDetachErr) throw txDetachErr;
+
         const { error: txDeleteErr } = await supabase
           .from("transactions")
           .delete()
           .in("contact_id", toDelete)
-          .eq("status", "deleted");
+          .eq("status", "deleted")
+          .is("invoice_no", null);
         if (txDeleteErr) throw txDeleteErr;
 
         const { error: deleteErr } = await supabase

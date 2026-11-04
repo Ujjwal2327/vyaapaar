@@ -1,5 +1,8 @@
 "use client";
 
+// v2 (GST review): a deleted GST invoice that already had a number is labelled
+// "Cancelled" (its number stays reserved), matching the detail screen.
+
 import { Badge } from "@/components/ui/badge";
 import {
   Package,
@@ -32,6 +35,8 @@ export const TransactionCard = ({
   const isOverpaid = tx.status === "overpaid";
   const isDeleted = tx.status === "deleted";
   const isLinked = tx._role === "linked";
+  // A numbered GST invoice can't truly be deleted — it is cancelled.
+  const deletedLabel = tx.gst && tx.invoiceNo ? "Cancelled" : "Deleted";
   const remaining = (tx.totalAmount ?? 0) - (tx.paidAmount ?? 0);
   const progress =
     tx.totalAmount > 0
@@ -125,9 +130,16 @@ export const TransactionCard = ({
                 >
                   {isItem ? "Items" : "Financial"}
                 </Badge>
+                {/* Only ever present on bills issued as GST invoices */}
+                {tx.gst && (
+                  <Badge className="text-sm px-2 py-0.5 border-0 bg-primary/10 text-primary font-normal">
+                    GST
+                    {tx.invoiceNo ? ` · ${tx.invoiceNo}` : " · number pending"}
+                  </Badge>
+                )}
                 {isDeleted && (
                   <Badge className="text-sm px-2 py-0.5 bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 border-0">
-                    Deleted
+                    {deletedLabel}
                   </Badge>
                 )}
                 {!isDeleted && isOverpaid && (
@@ -227,7 +239,7 @@ export const TransactionCard = ({
             {isDeleted ? (
               <span className="flex items-center gap-1 text-sm text-red-500 dark:text-red-400">
                 <Trash2 className="w-4 h-4" />
-                Deleted
+                {deletedLabel}
               </span>
             ) : isLinked ? (
               <span className="flex items-center gap-1 text-sm text-purple-600 dark:text-purple-400">

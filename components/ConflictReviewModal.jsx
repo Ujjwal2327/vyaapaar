@@ -11,6 +11,9 @@
  *     is selected: each differing field shows local vs remote with a toggle.
  *  4. Progress indicator shows which conflict you're on (X of N).
  *  5. Resolving spinner per button so the user knows which action is in flight.
+ *
+ * v2.1 (GST review): the contact field picker also offers UPI ID and GSTIN
+ * (before, a conflict that differed only in those showed "no differences").
  */
 
 import { useState, useMemo } from "react";
@@ -69,6 +72,8 @@ const CONTACT_FIELDS = [
   { key: "address", label: "Address" },
   { key: "specialty", label: "Specialty / Role" },
   { key: "notes", label: "Notes" },
+  { key: "upi_id", label: "UPI ID" },
+  { key: "gstin", label: "GSTIN" },
 ];
 
 // ─── FieldPicker — per-field local/remote chooser for contacts ────────────────
@@ -275,8 +280,9 @@ function TransactionConflict({ conflict, mode }) {
         <p className="font-medium">Merge strategy</p>
         <p>
           Payment histories from both versions will be combined (duplicates
-          removed). The larger total amount will be kept. Item list from server
-          is preferred.
+          removed). The larger total amount will be kept (for a GST invoice, the
+          total that matches the kept item list, so the tax invoice stays
+          consistent). Item list from server is preferred.
         </p>
       </div>
     );

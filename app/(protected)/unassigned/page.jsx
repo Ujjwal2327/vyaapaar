@@ -1,5 +1,9 @@
 "use client";
 
+// v2 (GST review): after adding a GST bill that has no invoice number yet
+// (offline), the toast says the number arrives on sync; deleting a numbered
+// GST invoice says it will be cancelled and its number stays used.
+
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { usePeople } from "@/hooks/usePeople";
@@ -69,7 +73,7 @@ const getErrorMessage = (error) => {
 export default function UnassignedPage() {
   const router = useRouter();
 
-  const { peopleData, isHydrated, isDataLoading } = usePeople();
+  const { peopleData, savePeopleData, isHydrated, isDataLoading } = usePeople();
   const {
     transactions,
     isLoading: txLoading,
@@ -178,11 +182,32 @@ export default function UnassignedPage() {
   if (!isHydrated || isDataLoading || txLoading)
     return <Loader content="Loading unassigned transactions..." />;
 
+  // Asked once: a buyer GSTIN typed on a GST bill is saved on the contact so the
+  // next bill pre-fills it. Best-effort — the bill itself is already saved.
+  const handleSaveContactGstin = async (contactIdToSave, gstin) => {
+    try {
+      await savePeopleData(
+        peopleData.map((p) => (p.id === contactIdToSave ? { ...p, gstin } : p)),
+      );
+    } catch (e) {
+      console.warn("Couldn't save the contact's GSTIN:", e?.message);
+    }
+  };
+
   const handleAddTransaction = async (formData) => {
     const loadingToast = toast.loading("Adding transaction...");
     try {
-      await addTransaction(formData);
-      toast.success("Transaction added", { id: loadingToast });
+      const created = await addTransaction(formData);
+      toast.success(
+        "Transaction added",
+        created?.gst && !created.invoiceNo
+          ? {
+              id: loadingToast,
+              description:
+                "The invoice number is issued once the bill has synced.",
+            }
+          : { id: loadingToast },
+      );
       setShowAddModal(false);
     } catch (e) {
       toast.error(getErrorMessage(e), { id: loadingToast });
@@ -200,25 +225,31 @@ export default function UnassignedPage() {
   };
 
   const handleDeleteTransaction = async (txId) => {
-    toast.warning("Delete this transaction?", {
-      description:
-        "It will be soft-deleted and any linked settlements will be reversed.",
-      action: {
-        label: "Delete",
-        onClick: async () => {
-          const loadingToast = toast.loading("Deleting...");
-          try {
-            await deleteTransaction(txId);
-            toast.success("Transaction deleted", { id: loadingToast });
-            setShowDetailModal(false);
-            setSelectedTxId(null);
-          } catch (e) {
-            toast.error(getErrorMessage(e), { id: loadingToast });
-          }
+    const target = transactions.find((t) => t.id === txId);
+    const isNumberedInvoice = !!(target?.gst && target.invoiceNo);
+    toast.warning(
+      isNumberedInvoice ? "Cancel this invoice?" : "Delete this transaction?",
+      {
+        description: isNumberedInvoice
+          ? `Invoice ${target.invoiceNo} will be cancelled. Its number stays used (it can't be reused) and linked settlements will be reversed.`
+          : "It will be soft-deleted and any linked settlements will be reversed.",
+        action: {
+          label: isNumberedInvoice ? "Cancel invoice" : "Delete",
+          onClick: async () => {
+            const loadingToast = toast.loading("Deleting...");
+            try {
+              await deleteTransaction(txId);
+              toast.success("Transaction deleted", { id: loadingToast });
+              setShowDetailModal(false);
+              setSelectedTxId(null);
+            } catch (e) {
+              toast.error(getErrorMessage(e), { id: loadingToast });
+            }
+          },
         },
+        duration: 5000,
       },
-      duration: 5000,
-    });
+    );
   };
 
   const handleAddPayment = async (payment) => {
@@ -420,6 +451,7 @@ export default function UnassignedPage() {
         onAdd={handleAddTransaction}
         peopleData={peopleData}
         currentContactId={undefined}
+        onSaveContactGstin={handleSaveContactGstin}
       />
 
       <TransactionDetailModal

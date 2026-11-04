@@ -107,7 +107,14 @@ export const useAnalytics = () => {
     [catalogIndex, transactions],
   );
 
+  // A (non-cancelled) GST bill exists — the GSTR-1 export is hidden until then.
+  const hasGstBill = useMemo(
+    () => transactions.some((t) => t.gst && t.status !== "deleted"),
+    [transactions],
+  );
+
   return {
+    hasGstBill,
     granularity,
     setGranularity,
     salesPurchases,

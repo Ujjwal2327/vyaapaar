@@ -26,6 +26,7 @@ export const AnalyticsContainer = () => {
         granularity={analytics.granularity}
         setGranularity={analytics.setGranularity}
         lastSyncedAt={analytics.lastSyncedAt}
+        showGstr1={analytics.hasGstBill}
       />
 
       <div className="max-w-4xl mx-auto p-2 space-y-4">

@@ -43,6 +43,12 @@ const rowToTransaction = (row) => ({
   status: row.status ?? "pending",
   createdAt: row.created_at,
   updatedAt: row.updated_at,
+  // GST: `gst` is null for an ordinary bill. The invoice number is handed out
+  // by the database, so it's read-only here (it is never written back).
+  gst: row.gst ?? null,
+  invoiceNo: row.invoice_no ?? null,
+  invoiceSeq: row.invoice_seq ?? null,
+  invoiceFy: row.invoice_fy ?? null,
 });
 
 const deriveStatus = (paidAmount, totalAmount) => {
@@ -333,6 +339,44 @@ const runStockAdjustment = async (oldItems, newItems, type, kind, userId) => {
   }
 };
 
+// ─── GST invoice numbers ────────────────────────────────────────────────────
+//
+// Asks the database for a GST bill's invoice number. Returns
+// { invoiceNo, invoiceSeq, invoiceFy } or null when it couldn't be issued
+// right now. Null is never an error for the caller: the bill is already
+// saved, and the request is queued so the number arrives on the next sync
+// (offline, a network blip, or the migration not having been run yet all end
+// up here). A bill deleted before it was numbered is skipped by the database
+// so it doesn't burn a number.
+const requestInvoiceNumber = async (userId, txId) => {
+  const defer = () =>
+    enqueue(OP_TYPES.TX_ASSIGN_INVOICE_NO, { txId }, null, userId);
+
+  if (!navigator.onLine) {
+    defer();
+    return null;
+  }
+  try {
+    const { data, error } = await supabase.rpc("assign_invoice_number", {
+      p_tx_id: txId,
+    });
+    if (error) throw error;
+    if (!data?.invoice_no) return null;
+    return {
+      invoiceNo: data.invoice_no,
+      invoiceSeq: data.invoice_seq,
+      invoiceFy: data.invoice_fy,
+    };
+  } catch (err) {
+    console.warn(
+      "[useTransactions] Invoice number not issued yet, will retry on sync:",
+      err?.message,
+    );
+    defer();
+    return null;
+  }
+};
+
 // ─── hook ─────────────────────────────────────────────────────────────────────
 
 export const useTransactions = (contactId) => {
@@ -483,6 +527,11 @@ export const useTransactions = (contactId) => {
       item_list_history: tx.itemListHistory ?? [],
       note: tx.note ?? "",
       status: tx.status ?? "pending",
+      // invoice_no / invoice_seq / invoice_fy are deliberately NOT sent: the
+      // database owns them (and ignores anything sent), which is what keeps
+      // the series gapless. A GST bill can't be un-GST'd by an upsert either
+      // — the guard trigger restores `gst` if a stale copy sends null.
+      gst: tx.gst ?? null,
     }),
     [user, isNoContact, contactId],
   );
@@ -524,8 +573,16 @@ export const useTransactions = (contactId) => {
       pushToContactCache(tx, tx.contactId);
     }
 
-    const row = transactionToRow(tx);
+    // A GST invoice's date decides its financial year (and so which number
+    // series it belongs to), so it must be the moment of billing — not the
+    // moment an offline device happens to sync. Ordinary bills keep the
+    // database's own created_at default, exactly as before.
+    const row = {
+      ...transactionToRow(tx),
+      ...(tx.gst ? { created_at: tx.createdAt } : {}),
+    };
 
+    let inserted = false;
     if (!navigator.onLine) {
       enqueue(OP_TYPES.TX_INSERT, { row }, tx, user.id);
     } else {
@@ -534,12 +591,35 @@ export const useTransactions = (contactId) => {
           .from("transactions")
           .insert([row]);
         if (err) throw err;
+        inserted = true;
       } catch (err) {
         if (isNetworkError(err)) {
           enqueue(OP_TYPES.TX_INSERT, { row }, tx, user.id);
         } else {
           throw err;
         }
+      }
+    }
+
+    // GST bills get their invoice number from the database. If the insert
+    // itself is still queued there is nothing to number yet, so the number
+    // request is queued right behind it (order is preserved on replay).
+    let result = tx;
+    if (tx.gst) {
+      if (inserted) {
+        const issued = await requestInvoiceNumber(user.id, tx.id);
+        if (issued) {
+          result = { ...tx, ...issued };
+          setTransactions((prev) => {
+            const list = prev.map((t) =>
+              t.id === tx.id ? { ...t, ...issued } : t,
+            );
+            saveToLocal(list);
+            return list;
+          });
+        }
+      } else {
+        enqueue(OP_TYPES.TX_ASSIGN_INVOICE_NO, { txId: tx.id }, null, user.id);
       }
     }
 
@@ -555,7 +635,7 @@ export const useTransactions = (contactId) => {
     applyLocalNetAmount(tx.contactId, [tx, ...transactions]);
     await recomputeContactNetAmounts([tx.contactId], user.id);
 
-    return tx;
+    return result;
   };
 
   // ── updateTransaction ─────────────────────────────────────────────────────
