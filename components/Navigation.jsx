@@ -1,7 +1,10 @@
 "use client";
 
 /**
- * components/Navigation.jsx  (v3)
+ * components/Navigation.jsx  (v4)
+ *
+ * v4: added a "Documents" nav item (/documents) — quotations and delivery
+ * challans.
  *
  * Changes vs v2:
  *  1. Added a "Reports" nav item pointing at /analytics.
@@ -10,7 +13,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Package, Users, Receipt, BarChart3 } from "lucide-react";
+import { Package, Users, Receipt, BarChart3, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import OfflineStatusBar from "@/components/OfflineStatusBar";
 import ConflictReviewModal from "@/components/ConflictReviewModal";
@@ -23,6 +26,7 @@ export default function Navigation() {
     { href: "/catalog", label: "Catalog", icon: Package },
     { href: "/contacts", label: "Contacts", icon: Users },
     { href: "/unassigned", label: "Unassigned", icon: Receipt },
+    { href: "/documents", label: "Documents", icon: FileText },
     { href: "/analytics", label: "Reports", icon: BarChart3 },
   ];
 

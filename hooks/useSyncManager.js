@@ -48,6 +48,7 @@ import {
 } from "@/lib/offlineQueue";
 import { recomputeContactNetAmounts } from "@/hooks/useTransactions";
 import { patchContactNetAmountInCache } from "@/hooks/usePeople";
+import { convertDocumentOnServer } from "@/lib/utils/documentConversion";
 
 // ─── context ──────────────────────────────────────────────────────────────────
 
@@ -312,6 +313,20 @@ export const useSyncManager = () => {
         .filter((o) => succeededOriginalIds.has(o.id))
         .map((o) => o.id);
       if (toDequeue.length > 0) dequeue(toDequeue);
+
+      // Document ops that just synced: refresh the documents list now that
+      // they're out of the queue (so the refetch shows the server's truth, not
+      // the optimistic local copy), and the transaction pages if a conversion
+      // created a sale.
+      const syncedDocOps = allOps.filter(
+        (o) => succeededOriginalIds.has(o.id) && o.type.startsWith("DOC_"),
+      );
+      if (syncedDocOps.length > 0) {
+        window.dispatchEvent(new Event("docsRefreshNeeded"));
+        if (syncedDocOps.some((o) => o.type === OP_TYPES.DOC_CONVERT)) {
+          window.dispatchEvent(new Event("txRefreshNeeded"));
+        }
+      }
 
       if (newConflicts.length > 0) {
         setConflicts((prev) => [...prev, ...newConflicts]);
@@ -671,6 +686,44 @@ async function replayOp(
       // order for both (see its file header) and they're always enqueued
       // in that order in the first place.
       await recomputeContactNetAmounts([op.payload.contactId], user.id);
+      break;
+    }
+
+    case OP_TYPES.DOC_INSERT: {
+      // ignoreDuplicates → ON CONFLICT DO NOTHING: replaying an insert that
+      // already landed (lost response) is harmless and doesn't burn a number.
+      const { error } = await supabase
+        .from("documents")
+        .upsert([op.payload.row], { onConflict: "id", ignoreDuplicates: true });
+      if (error) throw error;
+      break;
+    }
+
+    case OP_TYPES.DOC_UPDATE: {
+      // Only applies while the document is still open: if it was converted or
+      // cancelled elsewhere in the meantime this matches no row and is simply
+      // dropped (not an error) — the server's version wins.
+      const { error } = await supabase
+        .from("documents")
+        .update(op.payload.updates)
+        .eq("id", op.payload.docId)
+        .eq("user_id", user.id)
+        .eq("status", "open");
+      if (error) throw error;
+      break;
+    }
+
+    case OP_TYPES.DOC_CONVERT: {
+      // Idempotent: the database function recognises a replay of the same
+      // conversion (same document, same sale id) and creates nothing the
+      // second time. A permanent refusal (document cancelled/gone) comes back
+      // as { ok: false } rather than throwing, so it is dequeued instead of
+      // being retried forever; the optimistic local sale is cleaned up inside.
+      await convertDocumentOnServer({
+        docId: op.payload.docId,
+        txRow: op.payload.txRow,
+        userId: user.id,
+      });
       break;
     }
 
