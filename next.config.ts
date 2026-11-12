@@ -13,11 +13,12 @@ const isDev = process.env.NODE_ENV !== "production";
 
 const contentSecurityPolicy = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+  // 'wasm-unsafe-eval' lets @react-pdf/renderer's yoga-layout WebAssembly
+  // module compile, without allowing eval()/new Function().
+  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  // REST + Realtime (websocket) calls to Supabase.
   "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
   "frame-ancestors 'self'",
   "base-uri 'self'",

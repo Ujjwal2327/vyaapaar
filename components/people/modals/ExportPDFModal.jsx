@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { generateContactsPDF } from "@/lib/utils/pdfGenerator";
 import { sortCategories } from "@/lib/utils/categoryUtils";
+import { photoCache } from "@/lib/utils/photoCache";
 import { toast } from "sonner";
 
 export const ExportPDFModal = ({
@@ -152,10 +153,15 @@ export const ExportPDFModal = ({
       return;
     }
 
-    // Sort contacts alphabetically by name
-    const sortedContacts = [...filteredContacts].sort((a, b) =>
-      a.name.localeCompare(b.name),
-    );
+    // Sort contacts alphabetically by name, and attach each contact's photo.
+    // Photos live in photoCache, not on the contact object (usePeople only
+    // keeps a hasPhoto flag), so the PDF generator never saw them.
+    const sortedContacts = filteredContacts
+      .map((person) => ({
+        ...person,
+        photo: includeFields.photo ? photoCache.get(person.id) : null,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
 
     setIsGenerating(true);
 
@@ -249,7 +255,7 @@ export const ExportPDFModal = ({
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div>
                 {/* Columns Selection - Grid Layout */}
                 {layout === "grid" && (

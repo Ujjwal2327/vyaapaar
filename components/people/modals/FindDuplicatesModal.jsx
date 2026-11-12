@@ -311,7 +311,7 @@ export const FindDuplicatesModal = ({
     >
       <div className="flex items-center gap-2">
         <Avatar className="w-10 h-10">
-          <AvatarImage src={contact.photo || null} />
+          <AvatarImage src={photoCache.get(contact.id) || null} />
           <AvatarFallback className="bg-primary/10 text-xs">
             {contact.name ? (
               getInitials(contact.name)
