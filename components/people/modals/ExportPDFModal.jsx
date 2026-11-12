@@ -159,7 +159,12 @@ export const ExportPDFModal = ({
     const sortedContacts = filteredContacts
       .map((person) => ({
         ...person,
-        photo: includeFields.photo ? photoCache.get(person.id) : null,
+        // hasPhoto comes from the database (has_photo), so it is the source of
+        // truth. The cache can hold a stale photo after a removal elsewhere.
+        photo:
+          includeFields.photo && person.hasPhoto
+            ? photoCache.get(person.id)
+            : null,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
 

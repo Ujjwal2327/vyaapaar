@@ -25,7 +25,7 @@ import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { photoCache } from "@/lib/utils/photoCache";
-import { enqueue, OP_TYPES } from "@/lib/offlineQueue";
+import { enqueue, getQueue, OP_TYPES } from "@/lib/offlineQueue";
 
 const DEFAULT_CATEGORIES = [
   { id: "customer", label: "Customer", isDefault: true },
@@ -219,8 +219,19 @@ export const usePeople = () => {
         if (contactsError) throw contactsError;
 
         const contacts = (rows ?? []).map(rowToContact);
+
+        // Don't drop a cached photo that hasn't synced yet (added while offline).
+        const hasPendingContactWrites = getQueue().some(
+          (op) => op.userId === user.id && op.type === OP_TYPES.CONTACTS_UPSERT,
+        );
+
         rows?.forEach((r) => {
-          if (r.photo) photoCache.set(r.id, r.photo);
+          if (r.photo) {
+            photoCache.set(r.id, r.photo);
+          } else if (!hasPendingContactWrites && photoCache.has(r.id)) {
+            // The server says there is no photo, so a cached one is stale.
+            photoCache.remove(r.id);
+          }
         });
 
         setPeopleData(contacts);
